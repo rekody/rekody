@@ -347,8 +347,8 @@ model = "{model}"
 //
 // Last verified: 2026-03-16
 const EXPECTED_CHECKSUMS: &[(&str, &str)] = &[
-    ("ggml-tiny.en.bin",   "c78c86eb1a8faa21b369bcd33b22d3c0f6d7f2e0e0e3031e9a5fcb6e48b2c8f0"),
-    ("ggml-small.en.bin",  ""),  // TODO: fill in after downloading and hashing
+    ("ggml-tiny.en.bin",   "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f"),
+    ("ggml-small.en.bin",  "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"),
     ("ggml-medium.en.bin", ""),  // TODO: fill in after downloading and hashing
     ("ggml-large.bin",     ""),  // TODO: fill in after downloading and hashing
 ];

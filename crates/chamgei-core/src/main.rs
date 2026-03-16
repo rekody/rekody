@@ -49,16 +49,24 @@ async fn main() -> Result<()> {
     };
 
     println!("  Mode:     {}", config.activation_mode);
-    println!("  LLM:      {}", config.llm_provider);
     println!("  Whisper:  {}", config.whisper_model);
     println!("  Inject:   {}", config.injection_method);
-    println!();
 
-    if config.groq_api_key.is_some() || config.cerebras_api_key.is_some() {
+    // Show provider info
+    if !config.providers.is_empty() {
+        for p in &config.providers {
+            println!("  LLM:      {}/{}", p.name, p.model);
+        }
+        println!();
+        println!("  Cloud LLM formatting: ENABLED");
+    } else if config.groq_api_key.is_some() || config.cerebras_api_key.is_some() {
+        println!("  LLM:      {}", config.llm_provider);
+        println!();
         println!("  Cloud LLM formatting: ENABLED");
     } else {
+        println!();
         println!("  Cloud LLM formatting: DISABLED (no API keys)");
-        println!("  Set GROQ_API_KEY or CEREBRAS_API_KEY for polished output.");
+        println!("  Run 'chamgei' with no config to start the setup wizard.");
     }
 
     println!();

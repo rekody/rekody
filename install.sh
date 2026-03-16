@@ -23,7 +23,7 @@ BUILD_DIR="$HOME/.chamgei-build"
 
 # Known SHA-256 checksum for the tiny.en model (update if model changes upstream).
 # Verify at: https://huggingface.co/ggerganov/whisper.cpp/tree/main
-WHISPER_SHA256="c78c86eb1a8faa21b369bcd33b22d3c0f6d7f2e0e0e3031e9a5fcb6e48b2c8f0"
+WHISPER_SHA256="921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f"
 
 echo ""
 echo "======================================"
