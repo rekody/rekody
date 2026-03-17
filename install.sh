@@ -1,133 +1,131 @@
 #!/usr/bin/env bash
-# Chamgei — One-line installer
+# Chamgei — One-line installer (downloads precompiled binary, no Rust needed)
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/chamgei/main/install.sh | bash
 #
 # What it does:
-#   1. Checks for Rust toolchain (suggests rustup if missing)
-#   2. Clones the repo (or pulls if already present)
-#   3. Builds in release mode
-#   4. Copies binary to /usr/local/bin/
-#   5. Downloads the tiny Whisper model
-#   6. Prints success message
+#   1. Downloads the precompiled binary for your platform
+#   2. Installs to /usr/local/bin/
+#   3. Downloads the tiny Whisper model (~75 MB)
+#   4. First run walks you through setup
 
 set -euo pipefail
 
-REPO_URL="https://github.com/tonykipkemboi/chamgei.git"
+VERSION="v0.1.0"
+GITHUB_REPO="tonykipkemboi/chamgei"
 INSTALL_DIR="/usr/local/bin"
 MODEL_DIR="$HOME/.local/share/chamgei/models"
 WHISPER_FILE="ggml-tiny.en.bin"
 WHISPER_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$WHISPER_FILE"
-BUILD_DIR="$HOME/.chamgei-build"
-
-# Known SHA-256 checksum for the tiny.en model (update if model changes upstream).
-# Verify at: https://huggingface.co/ggerganov/whisper.cpp/tree/main
 WHISPER_SHA256="921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f"
 
 echo ""
-echo "======================================"
-echo "  Chamgei Installer"
-echo "  Voice dictation for macOS"
-echo "======================================"
+echo "  ╔══════════════════════════════════════╗"
+echo "  ║   Chamgei Installer                  ║"
+echo "  ║   Privacy-first voice dictation      ║"
+echo "  ╚══════════════════════════════════════╝"
 echo ""
 
-# --- Check for Rust toolchain ---
-if ! command -v cargo &>/dev/null; then
-    echo "ERROR: Rust toolchain not found."
+# --- Detect platform ---
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+
+case "$OS" in
+    Darwin) PLATFORM="macos" ;;
+    Linux)  PLATFORM="linux" ;;
+    *)      echo "  ERROR: Unsupported OS: $OS"; exit 1 ;;
+esac
+
+case "$ARCH" in
+    arm64|aarch64) ARCH_NAME="arm64" ;;
+    x86_64)        ARCH_NAME="x86_64" ;;
+    *)             echo "  ERROR: Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+TARBALL="chamgei-${VERSION}-${PLATFORM}-${ARCH_NAME}.tar.gz"
+DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${TARBALL}"
+
+echo "  Platform:  $PLATFORM ($ARCH_NAME)"
+echo ""
+
+# --- Download binary ---
+echo "  [1/3] Downloading chamgei ${VERSION}..."
+
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+if ! curl -fSL --progress-bar -o "$TMPDIR/$TARBALL" "$DOWNLOAD_URL" 2>&1; then
     echo ""
-    echo "Install Rust first with:"
-    echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    echo "  Download failed. Falling back to building from source..."
     echo ""
-    echo "Then re-run this installer."
-    exit 1
-fi
 
-echo "[1/5] Rust toolchain found: $(rustc --version)"
+    # Fallback: build from source if binary not available
+    if ! command -v cargo &>/dev/null; then
+        echo "  ERROR: No precompiled binary for $PLATFORM-$ARCH_NAME and Rust is not installed."
+        echo ""
+        echo "  Option 1: Install Rust first:"
+        echo "    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        echo ""
+        echo "  Option 2: Download the .dmg from:"
+        echo "    https://github.com/${GITHUB_REPO}/releases"
+        exit 1
+    fi
 
-# --- Clone or update repo ---
-echo "[2/5] Getting source code..."
-
-if [ -d "$BUILD_DIR" ]; then
-    echo "  Updating existing clone at $BUILD_DIR"
+    echo "  Building from source (this takes 1-2 minutes)..."
+    BUILD_DIR="$HOME/.chamgei-build"
+    git clone --depth 1 "https://github.com/${GITHUB_REPO}.git" "$BUILD_DIR" 2>/dev/null || (cd "$BUILD_DIR" && git pull --ff-only)
     cd "$BUILD_DIR"
-    git pull --ff-only || {
-        echo "  Pull failed; removing and re-cloning..."
-        cd /
-        rm -rf "$BUILD_DIR"
-        git clone --depth 1 "$REPO_URL" "$BUILD_DIR"
-        cd "$BUILD_DIR"
-    }
+    cargo build --release -p chamgei-core 2>&1 | tail -1
+    cp target/release/chamgei "$TMPDIR/chamgei"
+    cd -
 else
-    git clone --depth 1 "$REPO_URL" "$BUILD_DIR"
-    cd "$BUILD_DIR"
+    # Extract binary from tarball
+    tar -xzf "$TMPDIR/$TARBALL" -C "$TMPDIR"
 fi
-
-# --- Build ---
-echo "[3/5] Building release binary (this may take a few minutes)..."
-cargo build --release -p chamgei-core
 
 # --- Install binary ---
-echo "[4/5] Installing binary to $INSTALL_DIR..."
+echo "  [2/3] Installing to $INSTALL_DIR..."
 
 if [ -w "$INSTALL_DIR" ]; then
-    cp target/release/chamgei "$INSTALL_DIR/chamgei"
+    cp "$TMPDIR/chamgei" "$INSTALL_DIR/chamgei"
 else
-    echo "  (requires sudo for $INSTALL_DIR)"
-    sudo cp target/release/chamgei "$INSTALL_DIR/chamgei"
+    sudo cp "$TMPDIR/chamgei" "$INSTALL_DIR/chamgei"
 fi
 chmod +x "$INSTALL_DIR/chamgei"
 
 # --- Download Whisper model ---
-echo "[5/5] Downloading Whisper model (tiny, ~75 MB)..."
+echo "  [3/3] Downloading Whisper model (tiny, ~75 MB)..."
 
 mkdir -p "$MODEL_DIR"
 
 if [ -f "$MODEL_DIR/$WHISPER_FILE" ]; then
-    echo "  Model already present at $MODEL_DIR/$WHISPER_FILE"
+    echo "         Already present at $MODEL_DIR/$WHISPER_FILE"
 else
     curl -fSL --progress-bar -o "$MODEL_DIR/$WHISPER_FILE" "$WHISPER_URL"
-    echo "  Downloaded to $MODEL_DIR/$WHISPER_FILE"
 
-    # Verify SHA-256 checksum.
+    # Verify checksum
     if command -v shasum &>/dev/null; then
-        ACTUAL_HASH=$(shasum -a 256 "$MODEL_DIR/$WHISPER_FILE" | awk '{print $1}')
+        ACTUAL=$(shasum -a 256 "$MODEL_DIR/$WHISPER_FILE" | awk '{print $1}')
     elif command -v sha256sum &>/dev/null; then
-        ACTUAL_HASH=$(sha256sum "$MODEL_DIR/$WHISPER_FILE" | awk '{print $1}')
+        ACTUAL=$(sha256sum "$MODEL_DIR/$WHISPER_FILE" | awk '{print $1}')
     else
-        ACTUAL_HASH=""
-        echo "  WARNING: Neither shasum nor sha256sum found — skipping checksum verification."
+        ACTUAL=""
     fi
 
-    if [ -n "$ACTUAL_HASH" ]; then
-        if [ "$ACTUAL_HASH" = "$WHISPER_SHA256" ]; then
-            echo "  Checksum verified (SHA-256 matches)."
-        else
-            echo "  WARNING: SHA-256 checksum mismatch!"
-            echo "    Expected: $WHISPER_SHA256"
-            echo "    Actual:   $ACTUAL_HASH"
-            echo "    The model file may have been updated upstream."
-            echo "    If you trust the source, you can ignore this warning."
-        fi
+    if [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$WHISPER_SHA256" ]; then
+        echo "  WARNING: Checksum mismatch (model may have been updated upstream)"
     fi
 fi
 
 # --- Done ---
 echo ""
-echo "======================================"
-echo "  Chamgei installed successfully!"
-echo "======================================"
-echo ""
-echo "  Binary:  $INSTALL_DIR/chamgei"
-echo "  Model:   $MODEL_DIR/$WHISPER_FILE"
+echo "  ✓ Chamgei installed successfully!"
 echo ""
 echo "  Run 'chamgei' to start."
-echo "  On first launch, it will walk you through setup"
-echo "  (LLM provider, API key, permissions)."
+echo "  First launch will walk you through setup."
 echo ""
 echo "  To uninstall:"
 echo "    rm $INSTALL_DIR/chamgei"
-echo "    rm -rf ~/.config/chamgei"
-echo "    rm -rf ~/.local/share/chamgei"
-echo "    rm -rf $BUILD_DIR"
+echo "    rm -rf ~/.config/chamgei ~/.local/share/chamgei"
 echo ""
