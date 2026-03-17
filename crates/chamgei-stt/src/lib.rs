@@ -406,3 +406,127 @@ impl SttEngine for GroqWhisperEngine {
         Ok(Transcript { text, latency_ms })
     }
 }
+
+// ---------------------------------------------------------------------------
+// Deepgram Cloud STT Engine
+// ---------------------------------------------------------------------------
+
+/// Response from Deepgram's speech-to-text API.
+#[derive(Debug, Deserialize)]
+struct DeepgramResponse {
+    results: Option<DeepgramResults>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeepgramResults {
+    channels: Vec<DeepgramChannel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeepgramChannel {
+    alternatives: Vec<DeepgramAlternative>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeepgramAlternative {
+    transcript: String,
+}
+
+/// Cloud-based STT engine using Deepgram's Nova-2 API.
+///
+/// Sends audio as a WAV file to Deepgram's `/v1/listen` endpoint.
+/// Requires a valid Deepgram API key (get one at https://console.deepgram.com).
+pub struct DeepgramEngine {
+    api_key: String,
+    model: String,
+    client: reqwest::Client,
+}
+
+impl DeepgramEngine {
+    /// Create a new Deepgram STT engine with the default Nova-2 model.
+    pub fn new(api_key: String) -> Self {
+        Self {
+            api_key,
+            model: "nova-2".to_string(),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    /// Create a new Deepgram engine with a custom model.
+    pub fn with_model(api_key: String, model: String) -> Self {
+        Self {
+            api_key,
+            model,
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+impl SttEngine for DeepgramEngine {
+    async fn transcribe(&self, samples: &[f32]) -> Result<Transcript> {
+        if samples.is_empty() {
+            return Ok(Transcript {
+                text: String::new(),
+                latency_ms: 0,
+            });
+        }
+
+        debug!(
+            num_samples = samples.len(),
+            duration_secs = samples.len() as f64 / 16000.0,
+            model = %self.model,
+            "starting Deepgram transcription"
+        );
+
+        let start = Instant::now();
+        let wav_data = encode_wav(samples);
+
+        let url = format!(
+            "https://api.deepgram.com/v1/listen?model={}&language=en&smart_format=true&punctuate=true",
+            self.model
+        );
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Token {}", self.api_key))
+            .header("Content-Type", "audio/wav")
+            .body(wav_data)
+            .send()
+            .await
+            .map_err(|e| SttError::ApiError(format!("request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(
+                SttError::ApiError(format!("Deepgram returned {}: {}", status, body)).into(),
+            );
+        }
+
+        let dg_resp: DeepgramResponse = response
+            .json()
+            .await
+            .map_err(|e| SttError::ApiError(format!("failed to parse response: {}", e)))?;
+
+        let text = dg_resp
+            .results
+            .and_then(|r| r.channels.into_iter().next())
+            .and_then(|c| c.alternatives.into_iter().next())
+            .map(|a| a.transcript)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        info!(
+            latency_ms,
+            text_len = text.len(),
+            model = %self.model,
+            "Deepgram transcription complete"
+        );
+
+        Ok(Transcript { text, latency_ms })
+    }
+}

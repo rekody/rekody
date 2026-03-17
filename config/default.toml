@@ -14,6 +14,13 @@ vad_threshold = 0.01
 # Text injection method: "clipboard" or "native"
 injection_method = "clipboard"
 
+# ─── Speech-to-Text Engine ──────────────────────────────────
+# "local" = on-device Whisper (default, private)
+# "groq"  = Groq cloud Whisper (fastest, uses groq_api_key)
+# "deepgram" = Deepgram Nova-2 (most accurate, needs deepgram_api_key)
+stt_engine = "local"
+# deepgram_api_key = ""              # Get yours at console.deepgram.com
+
 # ─── LLM Providers ──────────────────────────────────────────
 # Providers are tried in order. If the first fails, it falls
 # back to the next. You can list as many as you want.

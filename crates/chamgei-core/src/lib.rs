@@ -72,10 +72,20 @@ pub struct ChamgeiConfig {
 
     /// Whisper model size.
     pub whisper_model: String,
+    /// STT engine: "local" (default, whisper.cpp), "groq", or "deepgram".
+    #[serde(default = "default_stt_engine")]
+    pub stt_engine: String,
+    /// Deepgram API key (only needed if stt_engine = "deepgram").
+    #[serde(default)]
+    pub deepgram_api_key: Option<String>,
     /// VAD sensitivity (RMS threshold, ~0.01 for most mics).
     pub vad_threshold: f32,
     /// Text injection method.
     pub injection_method: String,
+}
+
+fn default_stt_engine() -> String {
+    "local".into()
 }
 
 impl Default for ChamgeiConfig {
@@ -87,6 +97,8 @@ impl Default for ChamgeiConfig {
             groq_api_key: None,
             cerebras_api_key: None,
             whisper_model: "tiny".into(),
+            stt_engine: "local".into(),
+            deepgram_api_key: None,
             vad_threshold: 0.01,
             injection_method: "clipboard".into(),
         }
@@ -240,12 +252,30 @@ fn resolve_model_dir() -> std::path::PathBuf {
         })
 }
 
+/// Wraps the different STT engine types behind a common enum.
+enum SttBackend {
+    Local(chamgei_stt::LocalWhisperEngine),
+    Groq(chamgei_stt::GroqWhisperEngine),
+    Deepgram(chamgei_stt::DeepgramEngine),
+}
+
+impl SttBackend {
+    async fn transcribe(&self, samples: &[f32]) -> Result<chamgei_stt::Transcript> {
+        use chamgei_stt::SttEngine;
+        match self {
+            SttBackend::Local(e) => e.transcribe(samples).await,
+            SttBackend::Groq(e) => e.transcribe(samples).await,
+            SttBackend::Deepgram(e) => e.transcribe(samples).await,
+        }
+    }
+}
+
 /// The main Chamgei pipeline orchestrator.
 pub struct Pipeline {
     pub config: ChamgeiConfig,
     provider_chain: chamgei_llm::ProviderChain,
     injection_method: InjectionMethod,
-    stt_engine: chamgei_stt::LocalWhisperEngine,
+    stt: SttBackend,
 }
 
 impl Pipeline {
@@ -253,23 +283,39 @@ impl Pipeline {
         let provider_chain = build_provider_chain(&config);
         let injection_method = parse_injection_method(&config.injection_method);
 
-        // Load Whisper model ONCE at startup.
-        let whisper_model = match config.whisper_model.to_lowercase().as_str() {
-            "tiny" => WhisperModel::Tiny,
-            "medium" => WhisperModel::Medium,
-            "large" => WhisperModel::Large,
-            _ => WhisperModel::Small,
+        // Initialize the STT engine based on config.
+        let stt = match config.stt_engine.to_lowercase().as_str() {
+            "groq" => {
+                let key = config.groq_api_key.clone().unwrap_or_default();
+                tracing::info!("using Groq cloud STT (Whisper Large v3)");
+                SttBackend::Groq(chamgei_stt::GroqWhisperEngine::new(key))
+            }
+            "deepgram" => {
+                let key = config.deepgram_api_key.clone().unwrap_or_default();
+                tracing::info!("using Deepgram cloud STT (Nova-2)");
+                SttBackend::Deepgram(chamgei_stt::DeepgramEngine::new(key))
+            }
+            _ => {
+                // Default: local Whisper
+                let whisper_model = match config.whisper_model.to_lowercase().as_str() {
+                    "tiny" => WhisperModel::Tiny,
+                    "medium" => WhisperModel::Medium,
+                    "large" => WhisperModel::Large,
+                    _ => WhisperModel::Small,
+                };
+                let model_dir = resolve_model_dir();
+                let model_path = model_dir.join(whisper_model.file_name());
+                let model_path_str = model_path.to_string_lossy();
+                let engine = chamgei_stt::LocalWhisperEngine::new(whisper_model, &model_path_str)?;
+                SttBackend::Local(engine)
+            }
         };
-        let model_dir = resolve_model_dir();
-        let model_path = model_dir.join(whisper_model.file_name());
-        let model_path_str = model_path.to_string_lossy();
-        let stt_engine = chamgei_stt::LocalWhisperEngine::new(whisper_model, &model_path_str)?;
 
         Ok(Self {
             config,
             provider_chain,
             injection_method,
-            stt_engine,
+            stt,
         })
     }
 
@@ -367,7 +413,7 @@ impl Pipeline {
     ) -> Result<()> {
         // --- STT (model already loaded at startup) ---
         use chamgei_stt::SttEngine;
-        let transcript = self.stt_engine.transcribe(&segment.samples).await?;
+        let transcript = self.stt.transcribe(&segment.samples).await?;
 
         if transcript.text.is_empty() {
             tracing::debug!("empty transcript, skipping injection");
