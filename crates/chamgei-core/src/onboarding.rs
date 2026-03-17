@@ -105,11 +105,16 @@ pub fn run_onboarding() -> Result<()> {
     };
 
     // --- Model name ------------------------------------------------------
-    let model: String = input("Model name")
-        .default_input(default_model)
-        .placeholder(default_model)
-        .interact()
-        .map_err(|e| anyhow::anyhow!(e))?;
+    // For Ollama, auto-detect available models and let the user pick.
+    let model: String = if provider_name == "ollama" {
+        pick_ollama_model(default_model)?
+    } else {
+        input("Model name")
+            .default_input(default_model)
+            .placeholder(default_model)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?
+    };
 
     // --- Custom base URL -------------------------------------------------
     let custom_base_url: Option<String> = if provider_name == "custom" {
@@ -424,6 +429,54 @@ fn whisper_file_name(size: &str) -> &str {
         "medium" => "ggml-medium.en.bin",
         "large" => "ggml-large.bin",
         _ => "ggml-small.en.bin",
+    }
+}
+
+/// Auto-detect Ollama models and let the user pick one.
+/// Falls back to manual text input if Ollama is not running.
+fn pick_ollama_model(default: &str) -> Result<String> {
+    let sp = spinner();
+    sp.start("Checking for Ollama models...");
+
+    let models = chamgei_llm::list_ollama_models();
+
+    if models.is_empty() {
+        sp.stop("Ollama not running or no models found");
+        // Fall back to manual input
+        let model: String = input("Model name (run 'ollama pull llama3.2:3b' first)")
+            .default_input(default)
+            .placeholder(default)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        return Ok(model);
+    }
+
+    sp.stop(format!("Found {} Ollama model{}", models.len(), if models.len() == 1 { "" } else { "s" }));
+
+    // Build a selection menu from available models
+    let mut sel = select("Choose an Ollama model");
+    for m in &models {
+        let size_str = chamgei_llm::format_model_size(m.size);
+        let hint = if size_str.is_empty() {
+            "local".to_string()
+        } else {
+            format!("local · {}", size_str)
+        };
+        sel = sel.item(m.name.as_str(), &m.name, hint);
+    }
+    sel = sel.item("_custom", "Other (type manually)", "enter a model name");
+
+    let chosen: &str = sel.interact().map_err(|e| anyhow::anyhow!(e))?;
+
+    if chosen == "_custom" {
+        let model: String = input("Model name")
+            .default_input(default)
+            .placeholder(default)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        Ok(model)
+    } else {
+        Ok(chosen.to_string())
     }
 }
 

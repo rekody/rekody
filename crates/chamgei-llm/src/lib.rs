@@ -747,6 +747,87 @@ pub mod presets {
 }
 
 // ---------------------------------------------------------------------------
+// Ollama model discovery
+// ---------------------------------------------------------------------------
+
+/// Information about a locally available Ollama model.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OllamaModel {
+    pub name: String,
+    #[serde(default)]
+    pub size: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaTagsResponse {
+    models: Vec<OllamaModelInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaModelInfo {
+    name: String,
+    #[serde(default)]
+    size: u64,
+}
+
+/// Query the local Ollama instance for all available models.
+///
+/// Returns an empty vec if Ollama is not running or unreachable.
+/// Uses the `/api/tags` endpoint at `http://localhost:11434`.
+pub fn list_ollama_models() -> Vec<OllamaModel> {
+    // Use blocking reqwest since this is called from onboarding (sync context).
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap_or_default();
+
+    match client.get("http://localhost:11434/api/tags").send() {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<OllamaTagsResponse>() {
+                Ok(tags) => tags
+                    .models
+                    .into_iter()
+                    .map(|m| OllamaModel {
+                        name: m.name,
+                        size: m.size,
+                    })
+                    .collect(),
+                Err(_) => vec![],
+            }
+        }
+        _ => vec![],
+    }
+}
+
+/// Check if Ollama is running on localhost.
+pub fn is_ollama_running() -> bool {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
+        .build()
+        .unwrap_or_default();
+
+    client
+        .get("http://localhost:11434/api/tags")
+        .send()
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+}
+
+/// Format a byte size into a human-readable string (e.g., "3.8 GB").
+pub fn format_model_size(bytes: u64) -> String {
+    if bytes == 0 {
+        return String::new();
+    }
+    let gb = bytes as f64 / 1_073_741_824.0;
+    if gb >= 1.0 {
+        format!("{:.1} GB", gb)
+    } else {
+        let mb = bytes as f64 / 1_048_576.0;
+        format!("{:.0} MB", mb)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Legacy named providers (kept for backwards compat, delegate to generic)
 // ---------------------------------------------------------------------------
 
