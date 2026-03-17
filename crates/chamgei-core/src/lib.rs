@@ -15,6 +15,7 @@ pub mod command_mode;
 pub mod context;
 pub mod corrections;
 pub mod dictionary;
+pub mod history;
 pub mod onboarding;
 pub mod prompts;
 pub mod snippets;
@@ -276,6 +277,7 @@ pub struct Pipeline {
     provider_chain: chamgei_llm::ProviderChain,
     injection_method: InjectionMethod,
     stt: SttBackend,
+    history: std::sync::Mutex<history::History>,
 }
 
 impl Pipeline {
@@ -311,11 +313,14 @@ impl Pipeline {
             }
         };
 
+        let history = std::sync::Mutex::new(history::History::load());
+
         Ok(Self {
             config,
             provider_chain,
             injection_method,
             stt,
+            history,
         })
     }
 
@@ -427,6 +432,10 @@ impl Pipeline {
         );
 
         // --- LLM post-processing ---
+        let mut llm_latency_ms: Option<u64> = None;
+        let mut llm_provider: Option<String> = None;
+        let mut app_name = String::from("Unknown");
+
         let final_text = if llm_enabled {
             // Detect the active application for context-aware formatting.
             let app_context = context::detect_active_app();
@@ -435,6 +444,7 @@ impl Pipeline {
                 bundle = ?app_context.bundle_id,
                 "detected active application"
             );
+            app_name = app_context.app_name.clone();
 
             // Get the context-specific system prompt.
             let system_prompt = prompts::get_prompt_for_app(
@@ -454,6 +464,8 @@ impl Pipeline {
                         latency_ms = formatted.latency_ms,
                         "LLM formatting complete"
                     );
+                    llm_latency_ms = Some(formatted.latency_ms);
+                    llm_provider = Some(formatted.provider.clone());
                     formatted.text
                 }
                 Err(e) => {
@@ -477,6 +489,21 @@ impl Pipeline {
         );
         chamgei_inject::inject_text(&final_text, self.injection_method)?;
         tracing::info!("text injected successfully");
+
+        // --- Save to history ---
+        let entry = history::History::new_entry(
+            final_text,
+            transcript.text.clone(),
+            transcript.latency_ms,
+            llm_latency_ms,
+            llm_provider,
+            app_name,
+        );
+        if let Ok(mut history) = self.history.lock() {
+            history.add(entry);
+        } else {
+            tracing::warn!("failed to acquire history lock, skipping history save");
+        }
 
         Ok(())
     }

@@ -497,7 +497,9 @@ dependencies = [
 name = "chamgei-tauri"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "chamgei-core",
+ "dirs",
  "serde",
  "serde_json",
  "tauri",

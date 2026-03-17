@@ -13,6 +13,8 @@ tauri-plugin-shell = "2"
 serde.workspace = true
 serde_json.workspace = true
 chamgei-core.workspace = true
+dirs = "6"
+arboard = "3"
 
 [lib]
 name = "chamgei_tauri_lib"
