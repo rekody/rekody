@@ -466,7 +466,13 @@ impl Pipeline {
                     );
                     llm_latency_ms = Some(formatted.latency_ms);
                     llm_provider = Some(formatted.provider.clone());
-                    formatted.text
+                    // Guard: if LLM returns empty, use raw transcript
+                    if formatted.text.trim().is_empty() {
+                        tracing::warn!("LLM returned empty text, using raw transcript");
+                        transcript.text.clone()
+                    } else {
+                        formatted.text
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(

@@ -21,10 +21,16 @@ mod platform {
     use std::process::Command;
 
     pub fn detect() -> AppContext {
+        // Use NSWorkspace via osascript — more reliable than System Events
+        // for detecting the frontmost app.
         let output = Command::new("osascript")
             .arg("-e")
             .arg(
-                r#"tell application "System Events" to get {name, bundle identifier} of first application process whose frontmost is true"#,
+                r#"use framework "AppKit"
+set activeApp to current application's NSWorkspace's sharedWorkspace()'s frontmostApplication()
+set appName to (activeApp's localizedName()) as text
+set bundleID to (activeApp's bundleIdentifier()) as text
+return appName & ", " & bundleID"#,
             )
             .output();
 
