@@ -50,14 +50,12 @@ impl SessionStats {
     fn summary_line(&self) -> String {
         let count = self.dictation_count.load(Ordering::Relaxed);
         let secs = self.total_audio_secs.lock().map(|s| *s).unwrap_or(0.0);
-        let cost = self.total_cost_usd.lock().map(|c| *c).unwrap_or(0.0);
         format!(
-            "  {} {} dictation{} · {:.1}s audio · ${:.4}",
+            "  {} {} dictation{} · {:.1}s audio",
             style("Session:").dim(),
             count,
             if count == 1 { "" } else { "s" },
             secs,
-            cost,
         )
     }
 }
@@ -107,8 +105,8 @@ impl UiLayer {
         .tick_strings(&["●", "◉", "○", "◉", "●"]);
         self.spinner.set_style(rec_style);
         self.spinner.set_message(format!(
-            "{} — 0.0s",
-            style("Recording").red().bold(),
+            "{}",
+            style("Recording...").red().bold(),
         ));
         self.spinner.enable_steady_tick(std::time::Duration::from_millis(250));
     }
