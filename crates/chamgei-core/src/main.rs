@@ -385,7 +385,7 @@ fn print_banner(config: &ChamgeiConfig) {
         "  {} {}  {}  {}  {}",
         style("Hotkeys:").dim(),
         style("Fn=dictate").white(),
-        style("Fn+Space=toggle").white(),
+        style("").white(),
         style("Fn+Enter=command").white(),
         style("Ctrl+C=quit").white(),
     );
@@ -394,8 +394,8 @@ fn print_banner(config: &ChamgeiConfig) {
 
 fn format_activation_mode(mode: &str) -> String {
     match mode.to_lowercase().as_str() {
-        "toggle" => "toggle (Fn)".to_string(),
-        _ => "push-to-talk (Fn)".to_string(),
+        "toggle" => "push-to-talk (Fn hold)".to_string(),
+        _ => "push-to-talk (Fn hold)".to_string(),
     }
 }
 
