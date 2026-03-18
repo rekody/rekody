@@ -1,3 +1,9 @@
+---
+name: chamgei-setup
+description: Install and configure Chamgei voice dictation CLI. Use when the user wants to set up voice dictation, install Chamgei, configure STT/LLM providers, or troubleshoot dictation issues.
+allowed-tools: Bash, Read, Grep, Write, AskUserQuestion
+---
+
 # Chamgei -- Agent Setup Skill
 
 > Point your AI agent (Claude Code, Codex, Cursor, Windsurf, Aider, etc.) at this file
@@ -6,6 +12,18 @@
 Chamgei is an open-source, privacy-first voice dictation system. It turns your voice
 into text anywhere on your desktop using a local Whisper model for speech-to-text,
 optional LLM cleanup, and text injection at your cursor -- all behind a single hotkey.
+
+## Agent Behavior Instructions
+
+**IMPORTANT:** Do NOT make assumptions about the user's preferences. Use the `AskUserQuestion` tool (or equivalent in your agent framework) to ask clarifying questions before proceeding at these decision points:
+
+1. **STT Engine choice** — Ask: "Which speech-to-text engine would you like? Options: [Local] Whisper (private, audio stays on device), [Cloud] Groq Whisper (fast), [Cloud] Deepgram Nova-2 (built-in punctuation). If you pick a cloud option, your audio is sent to that provider."
+2. **LLM Provider choice** — Ask: "Would you like an LLM to clean up transcriptions (fix grammar, remove filler words)? Options: Groq (free tier), Ollama (local), OpenAI, Anthropic, or None (skip — Deepgram already includes punctuation)."
+3. **API Keys** — Ask: "Please provide your [provider] API key. You can get one at [signup URL]." Never guess or skip API keys.
+4. **Whisper model size** (if local STT) — Ask: "Which Whisper model? Tiny (75MB, fastest), Small (250MB, balanced), Medium (750MB), or Large (1.5GB, most accurate)?"
+5. **Hotkey preference** — Inform the user: "Chamgei uses the Fn key for dictation. You'll need to set System Settings > Keyboard > 'Press globe key to' → 'Do Nothing'. Is that okay, or would you prefer to configure a different key?"
+
+If the user gives a vague instruction like "just set it up", ask them at minimum which STT engine and whether they want LLM cleanup. Do not default to cloud providers without explicit consent — privacy is a core value of this tool.
 
 **Repository:** <https://github.com/tonykipkemboi/chamgei>
 **Version:** 0.3.0
