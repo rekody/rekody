@@ -20,6 +20,7 @@ cpal = "0.15"
 tokio.workspace = true
 tracing.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
+keyring = { version = "3", features = ["apple-native"] }
 
 [lib]
 name = "chamgei_tauri_lib"

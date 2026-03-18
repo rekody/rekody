@@ -397,6 +397,156 @@ fn check_accessibility_permission() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Keychain API-key commands
+// ---------------------------------------------------------------------------
+
+/// Save an API key to the macOS Keychain.
+/// service = "com.chamgei.voice", account = provider name (e.g., "groq", "deepgram")
+#[tauri::command]
+fn save_api_key(provider: String, key: String) -> Result<(), String> {
+    let entry = keyring::Entry::new("com.chamgei.voice", &provider)
+        .map_err(|e| e.to_string())?;
+    entry.set_password(&key).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Get a masked version of the stored API key (e.g., "gsk_...a8T2").
+/// Never returns the full key to the frontend.
+#[tauri::command]
+fn get_api_key_masked(provider: String) -> Result<String, String> {
+    let entry = keyring::Entry::new("com.chamgei.voice", &provider)
+        .map_err(|e| e.to_string())?;
+    match entry.get_password() {
+        Ok(key) if key.len() > 8 => {
+            let prefix = &key[..4];
+            let suffix = &key[key.len()-4..];
+            Ok(format!("{}...{}", prefix, suffix))
+        }
+        Ok(key) if !key.is_empty() => Ok("****".to_string()),
+        Ok(_) => Err("no key stored".to_string()),
+        Err(_) => Err("no key stored".to_string()),
+    }
+}
+
+/// Get the full API key from Keychain (for internal pipeline use only).
+/// This is called by the backend, NOT exposed to frontend JS.
+fn get_api_key_full(provider: &str) -> Option<String> {
+    let entry = keyring::Entry::new("com.chamgei.voice", provider).ok()?;
+    entry.get_password().ok().filter(|k| !k.is_empty())
+}
+
+/// Delete an API key from the Keychain.
+#[tauri::command]
+fn delete_api_key(provider: String) -> Result<(), String> {
+    let entry = keyring::Entry::new("com.chamgei.voice", &provider)
+        .map_err(|e| e.to_string())?;
+    entry.delete_credential().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Test if an API key works by making a lightweight API call.
+#[tauri::command]
+async fn test_api_key(provider: String) -> Result<String, String> {
+    let key = get_api_key_full(&provider).ok_or("no key stored")?;
+    let client = reqwest::Client::new();
+    let (url, auth_header) = match provider.as_str() {
+        "groq" => ("https://api.groq.com/openai/v1/models", format!("Bearer {}", key)),
+        "deepgram" => ("https://api.deepgram.com/v1/projects", format!("Token {}", key)),
+        "openai" => ("https://api.openai.com/v1/models", format!("Bearer {}", key)),
+        "anthropic" => ("https://api.anthropic.com/v1/messages", format!("Bearer {}", key)),
+        "cerebras" => ("https://api.cerebras.ai/v1/models", format!("Bearer {}", key)),
+        _ => return Err("unknown provider".to_string()),
+    };
+    let resp = client.get(url)
+        .header("Authorization", &auth_header)
+        .send().await
+        .map_err(|e| e.to_string())?;
+    if resp.status().is_success() || resp.status().as_u16() == 400 {
+        Ok("valid".to_string())
+    } else if resp.status().as_u16() == 401 || resp.status().as_u16() == 403 {
+        Err("invalid key".to_string())
+    } else {
+        Ok(format!("status: {}", resp.status()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Migration: move API keys from config.toml into Keychain
+// ---------------------------------------------------------------------------
+
+/// Migrate any API keys found in config.toml to the macOS Keychain, then
+/// strip them from the file so secrets are no longer stored on disk.
+fn migrate_keys_to_keychain() {
+    let path = config_path();
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    // Simple key=value extraction (TOML files are flat enough for this).
+    let key_fields: &[(&str, &str)] = &[
+        ("groq_api_key", "groq"),
+        ("deepgram_api_key", "deepgram"),
+        ("cerebras_api_key", "cerebras"),
+        ("stt_api_key", "stt"),
+        ("llm_api_key", "llm"),
+    ];
+
+    let mut changed = false;
+    let mut new_content = content.clone();
+
+    for &(field, provider) in key_fields {
+        // Match: field = "value" (with optional spaces)
+        let pattern = format!("{} = \"", field);
+        if let Some(start) = content.find(&pattern) {
+            let value_start = start + pattern.len();
+            if let Some(end) = content[value_start..].find('"') {
+                let value = &content[value_start..value_start + end];
+                if !value.is_empty() {
+                    // Determine the actual provider for stt_api_key / llm_api_key
+                    let actual_provider = match field {
+                        "stt_api_key" => {
+                            // Look for stt_engine in the config
+                            extract_toml_value(&content, "stt_engine").unwrap_or_else(|| provider.to_string())
+                        }
+                        "llm_api_key" => {
+                            extract_toml_value(&content, "llm_provider").unwrap_or_else(|| provider.to_string())
+                        }
+                        _ => provider.to_string(),
+                    };
+
+                    // Save to Keychain
+                    if let Ok(entry) = keyring::Entry::new("com.chamgei.voice", &actual_provider) {
+                        if entry.set_password(value).is_ok() {
+                            tracing::info!("Migrated {} key to Keychain", actual_provider);
+                            // Blank the value in config
+                            let full_match = format!("{} = \"{}\"", field, value);
+                            let replacement = format!("{} = \"\"", field);
+                            new_content = new_content.replace(&full_match, &replacement);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if changed {
+        let _ = fs::write(&path, new_content.as_bytes());
+        tracing::info!("Config file updated — API keys removed from disk");
+    }
+}
+
+/// Extract a simple string value from TOML content: key = "value"
+fn extract_toml_value(content: &str, key: &str) -> Option<String> {
+    let pattern = format!("{} = \"", key);
+    let start = content.find(&pattern)? + pattern.len();
+    let end = content[start..].find('"')?;
+    let val = &content[start..start + end];
+    if val.is_empty() { None } else { Some(val.to_string()) }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -491,6 +641,9 @@ pub fn run() {
             // The dictation pipeline runs via the `chamgei` CLI binary.
             //
             // TODO: Replace rdev with CGEventTap directly to fix this.
+            // Migrate any API keys from config.toml into macOS Keychain
+            migrate_keys_to_keychain();
+
             tracing::info!("Chamgei app started (dictation runs via CLI)");
 
             Ok(())
@@ -510,6 +663,10 @@ pub fn run() {
             get_pipeline_status,
             download_whisper_model,
             needs_onboarding,
+            save_api_key,
+            get_api_key_masked,
+            delete_api_key,
+            test_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

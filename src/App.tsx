@@ -1364,6 +1364,126 @@ function GeneralTab({ settings, update }: TabProps) {
   );
 }
 
+// ─── Keychain-backed API Key Field ───────────────────────────────────────────
+
+function ApiKeyField({ provider, placeholder }: { provider: string; placeholder: string }) {
+  const [masked, setMasked] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [testResult, setTestResult] = useState<"idle" | "testing" | "valid" | "invalid">("idle");
+
+  const refresh = useCallback(async () => {
+    try {
+      const m = await invoke<string>("get_api_key_masked", { provider });
+      setMasked(m);
+      setEditing(false);
+    } catch {
+      setMasked(null);
+    }
+  }, [provider]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const handleSave = async () => {
+    if (!value.trim()) return;
+    setSaving(true);
+    try {
+      await invoke("save_api_key", { provider, key: value.trim() });
+      setValue("");
+      setTestResult("idle");
+      await refresh();
+    } catch (e) {
+      console.error("Failed to save key:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      await invoke("delete_api_key", { provider });
+      setMasked(null);
+      setEditing(false);
+      setTestResult("idle");
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleTest = async () => {
+    setTestResult("testing");
+    try {
+      await invoke<string>("test_api_key", { provider });
+      setTestResult("valid");
+    } catch {
+      setTestResult("invalid");
+    }
+  };
+
+  // State B: key exists
+  if (masked && !editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <code className="flex-1 px-3 py-2 rounded bg-[var(--input-bg)] border border-[var(--border)] text-sm text-[var(--text-secondary)] font-mono">
+          {masked}
+        </code>
+        <span className="text-xs text-green-400 font-medium whitespace-nowrap">Configured &#10003;</span>
+        <button
+          onClick={handleTest}
+          disabled={testResult === "testing"}
+          className="px-3 py-1.5 rounded text-xs font-medium bg-[var(--input-bg)] border border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {testResult === "testing" ? "..." : testResult === "valid" ? "Valid !" : testResult === "invalid" ? "Invalid" : "Test"}
+        </button>
+        <button
+          onClick={() => { setEditing(true); setValue(""); setTestResult("idle"); }}
+          className="px-3 py-1.5 rounded text-xs font-medium bg-[var(--input-bg)] border border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors cursor-pointer"
+        >
+          Change
+        </button>
+        <button
+          onClick={handleDelete}
+          className="px-3 py-1.5 rounded text-xs font-medium bg-[var(--input-bg)] border border-red-500/30 text-red-400 hover:border-red-500 transition-colors cursor-pointer"
+        >
+          Delete
+        </button>
+      </div>
+    );
+  }
+
+  // State A: no key or editing
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="password"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={placeholder}
+        className="flex-1 px-3 py-2 rounded bg-[var(--input-bg)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent)]"
+        onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+      />
+      <button
+        onClick={handleSave}
+        disabled={saving || !value.trim()}
+        className="px-4 py-2 rounded text-xs font-semibold bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors cursor-pointer disabled:opacity-50"
+      >
+        {saving ? "..." : "Save"}
+      </button>
+      {masked && (
+        <button
+          onClick={() => { setEditing(false); setTestResult("idle"); }}
+          className="px-3 py-2 rounded text-xs font-medium bg-[var(--input-bg)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+        >
+          Cancel
+        </button>
+      )}
+    </div>
+  );
+}
+
 function InferenceTab({ settings, update }: TabProps) {
   return (
     <div className="space-y-5">
@@ -1381,13 +1501,7 @@ function InferenceTab({ settings, update }: TabProps) {
 
       {settings.sttEngine === "deepgram" && (
         <Section title="Deepgram API Key">
-          <input
-            type="password"
-            value={settings.deepgramApiKey}
-            onChange={(e) => update("deepgramApiKey", e.target.value)}
-            placeholder="dg_..."
-            className="w-full px-3 py-2 rounded bg-[var(--input-bg)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent)]"
-          />
+          <ApiKeyField provider="deepgram" placeholder="dg_..." />
         </Section>
       )}
 
@@ -1405,25 +1519,13 @@ function InferenceTab({ settings, update }: TabProps) {
 
       {settings.llmProvider === "cerebras" && (
         <Section title="Cerebras API Key">
-          <input
-            type="password"
-            value={settings.cerebrasApiKey}
-            onChange={(e) => update("cerebrasApiKey", e.target.value)}
-            placeholder="csk-..."
-            className="w-full px-3 py-2 rounded bg-[var(--input-bg)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent)]"
-          />
+          <ApiKeyField provider="cerebras" placeholder="csk-..." />
         </Section>
       )}
 
       {(settings.llmProvider === "groq" || settings.sttEngine === "groq") && (
         <Section title="Groq API Key">
-          <input
-            type="password"
-            value={settings.groqApiKey}
-            onChange={(e) => update("groqApiKey", e.target.value)}
-            placeholder="gsk_..."
-            className="w-full px-3 py-2 rounded bg-[var(--input-bg)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent)]"
-          />
+          <ApiKeyField provider="groq" placeholder="gsk_..." />
         </Section>
       )}
 
