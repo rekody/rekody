@@ -208,7 +208,11 @@ mod platform {
                 // Space released — stop recording. Suppress the key-up too so
                 // no stray characters reach the focused app.
                 if keycode == KC_SPACE && (state.trigger_held || state.is_recording) {
-                    tracing::trace!(trigger_held = state.trigger_held, is_recording = state.is_recording, "KeyUp Space");
+                    tracing::trace!(
+                        trigger_held = state.trigger_held,
+                        is_recording = state.is_recording,
+                        "KeyUp Space"
+                    );
                     state.trigger_held = false;
 
                     if ctx.mode == ActivationMode::PushToTalk && state.is_recording {
@@ -223,7 +227,11 @@ mod platform {
             K_CGEVENT_FLAGS_CHANGED => {
                 // Option released while recording — stop immediately.
                 if !option_held && (state.trigger_held || state.is_recording) {
-                    tracing::trace!(trigger_held = state.trigger_held, is_recording = state.is_recording, "FlagsChanged: Option released");
+                    tracing::trace!(
+                        trigger_held = state.trigger_held,
+                        is_recording = state.is_recording,
+                        "FlagsChanged: Option released"
+                    );
                     state.trigger_held = false;
 
                     if ctx.mode == ActivationMode::PushToTalk && state.is_recording {
@@ -245,9 +253,7 @@ mod platform {
     /// This spawns a dedicated thread that creates the event tap and runs a
     /// `CFRunLoop`. Unlike `rdev`, the tap is passive (listen-only) and does
     /// not require the main dispatch queue — it works from any thread.
-    pub fn start_listener(
-        config: HotkeyConfig,
-    ) -> Result<mpsc::UnboundedReceiver<HotkeyEvent>> {
+    pub fn start_listener(config: HotkeyConfig) -> Result<mpsc::UnboundedReceiver<HotkeyEvent>> {
         let (tx, rx) = mpsc::unbounded_channel();
         let state = Arc::new(Mutex::new(KeyState::default()));
         let mode = config.activation_mode;
@@ -289,9 +295,7 @@ mod platform {
                 }
 
                 // Create a CFRunLoopSource from the CGEventTap (which is a CFMachPort).
-                let source = unsafe {
-                    CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0)
-                };
+                let source = unsafe { CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0) };
 
                 if source.is_null() {
                     tracing::error!("failed to create CFRunLoopSource from CGEventTap");
@@ -332,9 +336,7 @@ mod platform {
 mod platform {
     use super::*;
 
-    pub fn start_listener(
-        _config: HotkeyConfig,
-    ) -> Result<mpsc::UnboundedReceiver<HotkeyEvent>> {
+    pub fn start_listener(_config: HotkeyConfig) -> Result<mpsc::UnboundedReceiver<HotkeyEvent>> {
         anyhow::bail!("global hotkeys are only supported on macOS currently")
     }
 }

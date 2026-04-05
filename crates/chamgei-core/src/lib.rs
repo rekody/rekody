@@ -339,7 +339,9 @@ pub struct Pipeline {
     /// Optional status manager for UI feedback (Tauri or other frontends).
     status_manager: Option<status::StatusManager>,
     /// Optional external event receiver (e.g. from Tauri UI toggle button).
-    external_rx: Option<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<chamgei_hotkey::HotkeyEvent>>>,
+    external_rx: Option<
+        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<chamgei_hotkey::HotkeyEvent>>,
+    >,
 }
 
 /// Handle for sending events to the pipeline from external sources (e.g. UI).
@@ -426,7 +428,6 @@ impl PipelineControl {
 }
 
 impl Pipeline {
-
     /// Update the status manager (if attached).
     fn set_status(&self, status: status::PipelineStatus) {
         if let Some(ref mgr) = self.status_manager {
@@ -491,7 +492,7 @@ impl Pipeline {
                             tracing::info!("command mode activated (not yet implemented)");
                         }
                     }
-                }
+                };
             }
 
             tokio::select! {

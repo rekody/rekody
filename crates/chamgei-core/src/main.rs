@@ -116,9 +116,15 @@ async fn main() -> Result<()> {
         None => run_dictation(cli.verbose).await,
         Some(Cmd::Setup) => cmd_setup(),
         Some(Cmd::Config { action }) => cmd_config(action),
-        Some(Cmd::History { count, search, app, full, stats, json, copy }) => {
-            cmd_history(count, search, app, full, stats, json, copy)
-        }
+        Some(Cmd::History {
+            count,
+            search,
+            app,
+            full,
+            stats,
+            json,
+            copy,
+        }) => cmd_history(count, search, app, full, stats, json, copy),
         Some(Cmd::Doctor) => cmd_doctor().await,
         Some(Cmd::Key { action }) => cmd_key(action),
     }
@@ -138,12 +144,10 @@ fn cmd_config(action: Option<ConfigCmd>) -> Result<()> {
 
     match action.unwrap_or(ConfigCmd::Show) {
         ConfigCmd::Show => print_config(&config, &config_path),
-        ConfigCmd::Path => {
-            match &config_path {
-                Some(p) => println!("{}", p),
-                None => println!("{}", style("no config file found").yellow()),
-            }
-        }
+        ConfigCmd::Path => match &config_path {
+            Some(p) => println!("{}", p),
+            None => println!("{}", style("no config file found").yellow()),
+        },
         ConfigCmd::Edit => {
             let path = match &config_path {
                 Some(p) => p.clone(),
@@ -188,7 +192,11 @@ fn print_config(config: &ChamgeiConfig, path: &Option<String>) {
     // STT
     let stt_display = stt_display_name(config);
     println!("  {}", style("STT").bold());
-    println!("    {}  {}", style("Engine").dim(), style(&stt_display).white());
+    println!(
+        "    {}  {}",
+        style("Engine").dim(),
+        style(&stt_display).white()
+    );
     if let Some(key) = &config.deepgram_api_key {
         println!(
             "    {}  {}",
@@ -208,13 +216,24 @@ fn print_config(config: &ChamgeiConfig, path: &Option<String>) {
             .as_ref()
             .is_some_and(|k| !k.is_empty());
         if has_groq {
-            println!("    {}  {}", style("1").dim(), style("groq  (legacy key)").white());
+            println!(
+                "    {}  {}",
+                style("1").dim(),
+                style("groq  (legacy key)").white()
+            );
         }
         if has_cerebras {
-            println!("    {}  {}", style("2").dim(), style("cerebras  (legacy key)").white());
+            println!(
+                "    {}  {}",
+                style("2").dim(),
+                style("cerebras  (legacy key)").white()
+            );
         }
         if !has_groq && !has_cerebras {
-            println!("    {}", style("none configured  — run: chamgei setup").yellow());
+            println!(
+                "    {}",
+                style("none configured  — run: chamgei setup").yellow()
+            );
         }
     } else {
         for (i, p) in config.providers.iter().enumerate() {
@@ -409,19 +428,24 @@ fn cmd_history(
             if search.is_some() || app_filter.is_some() {
                 println!("  {}", style("No entries match the filter.").yellow());
             } else {
-                println!(
-                    "  {}",
-                    style("No history yet — start dictating!").dim()
-                );
+                println!("  {}", style("No history yet — start dictating!").dim());
             }
             println!();
             return Ok(());
         }
-        println!("  {}  {}", style("Recent").bold(), style("─".repeat(45)).dim());
+        println!(
+            "  {}  {}",
+            style("Recent").bold(),
+            style("─".repeat(45)).dim()
+        );
         println!();
     } else {
         // Header
-        let mut header = format!("  {}  {}", style("History").bold(), style("─".repeat(40)).dim());
+        let mut header = format!(
+            "  {}  {}",
+            style("History").bold(),
+            style("─".repeat(40)).dim()
+        );
         if let Some(ref q) = search {
             header = format!(
                 "  {}  {}  {}",
@@ -571,7 +595,12 @@ async fn cmd_doctor() -> Result<()> {
         }
         "groq" => {
             let key = config.groq_api_key.as_deref().unwrap_or("");
-            check_openai_compat_provider("Groq Whisper", "https://api.groq.com/openai/v1/models", key).await;
+            check_openai_compat_provider(
+                "Groq Whisper",
+                "https://api.groq.com/openai/v1/models",
+                key,
+            )
+            .await;
         }
         _ => {
             println!(
@@ -585,44 +614,75 @@ async fn cmd_doctor() -> Result<()> {
 
     // LLM providers
     println!("  {}", style("LLM").bold());
-    if config.providers.is_empty() && config.groq_api_key.is_none() && config.cerebras_api_key.is_none() {
-        println!("    {}", style("none configured — run: chamgei setup").yellow());
+    if config.providers.is_empty()
+        && config.groq_api_key.is_none()
+        && config.cerebras_api_key.is_none()
+    {
+        println!(
+            "    {}",
+            style("none configured — run: chamgei setup").yellow()
+        );
     } else if !config.providers.is_empty() {
         for p in &config.providers {
             match p.name.as_str() {
                 "ollama" | "lm-studio" | "vllm" => {
                     let url = p.base_url.as_deref().unwrap_or("http://localhost:11434");
                     let t = Instant::now();
-                    let ok = reqwest::Client::new()
-                        .get(url)
-                        .send()
-                        .await
-                        .is_ok();
+                    let ok = reqwest::Client::new().get(url).send().await.is_ok();
                     let ms = t.elapsed().as_millis();
                     let status = if ok {
-                        format!("{}  {}", style("✓").green().bold(), style(format!("{}ms", ms)).dim())
+                        format!(
+                            "{}  {}",
+                            style("✓").green().bold(),
+                            style(format!("{}ms", ms)).dim()
+                        )
                     } else {
-                        format!("{}  {}", style("✗").red().bold(), style("not running").yellow())
+                        format!(
+                            "{}  {}",
+                            style("✗").red().bold(),
+                            style("not running").yellow()
+                        )
                     };
-                    println!("    {}  {}/{}", status, style(&p.name).white(), style(&p.model).dim());
+                    println!(
+                        "    {}  {}/{}",
+                        status,
+                        style(&p.name).white(),
+                        style(&p.model).dim()
+                    );
                 }
                 "gemini" => {
                     let url = "https://generativelanguage.googleapis.com/v1beta/openai/models";
-                    check_openai_compat_provider_keyed(&format!("{}/{}", p.name, p.model), url, &p.api_key, "x-goog-api-key").await;
+                    check_openai_compat_provider_keyed(
+                        &format!("{}/{}", p.name, p.model),
+                        url,
+                        &p.api_key,
+                        "x-goog-api-key",
+                    )
+                    .await;
                 }
                 _ => {
-                    let url = p.base_url.clone().unwrap_or_else(|| provider_models_url(&p.name));
-                    check_openai_compat_provider(&format!("{}/{}", p.name, p.model), &url, &p.api_key).await;
+                    let url = p
+                        .base_url
+                        .clone()
+                        .unwrap_or_else(|| provider_models_url(&p.name));
+                    check_openai_compat_provider(
+                        &format!("{}/{}", p.name, p.model),
+                        &url,
+                        &p.api_key,
+                    )
+                    .await;
                 }
             }
         }
     } else {
         // Legacy
         if let Some(key) = &config.groq_api_key {
-            check_openai_compat_provider("groq", "https://api.groq.com/openai/v1/models", key).await;
+            check_openai_compat_provider("groq", "https://api.groq.com/openai/v1/models", key)
+                .await;
         }
         if let Some(key) = &config.cerebras_api_key {
-            check_openai_compat_provider("cerebras", "https://api.cerebras.ai/v1/models", key).await;
+            check_openai_compat_provider("cerebras", "https://api.cerebras.ai/v1/models", key)
+                .await;
         }
     }
     println!();
@@ -638,7 +698,11 @@ async fn cmd_doctor() -> Result<()> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        println!("    {}  {}", style("○").cyan(), style("System checks not available on this platform").dim());
+        println!(
+            "    {}  {}",
+            style("○").cyan(),
+            style("System checks not available on this platform").dim()
+        );
     }
     println!();
 
@@ -776,22 +840,24 @@ fn cmd_key(action: KeyCmd) -> Result<()> {
                 return Ok(());
             }
             save_keychain_key(&provider, key.trim())?;
-            println!("\n  {}  {} key saved.", style("✓").green().bold(), style(&provider).white());
+            println!(
+                "\n  {}  {} key saved.",
+                style("✓").green().bold(),
+                style(&provider).white()
+            );
         }
-        KeyCmd::Delete { provider } => {
-            match delete_keychain_key(&provider) {
-                Ok(_) => println!(
-                    "  {}  {} key deleted.",
-                    style("✓").green().bold(),
-                    style(&provider).white()
-                ),
-                Err(_) => println!(
-                    "  {}  No key found for {}.",
-                    style("○").dim(),
-                    style(&provider).white()
-                ),
-            }
-        }
+        KeyCmd::Delete { provider } => match delete_keychain_key(&provider) {
+            Ok(_) => println!(
+                "  {}  {} key deleted.",
+                style("✓").green().bold(),
+                style(&provider).white()
+            ),
+            Err(_) => println!(
+                "  {}  No key found for {}.",
+                style("○").dim(),
+                style(&provider).white()
+            ),
+        },
         KeyCmd::List => {
             println!();
             println!(
@@ -801,18 +867,33 @@ fn cmd_key(action: KeyCmd) -> Result<()> {
             );
             println!();
             let providers = &[
-                "groq", "deepgram", "anthropic", "openai", "gemini", "cerebras", "together",
-                "openrouter", "fireworks",
+                "groq",
+                "deepgram",
+                "anthropic",
+                "openai",
+                "gemini",
+                "cerebras",
+                "together",
+                "openrouter",
+                "fireworks",
             ];
             let mut any = false;
             for p in providers {
                 if let Ok(key) = get_keychain_key(p) {
-                    println!("    {}  {}  {}", style("✓").green(), style(*p).white(), style(mask_key(&key)).dim());
+                    println!(
+                        "    {}  {}  {}",
+                        style("✓").green(),
+                        style(*p).white(),
+                        style(mask_key(&key)).dim()
+                    );
                     any = true;
                 }
             }
             if !any {
-                println!("    {}", style("No keys stored. Run: chamgei key set <provider>").dim());
+                println!(
+                    "    {}",
+                    style("No keys stored. Run: chamgei key set <provider>").dim()
+                );
             }
             println!();
         }
@@ -1025,7 +1106,11 @@ fn print_banner(config: &ChamgeiConfig) {
 
     // STT
     let stt = stt_display_name(config);
-    println!("  {}  {}", style("STT   ").dim(), style(&stt).white().bold());
+    println!(
+        "  {}  {}",
+        style("STT   ").dim(),
+        style(&stt).white().bold()
+    );
 
     // LLM — show effective state, not just what's configured.
     let llm_active = chamgei_core::has_llm_providers(config);
@@ -1105,7 +1190,12 @@ impl SessionStats {
             "     {} {} {} · {:.1}s audio",
             style("Session:").dim(),
             style(count).dim(),
-            style(if count == 1 { "dictation" } else { "dictations" }).dim(),
+            style(if count == 1 {
+                "dictation"
+            } else {
+                "dictations"
+            })
+            .dim(),
             secs,
         )
     }
@@ -1323,10 +1413,18 @@ where
             set_processing_style(&self.spinner, "transcribing…");
         } else if msg.contains("transcription complete") {
             let text = visitor.fields.get("text").cloned().unwrap_or_default();
-            let latency = visitor.fields.get("latency_ms").cloned().unwrap_or_default();
+            let latency = visitor
+                .fields
+                .get("latency_ms")
+                .cloned()
+                .unwrap_or_default();
             self.on_transcription_complete(&text, &latency);
         } else if msg.contains("LLM formatting complete") {
-            let latency = visitor.fields.get("latency_ms").cloned().unwrap_or_default();
+            let latency = visitor
+                .fields
+                .get("latency_ms")
+                .cloned()
+                .unwrap_or_default();
             self.on_llm_complete(&latency);
         } else if msg.contains("text injected successfully") {
             self.on_injected();
@@ -1368,15 +1466,18 @@ impl tracing::field::Visit for EventVisitor {
         if field.name() == "message" {
             self.message = value.to_string();
         } else {
-            self.fields.insert(field.name().to_string(), value.to_string());
+            self.fields
+                .insert(field.name().to_string(), value.to_string());
         }
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.fields.insert(field.name().to_string(), value.to_string());
+        self.fields
+            .insert(field.name().to_string(), value.to_string());
     }
 
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.fields.insert(field.name().to_string(), format!("{:.1}", value));
+        self.fields
+            .insert(field.name().to_string(), format!("{:.1}", value));
     }
 }
