@@ -79,20 +79,38 @@ pub struct ChamgeiConfig {
 
     /// Whisper model size.
     pub whisper_model: String,
-    /// STT engine: "local" (default, whisper.cpp), "groq", or "deepgram".
+    /// STT engine: "local" (default, whisper.cpp), "groq", "deepgram", or "cohere".
     #[serde(default = "default_stt_engine")]
     pub stt_engine: String,
     /// Deepgram API key (only needed if stt_engine = "deepgram").
     #[serde(default)]
     pub deepgram_api_key: Option<String>,
+    /// Port for the local Cohere STT server (only needed if stt_engine = "cohere").
+    #[serde(default = "default_cohere_stt_port")]
+    pub cohere_stt_port: u16,
     /// VAD sensitivity (RMS threshold, ~0.01 for most mics).
     pub vad_threshold: f32,
     /// Text injection method.
     pub injection_method: String,
+    /// Whether to run LLM post-processing on transcripts.
+    ///
+    /// - `None` (default / omitted from config): auto — LLM is disabled when
+    ///   `stt_engine = "deepgram"` (Deepgram's `smart_format` already produces
+    ///   clean, punctuated output), enabled for all other engines.
+    /// - `Some(true)`: always run LLM regardless of STT engine.
+    /// - `Some(false)`: always skip LLM.
+    ///
+    /// Set via `llm_enabled = true` / `llm_enabled = false` in config.toml.
+    #[serde(default)]
+    pub llm_enabled: Option<bool>,
 }
 
 fn default_stt_engine() -> String {
     "local".into()
+}
+
+fn default_cohere_stt_port() -> u16 {
+    8099
 }
 
 impl Default for ChamgeiConfig {
@@ -106,13 +124,18 @@ impl Default for ChamgeiConfig {
             whisper_model: "tiny".into(),
             stt_engine: "local".into(),
             deepgram_api_key: None,
+            cohere_stt_port: 8099,
             vad_threshold: 0.01,
             injection_method: "clipboard".into(),
+            llm_enabled: None,
         }
     }
 }
 
 /// Load configuration from TOML file, falling back to defaults.
+///
+/// After loading, legacy fields are migrated into the new `providers` array
+/// so the rest of the pipeline only needs to handle one format.
 pub fn load_config(path: &str) -> Result<ChamgeiConfig> {
     let metadata = std::fs::metadata(path);
     if let Ok(meta) = &metadata
@@ -121,11 +144,74 @@ pub fn load_config(path: &str) -> Result<ChamgeiConfig> {
         anyhow::bail!("config file too large (max 1MB)");
     }
     match std::fs::read_to_string(path) {
-        Ok(contents) => Ok(toml::from_str(&contents)?),
+        Ok(contents) => {
+            let mut config: ChamgeiConfig = toml::from_str(&contents)?;
+            migrate_legacy_config(&mut config);
+            Ok(config)
+        }
         Err(_) => {
             tracing::info!("no config file found, using defaults");
             Ok(ChamgeiConfig::default())
         }
+    }
+}
+
+/// Migrate legacy flat API key fields into the `providers` array.
+///
+/// This is a one-way in-memory migration — it does NOT rewrite the config
+/// file. Users can run `chamgei config edit` to adopt the new format.
+fn migrate_legacy_config(config: &mut ChamgeiConfig) {
+    // Only migrate if providers array is empty (new format not yet used).
+    if !config.providers.is_empty() {
+        return;
+    }
+
+    let groq_key = config.groq_api_key.clone().unwrap_or_default();
+    let cerebras_key = config.cerebras_api_key.clone().unwrap_or_default();
+
+    match config.llm_provider.to_lowercase().as_str() {
+        "groq" if !groq_key.is_empty() => {
+            config.providers.push(ProviderConfig {
+                name: "groq".into(),
+                api_key: groq_key,
+                model: "openai/gpt-oss-20b".into(),
+                base_url: None,
+            });
+        }
+        "cerebras" if !cerebras_key.is_empty() => {
+            config.providers.push(ProviderConfig {
+                name: "cerebras".into(),
+                api_key: cerebras_key,
+                model: "llama3.1-8b".into(),
+                base_url: None,
+            });
+        }
+        _ => {
+            // Add whichever keys exist, groq first.
+            if !groq_key.is_empty() {
+                config.providers.push(ProviderConfig {
+                    name: "groq".into(),
+                    api_key: groq_key,
+                    model: "openai/gpt-oss-20b".into(),
+                    base_url: None,
+                });
+            }
+            if !cerebras_key.is_empty() {
+                config.providers.push(ProviderConfig {
+                    name: "cerebras".into(),
+                    api_key: cerebras_key,
+                    model: "llama3.1-8b".into(),
+                    base_url: None,
+                });
+            }
+        }
+    }
+
+    if !config.providers.is_empty() {
+        tracing::debug!(
+            count = config.providers.len(),
+            "migrated legacy LLM config to providers array"
+        );
     }
 }
 
@@ -173,65 +259,37 @@ fn make_provider(pc: &ProviderConfig) -> chamgei_llm::OpenAICompatibleProvider {
 }
 
 fn build_provider_chain(config: &ChamgeiConfig) -> chamgei_llm::ProviderChain {
+    // By the time we get here, legacy fields have already been migrated into
+    // `config.providers` by `migrate_legacy_config()` in `load_config()`.
     let mut chain = chamgei_llm::ProviderChain::new();
-
-    if !config.providers.is_empty() {
-        // New config format: explicit provider list in priority order.
-        for pc in &config.providers {
-            tracing::info!(
-                provider = %pc.name,
-                model = %pc.model,
-                "adding LLM provider"
-            );
-            match pc.name.to_lowercase().as_str() {
-                "gemini" => {
-                    chain = chain.add(chamgei_llm::presets::gemini(&pc.api_key, &pc.model));
-                }
-                "anthropic" => {
-                    chain = chain.add(chamgei_llm::presets::anthropic(&pc.api_key, &pc.model));
-                }
-                _ => {
-                    chain = chain.add(make_provider(pc));
-                }
-            }
-        }
-    } else {
-        // Legacy config format: single llm_provider + api key fields.
-        let groq_key = config.groq_api_key.clone().unwrap_or_default();
-        let cerebras_key = config.cerebras_api_key.clone().unwrap_or_default();
-
-        match config.llm_provider.to_lowercase().as_str() {
-            "groq" if !groq_key.is_empty() => {
-                chain = chain.add(chamgei_llm::presets::groq(&groq_key, "openai/gpt-oss-20b"));
-            }
-            "cerebras" if !cerebras_key.is_empty() => {
-                chain = chain.add(chamgei_llm::presets::cerebras(&cerebras_key, "llama3.1-8b"));
-            }
-            _ => {
-                // Add both if keys exist
-                if !groq_key.is_empty() {
-                    chain = chain.add(chamgei_llm::presets::groq(&groq_key, "openai/gpt-oss-20b"));
-                }
-                if !cerebras_key.is_empty() {
-                    chain = chain.add(chamgei_llm::presets::cerebras(&cerebras_key, "llama3.1-8b"));
-                }
-            }
-        }
+    for pc in &config.providers {
+        tracing::info!(provider = %pc.name, model = %pc.model, "adding LLM provider");
+        chain = match pc.name.to_lowercase().as_str() {
+            "gemini" => chain.add(chamgei_llm::presets::gemini(&pc.api_key, &pc.model)),
+            "anthropic" => chain.add(chamgei_llm::presets::anthropic(&pc.api_key, &pc.model)),
+            _ => chain.add(make_provider(pc)),
+        };
     }
-
     chain
 }
 
-/// Returns `true` if at least one LLM provider is configured.
-fn has_llm_providers(config: &ChamgeiConfig) -> bool {
-    if !config.providers.is_empty() {
-        return true;
+/// Returns `true` if LLM post-processing should run for this config.
+///
+/// Logic:
+/// - Explicit `llm_enabled = false` → always skip.
+/// - Explicit `llm_enabled = true` → run if providers exist.
+/// - `llm_enabled` omitted (None, the default):
+///   - Deepgram STT → skip (smart_format already produces clean output).
+///   - All other STT engines → run if providers exist.
+pub fn has_llm_providers(config: &ChamgeiConfig) -> bool {
+    if config.providers.is_empty() {
+        return false;
     }
-    config
-        .cerebras_api_key
-        .as_ref()
-        .is_some_and(|k| !k.is_empty())
-        || config.groq_api_key.as_ref().is_some_and(|k| !k.is_empty())
+    match config.llm_enabled {
+        Some(false) => false,
+        Some(true) => true,
+        None => config.stt_engine.to_lowercase() != "deepgram",
+    }
 }
 
 /// Resolve the Whisper model directory from env or defaults.
@@ -256,6 +314,7 @@ enum SttBackend {
     Local(chamgei_stt::LocalWhisperEngine),
     Groq(chamgei_stt::GroqWhisperEngine),
     Deepgram(chamgei_stt::DeepgramEngine),
+    Cohere(chamgei_stt::CohereLocalEngine),
 }
 
 impl SttBackend {
@@ -265,6 +324,7 @@ impl SttBackend {
             SttBackend::Local(e) => e.transcribe(samples).await,
             SttBackend::Groq(e) => e.transcribe(samples).await,
             SttBackend::Deepgram(e) => e.transcribe(samples).await,
+            SttBackend::Cohere(e) => e.transcribe(samples).await,
         }
     }
 }
@@ -276,6 +336,16 @@ pub struct Pipeline {
     injection_method: InjectionMethod,
     stt: SttBackend,
     history: std::sync::Mutex<history::History>,
+    /// Optional status manager for UI feedback (Tauri or other frontends).
+    status_manager: Option<status::StatusManager>,
+    /// Optional external event receiver (e.g. from Tauri UI toggle button).
+    external_rx: Option<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<chamgei_hotkey::HotkeyEvent>>>,
+}
+
+/// Handle for sending events to the pipeline from external sources (e.g. UI).
+#[derive(Clone)]
+pub struct PipelineControl {
+    tx: tokio::sync::mpsc::UnboundedSender<chamgei_hotkey::HotkeyEvent>,
 }
 
 impl Pipeline {
@@ -292,8 +362,12 @@ impl Pipeline {
             }
             "deepgram" => {
                 let key = config.deepgram_api_key.clone().unwrap_or_default();
-                tracing::info!("using Deepgram cloud STT (Nova-2)");
+                tracing::info!("using Deepgram cloud STT (Nova-3)");
                 SttBackend::Deepgram(chamgei_stt::DeepgramEngine::new(key))
+            }
+            "cohere" => {
+                tracing::info!(port = config.cohere_stt_port, "using Cohere local STT");
+                SttBackend::Cohere(chamgei_stt::CohereLocalEngine::new(config.cohere_stt_port))
             }
             _ => {
                 // Default: local Whisper
@@ -319,7 +393,45 @@ impl Pipeline {
             injection_method,
             stt,
             history,
+            status_manager: None,
+            external_rx: None,
         })
+    }
+
+    /// Attach a [`StatusManager`] so the pipeline reports state transitions.
+    pub fn with_status_manager(mut self, manager: status::StatusManager) -> Self {
+        self.status_manager = Some(manager);
+        self
+    }
+
+    /// Create a [`PipelineControl`] handle that can send events into the pipeline
+    /// from external sources (e.g. a UI toggle button).
+    pub fn create_control(&mut self) -> PipelineControl {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.external_rx = Some(tokio::sync::Mutex::new(rx));
+        PipelineControl { tx }
+    }
+}
+
+impl PipelineControl {
+    /// Send a start recording event.
+    pub fn start_recording(&self) {
+        let _ = self.tx.send(chamgei_hotkey::HotkeyEvent::RecordStart);
+    }
+
+    /// Send a stop recording event.
+    pub fn stop_recording(&self) {
+        let _ = self.tx.send(chamgei_hotkey::HotkeyEvent::RecordStop);
+    }
+}
+
+impl Pipeline {
+
+    /// Update the status manager (if attached).
+    fn set_status(&self, status: status::PipelineStatus) {
+        if let Some(ref mgr) = self.status_manager {
+            mgr.set_status(status);
+        }
     }
 
     /// Start the dictation pipeline.
@@ -353,30 +465,57 @@ impl Pipeline {
             tracing::info!("no LLM API keys configured; raw STT output will be used");
         }
 
-        // 3. Main event loop — listen for hotkey events and audio segments
-        //    concurrently using tokio::select!.
+        // 3. Main event loop — listen for hotkey events, external UI events,
+        //    and audio segments concurrently using tokio::select!.
+        let mut external_rx_guard = if let Some(ref ext) = self.external_rx {
+            Some(ext.lock().await)
+        } else {
+            None
+        };
+
         loop {
+            // Helper: handle a hotkey/UI event
+            macro_rules! handle_event {
+                ($event:expr, $source:expr) => {
+                    match $event {
+                        HotkeyEvent::RecordStart => {
+                            tracing::info!(source = $source, "recording started");
+                            self.set_status(status::PipelineStatus::Recording);
+                            audio_capture.start_recording();
+                        }
+                        HotkeyEvent::RecordStop => {
+                            tracing::info!(source = $source, "recording stopped");
+                            audio_capture.stop_recording();
+                        }
+                        HotkeyEvent::CommandMode => {
+                            tracing::info!("command mode activated (not yet implemented)");
+                        }
+                    }
+                }
+            }
+
             tokio::select! {
                 hotkey_event = hotkey_rx.recv() => {
                     match hotkey_event {
-                        Some(HotkeyEvent::RecordStart) => {
-                            tracing::info!("recording started (hotkey)");
-                            audio_capture.start_recording();
-                        }
-                        Some(HotkeyEvent::RecordStop) => {
-                            tracing::info!("recording stopped (hotkey)");
-                            audio_capture.stop_recording();
-                            // Audio segments will arrive through segment_rx
-                            // once the VAD detects end-of-speech.
-                        }
-                        Some(HotkeyEvent::CommandMode) => {
-                            tracing::info!("command mode activated (not yet implemented)");
-                            // TODO: Implement command mode — select text +
-                            // voice instruction for editing.
-                        }
+                        Some(evt) => handle_event!(evt, "hotkey"),
                         None => {
                             tracing::warn!("hotkey channel closed, shutting down");
                             break;
+                        }
+                    }
+                }
+
+                // Listen for events from the UI (toggle button).
+                ext_event = async {
+                    match external_rx_guard.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    match ext_event {
+                        Some(evt) => handle_event!(evt, "ui"),
+                        None => {
+                            tracing::debug!("external event channel closed");
                         }
                     }
                 }
@@ -389,9 +528,11 @@ impl Pipeline {
                                 samples = audio_segment.samples.len(),
                                 "received audio segment, processing"
                             );
+                            self.set_status(status::PipelineStatus::Processing);
 
                             if let Err(e) = self.process_segment(&audio_segment, llm_enabled).await {
                                 tracing::error!(error = %e, "failed to process audio segment");
+                                self.set_status(status::PipelineStatus::Error(e.to_string()));
                             }
                         }
                         None => {
@@ -485,6 +626,7 @@ impl Pipeline {
         };
 
         // --- Text injection ---
+        self.set_status(status::PipelineStatus::Injecting);
         tracing::debug!(
             method = ?self.injection_method,
             text_len = final_text.len(),
@@ -492,6 +634,7 @@ impl Pipeline {
         );
         chamgei_inject::inject_text(&final_text, self.injection_method)?;
         tracing::info!("text injected successfully");
+        self.set_status(status::PipelineStatus::Idle);
 
         // --- Save to history ---
         let entry = history::History::new_entry(

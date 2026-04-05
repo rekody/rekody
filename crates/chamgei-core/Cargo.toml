@@ -24,6 +24,11 @@ indicatif = "0.17"
 console = "0.15"
 reqwest = { workspace = true, features = ["blocking"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+clap = { workspace = true }
+arboard = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [[bin]]
 name = "chamgei"

@@ -456,6 +456,114 @@ impl SttEngine for GroqWhisperEngine {
 }
 
 // ---------------------------------------------------------------------------
+// Cohere Local STT Engine
+// ---------------------------------------------------------------------------
+
+/// Response from the Cohere local transcription server.
+#[derive(Debug, Deserialize)]
+struct CohereTranscriptionResponse {
+    text: String,
+}
+
+/// Local STT engine that connects to a Cohere transcription server.
+///
+/// Sends audio as a WAV file via multipart/form-data POST to a local HTTP
+/// server running at `http://localhost:{port}/transcribe`.
+pub struct CohereLocalEngine {
+    port: u16,
+    client: reqwest::Client,
+}
+
+impl CohereLocalEngine {
+    /// Create a new Cohere local STT engine.
+    ///
+    /// # Arguments
+    /// * `port` - The port the local Cohere transcription server listens on.
+    pub fn new(port: u16) -> Self {
+        Self {
+            port,
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+impl SttEngine for CohereLocalEngine {
+    async fn transcribe(&self, samples: &[f32]) -> Result<Transcript> {
+        if samples.is_empty() {
+            return Ok(Transcript {
+                text: String::new(),
+                latency_ms: 0,
+            });
+        }
+
+        debug!(
+            num_samples = samples.len(),
+            duration_secs = samples.len() as f64 / 16000.0,
+            port = self.port,
+            "starting Cohere local transcription"
+        );
+
+        let start = Instant::now();
+        let wav_data = encode_wav(samples);
+
+        // Build a simple multipart body with just the audio file.
+        let boundary = "----ChamgeiBoundary9876543210";
+        let mut body = Vec::new();
+
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n",
+        );
+        body.extend_from_slice(b"Content-Type: audio/wav\r\n\r\n");
+        body.extend_from_slice(&wav_data);
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+
+        let content_type = format!("multipart/form-data; boundary={boundary}");
+        let url = format!("http://localhost:{}/transcribe", self.port);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", content_type)
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| SttError::ApiError(format!("request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "unable to read response body".to_string());
+            return Err(SttError::ApiError(format!(
+                "Cohere local server returned {}: {}",
+                status, error_body
+            ))
+            .into());
+        }
+
+        let cohere_resp: CohereTranscriptionResponse = response
+            .json()
+            .await
+            .map_err(|e| SttError::ApiError(format!("failed to parse response: {}", e)))?;
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+        let text = cohere_resp.text.trim().to_string();
+
+        info!(
+            latency_ms,
+            text_len = text.len(),
+            port = self.port,
+            "Cohere local transcription complete"
+        );
+
+        Ok(Transcript { text, latency_ms })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Deepgram Cloud STT Engine
 // ---------------------------------------------------------------------------
 
@@ -480,7 +588,7 @@ struct DeepgramAlternative {
     transcript: String,
 }
 
-/// Cloud-based STT engine using Deepgram's Nova-2 API.
+/// Cloud-based STT engine using Deepgram's Nova-3 API.
 ///
 /// Sends audio as a WAV file to Deepgram's `/v1/listen` endpoint.
 /// Requires a valid Deepgram API key (get one at https://console.deepgram.com).
@@ -491,11 +599,11 @@ pub struct DeepgramEngine {
 }
 
 impl DeepgramEngine {
-    /// Create a new Deepgram STT engine with the default Nova-2 model.
+    /// Create a new Deepgram STT engine with the default Nova-3 model.
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
-            model: "nova-2".to_string(),
+            model: "nova-3".to_string(),
             client: reqwest::Client::new(),
         }
     }

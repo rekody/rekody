@@ -193,7 +193,7 @@ pub fn run_onboarding() -> Result<()> {
         )
         .item(
             "deepgram",
-            "Deepgram Nova-2",
+            "Deepgram Nova-3",
             "most accurate — audio sent to Deepgram (needs separate API key)",
         )
         .interact()
@@ -453,7 +453,7 @@ injection_method = "clipboard"
     // --- Summary & Done --------------------------------------------------
     let stt_display = match stt_engine {
         "groq" => "Groq Cloud Whisper Large v3".to_string(),
-        "deepgram" => "Deepgram Nova-2".to_string(),
+        "deepgram" => "Deepgram Nova-3".to_string(),
         _ => format!("Local Whisper ({whisper_size})"),
     };
 

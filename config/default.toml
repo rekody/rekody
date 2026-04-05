@@ -15,11 +15,13 @@ vad_threshold = 0.01
 injection_method = "clipboard"
 
 # ─── Speech-to-Text Engine ──────────────────────────────────
-# "local" = on-device Whisper (default, private)
-# "groq"  = Groq cloud Whisper (fastest, uses groq_api_key)
+# "local"    = on-device Whisper (default, private)
+# "groq"     = Groq cloud Whisper (fastest, uses groq_api_key)
 # "deepgram" = Deepgram Nova-2 (most accurate, needs deepgram_api_key)
+# "cohere"   = Local Cohere transcription server (needs cohere_stt_port)
 stt_engine = "local"
 # deepgram_api_key = ""              # Get yours at console.deepgram.com
+# cohere_stt_port = 8099             # Port for local Cohere STT server
 
 # ─── LLM Providers ──────────────────────────────────────────
 # Providers are tried in order. If the first fails, it falls
