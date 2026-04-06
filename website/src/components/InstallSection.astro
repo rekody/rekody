@@ -27,12 +27,12 @@ const tabs = [
 
   <!-- Tabs -->
   <div class="rounded-xl border border-[#2a3a5c] overflow-hidden" style="background-color:#131c30;">
-    <!-- Tab bar -->
-    <div class="flex border-b border-[#2a3a5c]" style="background-color:#1f2b47;">
+    <!-- Tab bar (scrollable on mobile) -->
+    <div class="flex border-b border-[#2a3a5c] overflow-x-auto scrollbar-none" style="background-color:#1f2b47;">
       {tabs.map((t, i) => (
         <button
           data-tab={t.id}
-          class={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${i === 0 ? 'border-[#0d9488]' : 'border-transparent'}`}
+          class={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${i === 0 ? 'border-[#0d9488]' : 'border-transparent'}`}
           style={i === 0 ? 'color:#0d9488;' : 'color:#a0a0b0;'}
         >
           {t.label}

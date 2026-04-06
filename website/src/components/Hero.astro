@@ -1,12 +1,22 @@
 ---
 ---
 
-<section class="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-24 pb-20 overflow-hidden bg-grid">
+<section id="hero" class="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-24 pb-20 overflow-hidden bg-grid" style="--mx:50%;--my:40%;">
 
-  <!-- Ambient glows -->
-  <div class="hero-glow w-[600px] h-[600px] opacity-20" style="background:radial-gradient(circle, #0ea5e9 0%, transparent 70%); top:-100px; left:50%; transform:translateX(-50%);"></div>
-  <div class="hero-glow w-[400px] h-[400px] opacity-10" style="background:radial-gradient(circle, #06d6a0 0%, transparent 70%); bottom:0; right:10%;"></div>
-  <div class="hero-glow w-[300px] h-[300px] opacity-8" style="background:radial-gradient(circle, #818cf8 0%, transparent 70%); bottom:100px; left:5%;"></div>
+  <!-- Static ambient glows -->
+  <div class="hero-glow w-[600px] h-[600px] opacity-15" style="background:radial-gradient(circle, #0ea5e9 0%, transparent 70%); top:-100px; left:50%; transform:translateX(-50%);"></div>
+  <div class="hero-glow w-[400px] h-[400px] opacity-8"  style="background:radial-gradient(circle, #06d6a0 0%, transparent 70%); bottom:0; right:10%;"></div>
+  <div class="hero-glow w-[300px] h-[300px] opacity-8"  style="background:radial-gradient(circle, #818cf8 0%, transparent 70%); bottom:100px; left:5%;"></div>
+
+  <!-- Cursor spotlight — position driven by --mx/--my CSS vars -->
+  <div
+    aria-hidden="true"
+    style="
+      position:absolute; inset:0; pointer-events:none; z-index:0;
+      background: radial-gradient(700px circle at var(--mx) var(--my), rgba(14,165,233,0.10) 0%, rgba(6,214,160,0.04) 40%, transparent 70%);
+      transition: background 0.1s ease;
+    "
+  ></div>
 
   <!-- Recording badge -->
   <div class="relative z-10 mb-8 inline-flex items-center gap-2.5 px-4 py-2 rounded-full glass ring-pulse text-xs font-mono" style="color:#0ea5e9;">
@@ -19,7 +29,7 @@
 
   <!-- Headline -->
   <div class="relative z-10 mb-6">
-    <h1 class="text-6xl sm:text-7xl lg:text-8xl font-bold tracking-tight leading-[0.95] mb-0">
+    <h1 class="text-5xl sm:text-7xl lg:text-8xl font-bold tracking-tight leading-[0.95] mb-0">
       <span class="grad-text-white text-glow block">Speak.</span>
       <span class="grad-text block">Release.</span>
       <span class="grad-text-white block">Done.</span>
@@ -114,6 +124,25 @@
       }, 2000);
     } catch { window.getSelection()?.selectAllChildren(btn!); }
   });
+
+  // ── Cursor / touch spotlight ─────────────────────────────────────────────
+  const hero = document.getElementById('hero');
+  if (hero) {
+    function setGlow(x: number, y: number) {
+      const r = hero!.getBoundingClientRect();
+      hero!.style.setProperty('--mx', (x - r.left) + 'px');
+      hero!.style.setProperty('--my', (y - r.top)  + 'px');
+    }
+    hero.addEventListener('mousemove',  (e) => setGlow(e.clientX, e.clientY));
+    hero.addEventListener('mouseleave', ()  => {
+      hero.style.setProperty('--mx', '50%');
+      hero.style.setProperty('--my', '40%');
+    });
+    hero.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      setGlow(t.clientX, t.clientY);
+    }, { passive: true });
+  }
 
   // Pause waveform when not "recording"
   const waveform = document.getElementById('waveform');

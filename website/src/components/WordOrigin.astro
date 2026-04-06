@@ -1,0 +1,136 @@
+---
+---
+
+<section class="relative max-w-5xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
+
+  <!-- Subtle background accent -->
+  <div class="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden rounded-3xl" aria-hidden="true">
+    <div class="w-[500px] h-[300px] opacity-[0.06]" style="background:radial-gradient(ellipse, #a78bfa 0%, transparent 70%); filter:blur(60px);"></div>
+  </div>
+
+  <div class="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+
+    <!-- Left: The word -->
+    <div class="text-center lg:text-left">
+
+      <!-- Eyebrow label -->
+      <div class="inline-flex items-center gap-2 mb-5 px-3 py-1 rounded-full text-xs font-mono tracking-widest uppercase" style="background:rgba(167,139,250,0.1); color:#a78bfa; border:1px solid rgba(167,139,250,0.2);">
+        Kalenjin · Kenya
+      </div>
+
+      <!-- The word itself -->
+      <h2 class="text-6xl sm:text-7xl lg:text-8xl font-bold mb-3 tracking-tight" style="color:#ffffff;">
+        chamgei
+      </h2>
+
+      <!-- IPA + audio button row -->
+      <div class="flex items-center gap-3 mb-6 justify-center lg:justify-start">
+        <span class="font-mono text-lg sm:text-xl" style="color:#6b7fa0;">/tʃɑːm.ɡeɪ/</span>
+
+        <!-- Audio play button -->
+        <button
+          id="pronounce-btn"
+          aria-label="Hear pronunciation"
+          title="Hear Tony pronounce it"
+          class="group flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-200"
+          style="background:rgba(167,139,250,0.1); border:1px solid rgba(167,139,250,0.25); color:#a78bfa;"
+        >
+          <!-- Play icon (shown by default) -->
+          <svg id="play-icon" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <!-- Pause icon (shown while playing) -->
+          <svg id="pause-icon" class="w-3.5 h-3.5 shrink-0 hidden" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+          </svg>
+          <!-- Mini waveform bars -->
+          <div id="audio-bars" class="flex items-center gap-[2px] h-4 wave-bars-paused">
+            {Array.from({length: 5}).map(() => (
+              <div class="wave-bar w-[3px] rounded-full" style="background:#a78bfa; height:4px;"></div>
+            ))}
+          </div>
+          <span class="text-xs font-medium">Pronounce</span>
+        </button>
+
+        <audio id="pronounce-audio" src="/audio/chamgei.mp3" preload="none"></audio>
+      </div>
+
+      <!-- Translation -->
+      <div class="flex flex-col gap-2 mb-6">
+        <div class="flex items-baseline gap-3 justify-center lg:justify-start">
+          <span class="text-sm font-mono uppercase tracking-widest" style="color:#3d5278;">meaning</span>
+          <span class="text-xl sm:text-2xl font-semibold" style="color:#e8f0fa;">"How are you?"</span>
+        </div>
+        <div class="flex items-baseline gap-3 justify-center lg:justify-start">
+          <span class="text-sm font-mono uppercase tracking-widest" style="color:#3d5278;">language</span>
+          <span class="text-base" style="color:#a78bfa;">Kalenjin · Nandi dialect</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: The story -->
+    <div class="space-y-5">
+      <div class="p-5 sm:p-6 rounded-2xl" style="background:#0c1528; border:1px solid rgba(167,139,250,0.15);">
+        <h3 class="text-base font-semibold mb-3" style="color:#e8f0fa;">Why this name?</h3>
+        <p class="text-sm leading-relaxed" style="color:#6b7fa0;">
+          <em style="color:#d4dce8;">Chamgei</em> is a greeting in Kalenjin — one of Kenya's major Nilotic language groups, spoken by communities including the Nandi, Kipsigis, and Tugen peoples of the Great Rift Valley.
+        </p>
+        <p class="text-sm leading-relaxed mt-3" style="color:#6b7fa0;">
+          A greeting felt right. This tool is about voice — about speaking naturally and having your words heard. Every time you hold ⌥Space, you're starting a small conversation between you and your computer.
+        </p>
+        <p class="text-sm leading-relaxed mt-3" style="color:#6b7fa0;">
+          It's also personal. I'm Kalenjin, and I wanted to leave a piece of home in the software I build.
+        </p>
+      </div>
+
+      <!-- Language family info -->
+      <div class="grid grid-cols-2 gap-3">
+        {[
+          { label: "Language family", value: "Nilo-Saharan" },
+          { label: "Region",          value: "Rift Valley, Kenya" },
+          { label: "Speakers",        value: "~5 million" },
+          { label: "Script",          value: "Latin alphabet" },
+        ].map(item => (
+          <div class="p-3 rounded-xl" style="background:#0c1528; border:1px solid #1e2e4a;">
+            <div class="text-xs font-mono mb-1" style="color:#3d5278;">{item.label}</div>
+            <div class="text-sm font-medium" style="color:#d4dce8;">{item.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<script>
+  const btn   = document.getElementById('pronounce-btn');
+  const audio = document.getElementById('pronounce-audio') as HTMLAudioElement | null;
+  const bars  = document.getElementById('audio-bars');
+  const playIcon  = document.getElementById('play-icon');
+  const pauseIcon = document.getElementById('pause-icon');
+
+  function setPlaying(playing: boolean) {
+    playIcon?.classList.toggle('hidden', playing);
+    pauseIcon?.classList.toggle('hidden', !playing);
+    if (playing) {
+      bars?.classList.remove('wave-bars-paused');
+    } else {
+      bars?.classList.add('wave-bars-paused');
+    }
+  }
+
+  btn?.addEventListener('click', () => {
+    if (!audio) return;
+    if (audio.paused) {
+      audio.play();
+    } else {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  });
+
+  audio?.addEventListener('play',  () => setPlaying(true));
+  audio?.addEventListener('pause', () => setPlaying(false));
+  audio?.addEventListener('ended', () => setPlaying(false));
+</script>
