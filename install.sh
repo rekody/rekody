@@ -55,6 +55,8 @@ echo "  [1/3] Downloading chamgei ${VERSION}..."
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+SUMS_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/SHA256SUMS"
+
 if ! curl -fSL --progress-bar -o "$TMPDIR/$TARBALL" "$DOWNLOAD_URL" 2>&1; then
     echo ""
     echo "  Download failed. Falling back to building from source..."
@@ -81,6 +83,26 @@ if ! curl -fSL --progress-bar -o "$TMPDIR/$TARBALL" "$DOWNLOAD_URL" 2>&1; then
     cp target/release/chamgei "$TMPDIR/chamgei"
     cd -
 else
+    # Verify tarball checksum against the SHA256SUMS published with the release
+    if curl -fsSL -o "$TMPDIR/SHA256SUMS" "$SUMS_URL" 2>/dev/null; then
+        EXPECTED=$(grep "$TARBALL" "$TMPDIR/SHA256SUMS" | awk '{print $1}')
+        if [ -n "$EXPECTED" ]; then
+            if command -v shasum &>/dev/null; then
+                ACTUAL=$(shasum -a 256 "$TMPDIR/$TARBALL" | awk '{print $1}')
+            elif command -v sha256sum &>/dev/null; then
+                ACTUAL=$(sha256sum "$TMPDIR/$TARBALL" | awk '{print $1}')
+            else
+                ACTUAL=""
+            fi
+            if [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$EXPECTED" ]; then
+                echo "  ERROR: Binary checksum mismatch — aborting for safety."
+                echo "         Expected: $EXPECTED"
+                echo "         Got:      $ACTUAL"
+                exit 1
+            fi
+        fi
+    fi
+
     # Extract binary from tarball
     tar -xzf "$TMPDIR/$TARBALL" -C "$TMPDIR"
 fi
