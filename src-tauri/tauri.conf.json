@@ -14,11 +14,29 @@
     "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "main",
         "title": "Chamgei Settings",
-        "width": 600,
-        "height": 500,
+        "width": 780,
+        "height": 560,
         "resizable": true,
-        "center": true
+        "center": true,
+        "visible": false
+      },
+      {
+        "label": "bubble",
+        "url": "/bubble.html",
+        "title": "",
+        "width": 260,
+        "height": 48,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": false,
+        "visible": true,
+        "x": 640,
+        "y": 50
       }
     ],
     "trayIcon": {

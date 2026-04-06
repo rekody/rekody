@@ -1,64 +1,80 @@
 ---
 ---
 
-<section class="max-w-5xl mx-auto px-6 py-10">
-  <div class="text-center mb-12">
+<section class="max-w-5xl mx-auto px-6 py-24">
+  <div class="text-center mb-16">
     <h2 class="text-4xl sm:text-5xl font-bold mb-4 grad-text-white">How it works</h2>
-    <p class="text-lg" style="color:#6b7fa0;">Five steps from ⌥Space to text at your cursor.</p>
+    <p class="text-lg" style="color:#6b7fa0;">From ⌥Space to text at your cursor in under a second.</p>
   </div>
 
-  <!-- Step flow -->
-  <div class="flex flex-col sm:flex-row items-stretch gap-3">
-    {[
-      { num:"1", label:"Hold ⌥Space", sub:"Start recording", color:"#0ea5e9", bg:"rgba(14,165,233,0.08)" },
-      { num:"2", label:"Speak", sub:"VAD detects voice", color:"#06d6a0", bg:"rgba(6,214,160,0.08)" },
-      { num:"3", label:"Release", sub:"Sends to STT engine", color:"#a78bfa", bg:"rgba(167,139,250,0.08)" },
-      { num:"4", label:"Transcribed", sub:"~200ms with Deepgram", color:"#f59e0b", bg:"rgba(245,158,11,0.08)" },
-      { num:"5", label:"Injected", sub:"Text at your cursor", color:"#34d399", bg:"rgba(52,211,153,0.08)" },
-    ].map((step, i, arr) => (
-      <div class="flex sm:flex-col items-center gap-3 flex-1">
-        <div
-          class="flex-1 sm:w-full rounded-2xl p-5 flex sm:flex-col items-center sm:items-start gap-4 sm:gap-3 border"
-          style={`background:${step.bg}; border-color:${step.color}22;`}
-        >
-          <div
-            class="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shrink-0"
-            style={`background:${step.color}22; color:${step.color};`}
-          >
-            {step.num}
+  <!-- Timeline pipeline -->
+  <div class="relative">
+    <!-- Connecting line (desktop) -->
+    <div class="hidden sm:block absolute top-5 left-0 right-0 h-px" style="background:linear-gradient(90deg, transparent, #1e3a5f 15%, #0ea5e9 50%, #1e3a5f 85%, transparent);"></div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-5 gap-8 sm:gap-4 relative">
+      {[
+        { num:"01", label:"Hold ⌥Space", sub:"Tap to start recording" },
+        { num:"02", label:"Speak", sub:"VAD filters silence" },
+        { num:"03", label:"Release", sub:"Audio sent to STT" },
+        { num:"04", label:"Transcribed", sub:"~200ms via Deepgram" },
+        { num:"05", label:"Injected", sub:"Text at your cursor" },
+      ].map((step, i) => (
+        <div class="flex sm:flex-col items-center sm:items-center gap-4 sm:gap-3 text-left sm:text-center">
+          <!-- Node -->
+          <div class="relative shrink-0">
+            <div
+              class="w-10 h-10 rounded-full flex items-center justify-center text-xs font-mono font-bold z-10 relative"
+              style="background:#060d1a; border:1px solid #0ea5e9; color:#0ea5e9; box-shadow:0 0 12px rgba(14,165,233,0.3);"
+            >
+              {step.num}
+            </div>
           </div>
+          <!-- Label -->
           <div>
-            <div class="font-semibold text-sm" style="color:#e8f0fa;">{step.label}</div>
-            <div class="text-xs mt-0.5" style="color:#6b7fa0;">{step.sub}</div>
+            <div class="text-sm font-semibold" style="color:#e8f0fa;">{step.label}</div>
+            <div class="text-xs mt-0.5" style="color:#3d5278;">{step.sub}</div>
           </div>
         </div>
-        {i < arr.length - 1 && (
-          <div class="hidden sm:flex items-center justify-center w-6 shrink-0" style="color:#1e2e4a;">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-          </div>
-        )}
-      </div>
-    ))}
+      ))}
+    </div>
   </div>
 
-  <!-- Terminal demo block -->
-  <div class="mt-8 rounded-2xl overflow-hidden border border-[#1e2e4a] glow-teal-sm">
-    <div class="flex items-center gap-2 px-5 py-3 border-b border-[#1e2e4a]" style="background:#080f1e;">
-      <span class="w-3 h-3 rounded-full" style="background:#ef4444;"></span>
-      <span class="w-3 h-3 rounded-full" style="background:#f59e0b;"></span>
-      <span class="w-3 h-3 rounded-full" style="background:#22c55e;"></span>
-      <span class="ml-3 text-xs font-mono" style="color:#3d5278;">chamgei — terminal</span>
+  <!-- Terminal demo -->
+  <div class="mt-14 rounded-2xl overflow-hidden border border-[#1e2e4a]" style="box-shadow:0 0 40px -10px rgba(14,165,233,0.15);">
+    <!-- Window chrome -->
+    <div class="flex items-center justify-between px-5 py-3 border-b border-[#1e2e4a]" style="background:#080f1e;">
+      <div class="flex items-center gap-2">
+        <span class="w-3 h-3 rounded-full" style="background:#ef4444;"></span>
+        <span class="w-3 h-3 rounded-full" style="background:#f59e0b;"></span>
+        <span class="w-3 h-3 rounded-full" style="background:#22c55e;"></span>
+      </div>
+      <span class="text-xs font-mono" style="color:#3d5278;">chamgei</span>
+      <div class="w-14"></div>
     </div>
-    <div class="p-6 font-mono text-sm leading-loose" style="background:#060d1a;">
-      <div><span style="color:#3d5278;">$</span> <span style="color:#6b7fa0;">chamgei</span></div>
-      <div class="mt-2" style="color:#6b7fa0;">  ✦ chamgei v0.3.0 — push ⌥Space to dictate</div>
-      <div style="color:#6b7fa0;">  ✦ STT: deepgram (nova-3) · LLM: none</div>
-      <div class="mt-2" style="color:#3d5278;">─────────────────────────────────────</div>
-      <div class="mt-2"><span style="color:#f59e0b;">●</span> <span style="color:#6b7fa0;">Listening... (hold ⌥Space)</span></div>
-      <div class="mt-1"><span style="color:#0ea5e9;">◉</span> <span style="color:#0ea5e9;">Recording</span> <span style="color:#3d5278;">[0.8s]</span></div>
-      <div class="mt-1"><span style="color:#a78bfa;">◈</span> <span style="color:#6b7fa0;">Transcribing via Deepgram...</span></div>
-      <div class="mt-1"><span style="color:#06d6a0;">✓</span> <span style="color:#06d6a0;">"Open a pull request for the auth refactor"</span></div>
-      <div class="mt-1 ml-4 text-xs" style="color:#3d5278;">injected at cursor · 187ms · 7 words</div>
+
+    <!-- Output -->
+    <div class="p-6 sm:p-8 font-mono text-sm leading-7" style="background:#060d1a;">
+      <div><span style="color:#3d5278;">~ $</span> <span style="color:#6b7fa0;">chamgei</span></div>
+      <div class="mt-1" style="color:#3d5278;">  chamgei v0.3.0 · deepgram nova-3 · push ⌥Space to dictate</div>
+      <div class="mt-4"><span style="color:#6b7fa0;">●</span> <span style="color:#6b7fa0;">Listening...</span></div>
+      <div class="mt-1">
+        <span style="color:#0ea5e9;">◉</span>
+        <span style="color:#0ea5e9;"> Recording</span>
+        <span style="color:#3d5278;"> ████████░░ 0.9s</span>
+      </div>
+      <div class="mt-1"><span style="color:#a78bfa;">◈</span> <span style="color:#6b7fa0;"> Transcribing...</span></div>
+      <div class="mt-1">
+        <span style="color:#06d6a0;">✓</span>
+        <span style="color:#06d6a0;"> "Open a pull request for the auth refactor"</span>
+      </div>
+      <div class="flex items-center gap-4 mt-1 text-xs" style="color:#3d5278;">
+        <span>injected at cursor</span>
+        <span>·</span>
+        <span style="color:#0ea5e9;">187ms</span>
+        <span>·</span>
+        <span>7 words</span>
+      </div>
     </div>
   </div>
 </section>

@@ -1,0 +1,214 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Build the CLI binary for macOS (aarch64 + x86_64)
+  # ---------------------------------------------------------------------------
+  build-cli:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            arch: aarch64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-cargo-release-
+
+      - name: Build CLI binary
+        run: cargo build --release -p chamgei-core
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package CLI binary
+        run: |
+          mkdir -p dist
+          PKGDIR=$(mktemp -d)
+          cp target/release/chamgei "$PKGDIR/chamgei"
+          tar -czf "dist/chamgei-${{ steps.version.outputs.version }}-macos-${{ matrix.arch }}.tar.gz" -C "$PKGDIR" .
+          rm -rf "$PKGDIR"
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-macos-${{ matrix.arch }}
+          path: dist/chamgei-*.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Build the Tauri desktop app for macOS (aarch64 + x86_64)
+  # ---------------------------------------------------------------------------
+  build-tauri:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            arch: aarch64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    # -------------------------------------------------------------------------
+    # Code signing & notarization secrets (configure in repo Settings > Secrets):
+    #   APPLE_CERTIFICATE              — Base64-encoded .p12 certificate
+    #   APPLE_CERTIFICATE_PASSWORD     — Password for the .p12 certificate
+    #   APPLE_SIGNING_IDENTITY         — e.g. "Developer ID Application: Your Name (TEAMID)"
+    #   APPLE_ID                       — Apple ID email for notarization
+    #   APPLE_PASSWORD                 — App-specific password for notarization
+    #   APPLE_TEAM_ID                  — 10-character Apple Team ID
+    #
+    # Tauri updater signing secrets:
+    #   TAURI_SIGNING_PRIVATE_KEY          — Private key for Tauri updater signatures
+    #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD — Password for the signing key (if set)
+    # -------------------------------------------------------------------------
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-tauri-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-cargo-tauri-
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build Tauri app
+        run: npm run tauri build
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-dmg-macos-${{ matrix.arch }}
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+
+      - name: Upload updater artifact (.app.tar.gz and .app.tar.gz.sig)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-updater-macos-${{ matrix.arch }}
+          path: |
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Create GitHub Release with all artifacts
+  # ---------------------------------------------------------------------------
+  create-release:
+    needs: [build-cli, build-tauri]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( \
+            -name '*.tar.gz' -o \
+            -name '*.tar.gz.sig' -o \
+            -name '*.dmg' \
+          \) -exec cp {} release-assets/ \;
+          ls -lah release-assets/
+
+      - name: Generate SHA256SUMS
+        working-directory: release-assets
+        run: |
+          shasum -a 256 * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Generate latest.json for Tauri updater
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${GITHUB_REF_NAME}"
+          REPO="${{ github.repository }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Build platform entries — signatures will be populated once
+          # TAURI_SIGNING_PRIVATE_KEY is configured in repo secrets.
+          AARCH64_SIG=""
+          X86_64_SIG=""
+          if [ -f "release-assets/Chamgei.app.tar.gz.sig" ]; then
+            # When there are arch-specific names, adjust accordingly
+            AARCH64_SIG=$(cat release-assets/Chamgei.app.tar.gz.sig 2>/dev/null || echo "")
+          fi
+
+          cat > release-assets/latest.json << ENDJSON
+          {
+            "version": "${VERSION}",
+            "notes": "Release ${TAG}",
+            "pub_date": "${DATE}",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "${AARCH64_SIG}",
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/Chamgei.app.tar.gz"
+              },
+              "darwin-x86_64": {
+                "signature": "${X86_64_SIG}",
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/Chamgei.app.tar.gz"
+              }
+            }
+          }
+          ENDJSON
+
+          cat release-assets/latest.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
