@@ -1,6 +1,6 @@
 ---
 const engines = [
-  { name:'Deepgram', model:'Nova-3',           quality:5, latency:'~200ms', offline:false, notes:'smart_format + punctuation. Recommended.', color:'#06d6a0', recommended:true },
+  { name:'Deepgram', model:'Nova-3',           quality:5, latency:'~200ms', offline:false, notes:'100+ languages, auto-detected. smart_format + punctuation. Recommended.', color:'#06d6a0', recommended:true },
   { name:'Groq',     model:'Whisper Large v3', quality:4, latency:'~300ms', offline:false, notes:'Fast cloud inference. Great fallback.',      color:'#0ea5e9', recommended:false },
   { name:'Local',    model:'whisper.cpp',      quality:3, latency:'varies', offline:true,  notes:'On-device Metal GPU. Full offline.',          color:'#a78bfa', recommended:false },
   { name:'Cohere',   model:'Custom server',    quality:4, latency:'varies', offline:true,  notes:'Self-hosted endpoint. Configurable port.',    color:'#f59e0b', recommended:false },
