@@ -88,6 +88,17 @@ pub struct ChamgeiConfig {
     /// Port for the local Cohere STT server (only needed if stt_engine = "cohere").
     #[serde(default = "default_cohere_stt_port")]
     pub cohere_stt_port: u16,
+    /// BCP-47 language code for transcription (e.g. `"en"`, `"sw"`, `"fr"`).
+    ///
+    /// `None` (default, omit from config) = auto-detect:
+    ///   - Deepgram: `language=multi` — real-time multilingual, 100+ languages
+    ///   - Groq Whisper: language field omitted — Whisper auto-detects
+    ///   - Local Whisper: `set_language(None)` — requires a multilingual model file
+    ///
+    /// Setting this to a specific code slightly improves accuracy and speed when
+    /// the language is known in advance.
+    #[serde(default)]
+    pub stt_language: Option<String>,
     /// VAD sensitivity (RMS threshold, ~0.01 for most mics).
     pub vad_threshold: f32,
     /// Text injection method.
@@ -128,6 +139,7 @@ impl Default for ChamgeiConfig {
             vad_threshold: 0.01,
             injection_method: "clipboard".into(),
             llm_enabled: None,
+            stt_language: None,
         }
     }
 }
@@ -356,23 +368,27 @@ impl Pipeline {
         let injection_method = parse_injection_method(&config.injection_method);
 
         // Initialize the STT engine based on config.
+        let lang = config.stt_language.clone();
         let stt = match config.stt_engine.to_lowercase().as_str() {
             "groq" => {
                 let key = config.groq_api_key.clone().unwrap_or_default();
-                tracing::info!("using Groq cloud STT (Whisper Large v3)");
-                SttBackend::Groq(chamgei_stt::GroqWhisperEngine::new(key))
+                tracing::info!(language = ?lang, "using Groq cloud STT (Whisper Large v3)");
+                SttBackend::Groq(chamgei_stt::GroqWhisperEngine::with_language(key, lang))
             }
             "deepgram" => {
                 let key = config.deepgram_api_key.clone().unwrap_or_default();
-                tracing::info!("using Deepgram cloud STT (Nova-3)");
-                SttBackend::Deepgram(chamgei_stt::DeepgramEngine::new(key))
+                // Default to "multi" (Nova-3 multilingual) when no language is pinned.
+                let dg_lang = lang.unwrap_or_else(|| "multi".to_string());
+                tracing::info!(language = %dg_lang, "using Deepgram cloud STT (Nova-3)");
+                SttBackend::Deepgram(chamgei_stt::DeepgramEngine::with_language(key, dg_lang))
             }
             "cohere" => {
                 tracing::info!(port = config.cohere_stt_port, "using Cohere local STT");
                 SttBackend::Cohere(chamgei_stt::CohereLocalEngine::new(config.cohere_stt_port))
             }
             _ => {
-                // Default: local Whisper
+                // Default: local Whisper.
+                // Use multilingual model file when no language is pinned or language != "en".
                 let whisper_model = match config.whisper_model.to_lowercase().as_str() {
                     "tiny" => WhisperModel::Tiny,
                     "medium" => WhisperModel::Medium,
@@ -380,9 +396,20 @@ impl Pipeline {
                     _ => WhisperModel::Small,
                 };
                 let model_dir = resolve_model_dir();
-                let model_path = model_dir.join(whisper_model.file_name());
+                let is_english_only = lang.as_deref() == Some("en");
+                let model_file = if is_english_only {
+                    whisper_model.file_name()
+                } else {
+                    whisper_model.multilingual_file_name()
+                };
+                let model_path = model_dir.join(model_file);
                 let model_path_str = model_path.to_string_lossy();
-                let engine = chamgei_stt::LocalWhisperEngine::new(whisper_model, &model_path_str)?;
+                tracing::info!(language = ?lang, model = model_file, "using local Whisper STT");
+                let engine = chamgei_stt::LocalWhisperEngine::with_language(
+                    whisper_model,
+                    &model_path_str,
+                    lang,
+                )?;
                 SttBackend::Local(engine)
             }
         };

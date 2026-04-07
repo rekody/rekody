@@ -98,14 +98,27 @@ pub enum WhisperModel {
 }
 
 impl WhisperModel {
-    /// Returns the expected GGML model filename for this model size.
+    /// Returns the English-only GGML model filename.
     ///
-    /// Uses English-only variants where available for better performance.
+    /// English-only variants are smaller and faster when only English is needed.
     pub fn file_name(self) -> &'static str {
         match self {
             WhisperModel::Tiny => "ggml-tiny.en.bin",
             WhisperModel::Small => "ggml-small.en.bin",
             WhisperModel::Medium => "ggml-medium.en.bin",
+            WhisperModel::Large => "ggml-large.bin",
+        }
+    }
+
+    /// Returns the multilingual GGML model filename.
+    ///
+    /// Multilingual variants support auto language detection across 99+ languages.
+    /// Download from: https://huggingface.co/ggerganov/whisper.cpp
+    pub fn multilingual_file_name(self) -> &'static str {
+        match self {
+            WhisperModel::Tiny => "ggml-tiny.bin",
+            WhisperModel::Small => "ggml-small.bin",
+            WhisperModel::Medium => "ggml-medium.bin",
             WhisperModel::Large => "ggml-large.bin",
         }
     }
@@ -119,6 +132,9 @@ impl WhisperModel {
 pub struct LocalWhisperEngine {
     model: WhisperModel,
     ctx: WhisperContext,
+    /// BCP-47 language code to force (e.g. `"en"`, `"sw"`, `"fr"`).
+    /// `None` enables auto language detection (requires a multilingual model file).
+    language: Option<String>,
 }
 
 // Safety: WhisperContext internally manages thread safety for the whisper.cpp
@@ -133,6 +149,9 @@ impl LocalWhisperEngine {
     /// # Arguments
     /// * `model` - The Whisper model size to use.
     /// * `model_path` - Path to the GGML model file on disk.
+    ///
+    /// Defaults to English-only transcription. Use [`LocalWhisperEngine::with_language`]
+    /// to enable auto-detection or a specific language.
     ///
     /// # Errors
     /// Returns `SttError::ModelNotFound` if the model file does not exist or
@@ -165,15 +184,41 @@ impl LocalWhisperEngine {
 
         info!("whisper model loaded successfully");
 
-        Ok(Self { model, ctx })
+        Ok(Self {
+            model,
+            ctx,
+            language: Some("en".to_string()),
+        })
+    }
+
+    /// Create a new local Whisper engine with a specific language or auto-detection.
+    ///
+    /// # Arguments
+    /// * `model` - The Whisper model size to use.
+    /// * `model_path` - Path to the GGML model file on disk. For auto-detection or
+    ///   non-English languages, use a **multilingual** model (`ggml-tiny.bin`, not
+    ///   `ggml-tiny.en.bin`). See [`WhisperModel::multilingual_file_name`].
+    /// * `language` - BCP-47 language code to force (e.g. `"sw"` for Swahili), or
+    ///   `None` to auto-detect the spoken language.
+    ///
+    /// # Errors
+    /// Returns `SttError::ModelNotFound` if the model file does not exist.
+    pub fn with_language(
+        model: WhisperModel,
+        model_path: &str,
+        language: Option<String>,
+    ) -> Result<Self> {
+        let mut engine = Self::new(model, model_path)?;
+        engine.language = language;
+        Ok(engine)
     }
 
     /// Build [`FullParams`] with sensible low-latency defaults for dictation.
     fn build_params(&self) -> FullParams<'_, '_> {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
 
-        // Language: English only for lower latency
-        params.set_language(Some("en"));
+        // Set language: None enables Whisper's built-in auto language detection.
+        params.set_language(self.language.as_deref());
 
         // Single-segment mode for minimal latency
         params.set_single_segment(true);
@@ -283,10 +328,12 @@ pub struct GroqWhisperEngine {
     api_key: String,
     model: String,
     client: reqwest::Client,
+    /// BCP-47 language code hint (e.g. `"en"`, `"sw"`). `None` = auto-detect.
+    language: Option<String>,
 }
 
 impl GroqWhisperEngine {
-    /// Create a new Groq Whisper engine.
+    /// Create a new Groq Whisper engine with auto language detection.
     ///
     /// # Arguments
     /// * `api_key` - Groq API key for authentication.
@@ -295,19 +342,30 @@ impl GroqWhisperEngine {
             api_key,
             model: "whisper-large-v3".to_string(),
             client: reqwest::Client::new(),
+            language: None,
         }
     }
 
     /// Create a new Groq Whisper engine with a custom model name.
-    ///
-    /// # Arguments
-    /// * `api_key` - Groq API key for authentication.
-    /// * `model` - The Whisper model identifier to use.
     pub fn with_model(api_key: String, model: String) -> Self {
         Self {
             api_key,
             model,
             client: reqwest::Client::new(),
+            language: None,
+        }
+    }
+
+    /// Create a new Groq Whisper engine with a pinned language.
+    ///
+    /// Providing a language hint can slightly improve accuracy and speed.
+    /// Use `None` (via [`Self::new`]) for automatic language detection.
+    pub fn with_language(api_key: String, language: Option<String>) -> Self {
+        Self {
+            api_key,
+            model: "whisper-large-v3".to_string(),
+            client: reqwest::Client::new(),
+            language,
         }
     }
 }
@@ -351,8 +409,11 @@ fn encode_wav(samples: &[f32]) -> Vec<u8> {
 
 /// Build a multipart/form-data body manually (avoids the `multipart` feature).
 ///
+/// `language` is an optional BCP-47 code (e.g. `"en"`, `"sw"`). When `None`,
+/// the language field is omitted and Groq Whisper auto-detects the language.
+///
 /// Returns `(content_type_header, body_bytes)`.
-fn build_multipart_body(wav_data: &[u8], model: &str) -> (String, Vec<u8>) {
+fn build_multipart_body(wav_data: &[u8], model: &str, language: Option<&str>) -> (String, Vec<u8>) {
     let boundary = "----ChamgeiBoundary9876543210";
     let mut body = Vec::new();
 
@@ -371,10 +432,13 @@ fn build_multipart_body(wav_data: &[u8], model: &str) -> (String, Vec<u8>) {
     body.extend_from_slice(model.as_bytes());
     body.extend_from_slice(b"\r\n");
 
-    // language field
-    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-    body.extend_from_slice(b"Content-Disposition: form-data; name=\"language\"\r\n\r\n");
-    body.extend_from_slice(b"en\r\n");
+    // language field — only included when explicitly set; omitting it triggers auto-detection
+    if let Some(lang) = language {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"language\"\r\n\r\n");
+        body.extend_from_slice(lang.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
 
     // response_format field
     body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
@@ -409,8 +473,8 @@ impl SttEngine for GroqWhisperEngine {
         // Encode samples to WAV in memory
         let wav_data = encode_wav(samples);
 
-        // Build the multipart body
-        let (content_type, body) = build_multipart_body(&wav_data, &self.model);
+        // Build the multipart body (language=None → Groq auto-detects)
+        let (content_type, body) = build_multipart_body(&wav_data, &self.model, self.language.as_deref());
 
         // Send to Groq API
         let response = self
@@ -592,19 +656,26 @@ struct DeepgramAlternative {
 ///
 /// Sends audio as a WAV file to Deepgram's `/v1/listen` endpoint.
 /// Requires a valid Deepgram API key (get one at https://console.deepgram.com).
+///
+/// By default uses `language=multi` which enables Nova-3's real-time multilingual
+/// detection across 100+ languages. Pass a specific BCP-47 code to pin to one
+/// language (slightly faster and more accurate for that language).
 pub struct DeepgramEngine {
     api_key: String,
     model: String,
     client: reqwest::Client,
+    /// BCP-47 language code, or `"multi"` for auto-detection (default).
+    language: String,
 }
 
 impl DeepgramEngine {
-    /// Create a new Deepgram STT engine with the default Nova-3 model.
+    /// Create a new Deepgram STT engine with Nova-3 multilingual auto-detection.
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
             model: "nova-3".to_string(),
             client: reqwest::Client::new(),
+            language: "multi".to_string(),
         }
     }
 
@@ -614,6 +685,21 @@ impl DeepgramEngine {
             api_key,
             model,
             client: reqwest::Client::new(),
+            language: "multi".to_string(),
+        }
+    }
+
+    /// Create a new Deepgram engine pinned to a specific language.
+    ///
+    /// Use a BCP-47 code (e.g. `"en"`, `"sw"`, `"fr"`) or `"multi"` for
+    /// auto-detection. Pinning to a language is slightly faster and more accurate
+    /// when you know the speaker's language in advance.
+    pub fn with_language(api_key: String, language: String) -> Self {
+        Self {
+            api_key,
+            model: "nova-3".to_string(),
+            client: reqwest::Client::new(),
+            language,
         }
     }
 }
@@ -637,14 +723,15 @@ impl SttEngine for DeepgramEngine {
         let start = Instant::now();
         let wav_data = encode_wav(samples);
 
-        // Use reqwest query params so the model value is URL-encoded automatically,
+        // Use reqwest query params so values are URL-encoded automatically,
         // preventing parameter injection if the config contains special characters.
+        // language="multi" enables Nova-3's real-time multilingual auto-detection.
         let response = self
             .client
             .post("https://api.deepgram.com/v1/listen")
             .query(&[
                 ("model", self.model.as_str()),
-                ("language", "en"),
+                ("language", self.language.as_str()),
                 ("smart_format", "true"),
                 ("punctuate", "true"),
             ])

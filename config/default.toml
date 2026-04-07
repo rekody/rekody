@@ -17,11 +17,20 @@ injection_method = "clipboard"
 # ─── Speech-to-Text Engine ──────────────────────────────────
 # "local"    = on-device Whisper (default, private)
 # "groq"     = Groq cloud Whisper (fastest, uses groq_api_key)
-# "deepgram" = Deepgram Nova-2 (most accurate, needs deepgram_api_key)
+# "deepgram" = Deepgram Nova-3 (most accurate, needs deepgram_api_key)
 # "cohere"   = Local Cohere transcription server (needs cohere_stt_port)
 stt_engine = "local"
 # deepgram_api_key = ""              # Get yours at console.deepgram.com
 # cohere_stt_port = 8099             # Port for local Cohere STT server
+
+# Language for transcription (BCP-47 code, e.g. "en", "sw", "fr", "es").
+# Omit or leave commented to enable auto-detection:
+#   - deepgram: uses language=multi (Nova-3 real-time multilingual, 100+ languages)
+#   - groq:     language field omitted (Whisper auto-detects)
+#   - local:    set_language(None) — requires the multilingual model file
+#               (ggml-tiny.bin, not ggml-tiny.en.bin — download from HuggingFace)
+# Pinning to a specific language is slightly faster and more accurate when known.
+# stt_language = "en"
 
 # ─── LLM Providers ──────────────────────────────────────────
 # Providers are tried in order. If the first fails, it falls
