@@ -10,7 +10,7 @@ BINARY_NAME  := chamgei
 INSTALL_DIR  := /usr/local/bin
 MODEL_DIR    := $(HOME)/.local/share/chamgei/models
 CONFIG_DIR   := $(HOME)/.config/chamgei
-WHISPER_FILE := ggml-tiny.en.bin
+WHISPER_FILE := ggml-tiny.bin
 WHISPER_URL  := https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$(WHISPER_FILE)
 
 # Detect architecture for the package name

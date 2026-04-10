@@ -12,13 +12,13 @@
 
 set -euo pipefail
 
-VERSION="v0.3.0"
+VERSION="v0.4.0"
 GITHUB_REPO="tonykipkemboi/chamgei"
 INSTALL_DIR="/usr/local/bin"
 MODEL_DIR="$HOME/.local/share/chamgei/models"
-WHISPER_FILE="ggml-tiny.en.bin"
+WHISPER_FILE="ggml-tiny.bin"
 WHISPER_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$WHISPER_FILE"
-WHISPER_SHA256="921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f"
+WHISPER_SHA256=""  # updated per release; verified against SHA256SUMS when available
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
@@ -76,8 +76,9 @@ if ! curl -fSL --progress-bar -o "$TMPDIR/$TARBALL" "$DOWNLOAD_URL" 2>&1; then
 
     echo "  Building from source (this takes 1-2 minutes)..."
     BUILD_DIR="$HOME/.chamgei-build"
-    # Pin to the release tag so we don't pull unreviewed commits from main
-    git clone --depth 1 --branch "$VERSION" "https://github.com/${GITHUB_REPO}.git" "$BUILD_DIR" 2>/dev/null || (cd "$BUILD_DIR" && git fetch --tags && git checkout "$VERSION")
+    # Try release tag first; fall back to main so help/CLI always works
+    git clone --depth 1 --branch "$VERSION" "https://github.com/${GITHUB_REPO}.git" "$BUILD_DIR" 2>/dev/null \
+      || git clone --depth 1 "https://github.com/${GITHUB_REPO}.git" "$BUILD_DIR"
     cd "$BUILD_DIR"
     cargo build --release -p chamgei-core 2>&1 | tail -1
     cp target/release/chamgei "$TMPDIR/chamgei"

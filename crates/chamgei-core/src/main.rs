@@ -78,6 +78,12 @@ enum Cmd {
         #[command(subcommand)]
         action: KeyCmd,
     },
+    /// Check for and install the latest version
+    Update {
+        /// Only check — don't install
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -127,6 +133,7 @@ async fn main() -> Result<()> {
         }) => cmd_history(count, search, app, full, stats, json, copy),
         Some(Cmd::Doctor) => cmd_doctor().await,
         Some(Cmd::Key { action }) => cmd_key(action),
+        Some(Cmd::Update { check }) => cmd_update(check).await,
     }
 }
 
@@ -819,6 +826,154 @@ fn print_permission(name: &str, ok: bool) {
             style("open System Settings → Privacy").yellow()
         );
     }
+}
+
+// ── Subcommand: update ───────────────────────────────────────────────────────
+
+async fn cmd_update(check_only: bool) -> Result<()> {
+    const CURRENT: &str = env!("CARGO_PKG_VERSION");
+    const REPO: &str = "tonykipkemboi/chamgei";
+
+    println!();
+    println!(
+        "  {}  {}",
+        style("Update").bold(),
+        style("─".repeat(42)).dim()
+    );
+    println!("  Current version: {}", style(format!("v{CURRENT}")).cyan());
+    print!("  Checking latest release… ");
+
+    let client = reqwest::Client::builder()
+        .user_agent("chamgei-updater")
+        .build()?;
+
+    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
+    let resp = client.get(&url).send().await?;
+
+    if !resp.status().is_success() {
+        println!("{}", style("failed").red());
+        println!("  Could not reach GitHub. Check your internet connection.");
+        return Ok(());
+    }
+
+    let release: serde_json::Value = resp.json().await?;
+    let latest_tag = release["tag_name"]
+        .as_str()
+        .unwrap_or("")
+        .trim_start_matches('v');
+
+    println!("{}", style(format!("v{latest_tag}")).cyan());
+
+    if latest_tag == CURRENT {
+        println!();
+        println!("  {} You're already on the latest version.", style("✓").green());
+        println!();
+        return Ok(());
+    }
+
+    // Simple semver comparison (major.minor.patch)
+    fn parse_ver(s: &str) -> (u64, u64, u64) {
+        let mut parts = s.splitn(3, '.').map(|p| p.parse::<u64>().unwrap_or(0));
+        (parts.next().unwrap_or(0), parts.next().unwrap_or(0), parts.next().unwrap_or(0))
+    }
+
+    if parse_ver(latest_tag) <= parse_ver(CURRENT) {
+        println!();
+        println!("  {} You're already on the latest version.", style("✓").green());
+        println!();
+        return Ok(());
+    }
+
+    println!("  {} v{} → v{}", style("Update available:").yellow().bold(), CURRENT, latest_tag);
+
+    if check_only {
+        println!();
+        println!("  Run {} to install it.", style("chamgei update").cyan());
+        println!();
+        return Ok(());
+    }
+
+    println!();
+
+    // Detect platform/arch
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    let platform = match os {
+        "macos" => "macos",
+        "linux" => "linux",
+        other => {
+            println!("  {} Unsupported OS: {}", style("✗").red(), other);
+            println!("  Download manually from: https://github.com/{REPO}/releases");
+            return Ok(());
+        }
+    };
+    let arch_name = match arch {
+        "aarch64" => "arm64",
+        "x86_64"  => "x86_64",
+        other => {
+            println!("  {} Unsupported arch: {}", style("✗").red(), other);
+            return Ok(());
+        }
+    };
+
+    let tarball = format!("chamgei-v{latest_tag}-{platform}-{arch_name}.tar.gz");
+    let download_url = format!(
+        "https://github.com/{REPO}/releases/download/v{latest_tag}/{tarball}"
+    );
+
+    println!("  Downloading {}…", style(&tarball).dim());
+
+    let bytes = client.get(&download_url).send().await?.bytes().await?;
+    if bytes.is_empty() {
+        println!("  {} Download failed — try: curl -fsSL https://raw.githubusercontent.com/{REPO}/main/install.sh | bash", style("✗").red());
+        return Ok(());
+    }
+
+    // Unpack into a temp dir
+    let tmp = std::env::temp_dir().join(format!("chamgei-update-{latest_tag}"));
+    std::fs::create_dir_all(&tmp)?;
+    let tarball_path = tmp.join(&tarball);
+    std::fs::write(&tarball_path, &bytes)?;
+
+    let status = std::process::Command::new("tar")
+        .args(["-xzf", tarball_path.to_str().unwrap(), "-C", tmp.to_str().unwrap()])
+        .status()?;
+
+    if !status.success() {
+        println!("  {} Failed to extract tarball.", style("✗").red());
+        return Ok(());
+    }
+
+    let new_bin = tmp.join("chamgei");
+    let install_path = std::path::PathBuf::from("/usr/local/bin/chamgei");
+
+    // Try direct copy; fall back to sudo
+    let copy_ok = std::fs::copy(&new_bin, &install_path).is_ok();
+    if !copy_ok {
+        let sudo = std::process::Command::new("sudo")
+            .args(["cp", new_bin.to_str().unwrap(), install_path.to_str().unwrap()])
+            .status()?;
+        if !sudo.success() {
+            println!("  {} Could not write to {}. Try running with sudo.", style("✗").red(), install_path.display());
+            return Ok(());
+        }
+    }
+
+    let _ = std::process::Command::new("chmod")
+        .args(["+x", install_path.to_str().unwrap()])
+        .status();
+
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    println!();
+    println!(
+        "  {} Updated to {}  (was {})",
+        style("✓").green().bold(),
+        style(format!("v{latest_tag}")).cyan().bold(),
+        style(format!("v{CURRENT}")).dim()
+    );
+    println!();
+    Ok(())
 }
 
 // ── Subcommand: key ──────────────────────────────────────────────────────────
