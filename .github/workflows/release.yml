@@ -105,3 +105,52 @@ jobs:
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Update Homebrew tap formula with new version + checksums
+  # ---------------------------------------------------------------------------
+  update-homebrew-tap:
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch SHA256SUMS from release
+        id: sums
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SUMS=$(curl -fsSL "https://github.com/tonykipkemboi/chamgei/releases/download/v${VERSION}/SHA256SUMS")
+          SHA_AARCH64=$(echo "$SUMS" | grep "macos-aarch64" | awk '{print $1}')
+          SHA_X86_64=$(echo  "$SUMS" | grep "macos-x86_64"  | awk '{print $1}')
+          echo "sha_aarch64=$SHA_AARCH64" >> "$GITHUB_OUTPUT"
+          echo "sha_x86_64=$SHA_X86_64"   >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: tonykipkemboi/homebrew-chamgei
+          token: ${{ secrets.PAT_HOMEBREW }}
+          path: tap
+
+      - name: Update formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA_AARCH64="${{ steps.sums.outputs.sha_aarch64 }}"
+          SHA_X86_64="${{ steps.sums.outputs.sha_x86_64 }}"
+
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" tap/Formula/chamgei.rb
+          sed -i "/macos-aarch64/{ n; s/sha256 \".*\"/sha256 \"${SHA_AARCH64}\"/ }" tap/Formula/chamgei.rb
+          sed -i "/macos-x86_64/{  n; s/sha256 \".*\"/sha256 \"${SHA_X86_64}\"/ }"  tap/Formula/chamgei.rb
+
+          cat tap/Formula/chamgei.rb
+
+      - name: Commit and push formula update
+        run: |
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/chamgei.rb
+          git diff --staged --quiet || git commit -m "chore: update chamgei to v${{ steps.version.outputs.version }}"
+          git push

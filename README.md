@@ -17,7 +17,11 @@ Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on
 ## Quick Start
 
 ```bash
-# Install (macOS)
+# Install via Homebrew (recommended)
+brew tap tonykipkemboi/chamgei
+brew install chamgei
+
+# Or one-line installer (no Homebrew needed)
 curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/chamgei/main/install.sh | bash
 
 # Or build from source
@@ -29,7 +33,14 @@ make install
 chamgei
 ```
 
-**Requirements:** macOS (Apple Silicon or Intel), Rust stable toolchain.
+**Requirements:** macOS (Apple Silicon or Intel).
+
+```bash
+# Update
+brew upgrade chamgei
+# or
+chamgei update
+```
 
 ---
 
