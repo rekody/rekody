@@ -18,9 +18,18 @@ MODEL_DIR="$HOME/.local/share/chamgei/models"
 WHISPER_FILE="ggml-tiny.bin"
 WHISPER_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$WHISPER_FILE"
 
-# Always resolve the latest published release from GitHub
-VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
-  | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+# Version resolution (in priority order):
+#   1. Positional arg:  curl -fsSL .../install.sh | bash -s v0.4.0
+#   2. Env var:         VERSION=v0.4.0 curl ... | bash
+#   3. Latest release from GitHub API (default)
+if [ -n "${1:-}" ]; then
+  VERSION="${1}"
+elif [ -n "${VERSION:-}" ]; then
+  VERSION="${VERSION}"
+else
+  VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
+    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+fi
 
 if [ -z "$VERSION" ]; then
   echo "  ERROR: Could not determine latest release. Check your internet connection."
