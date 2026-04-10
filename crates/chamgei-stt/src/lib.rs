@@ -98,16 +98,13 @@ pub enum WhisperModel {
 }
 
 impl WhisperModel {
-    /// Returns the English-only GGML model filename.
+    /// Returns the GGML model filename.
     ///
-    /// English-only variants are smaller and faster when only English is needed.
+    /// Chamgei uses the multilingual variants for all models so that 100+
+    /// languages work without re-downloading. The `.en`-only variants are not
+    /// downloaded or used.
     pub fn file_name(self) -> &'static str {
-        match self {
-            WhisperModel::Tiny => "ggml-tiny.en.bin",
-            WhisperModel::Small => "ggml-small.en.bin",
-            WhisperModel::Medium => "ggml-medium.en.bin",
-            WhisperModel::Large => "ggml-large.bin",
-        }
+        self.multilingual_file_name()
     }
 
     /// Returns the multilingual GGML model filename.

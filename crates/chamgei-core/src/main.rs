@@ -112,10 +112,44 @@ enum KeyCmd {
     List,
 }
 
+// ── ASCII banner ─────────────────────────────────────────────────────────────
+
+fn print_ascii_banner() {
+    // "chamgei" rendered in the roman/ogre figlet font, gradient teal→blue.
+    const ART: &[&str] = &[
+        r#"          oooo                                                          o8o  "#,
+        r#"          `888                                                          `"'  "#,
+        r#" .ooooo.   888 .oo.    .oooo.   ooo. .oo.  .oo.    .oooooooo  .ooooo.  oooo  "#,
+        r#"d88' `"Y8  888P"Y88b  `P  )88b  `888P"Y88bP"Y88b  888' `88b  d88' `88b `888  "#,
+        r#"888        888   888   .oP"888   888   888   888  888   888  888ooo888  888  "#,
+        r#"888   .o8  888   888  d8(  888   888   888   888  `88bod8P'  888    .o  888  "#,
+        r#"`Y8bod8P' o888o o888o `Y888""8o o888o o888o o888o `8oooooo.  `Y8bod8P' o888o "#,
+        r#"                                                  d"     YD                  "#,
+        r#"                                                  "Y88888P'                  "#,
+    ];
+    let n = ART.len();
+    for (i, line) in ART.iter().enumerate() {
+        let ratio = i as f32 / (n - 1) as f32;
+        let r = (ratio * 50.0) as u8;
+        let g = (210.0 - ratio * 60.0) as u8;
+        let b = (190.0 + ratio * 65.0) as u8;
+        eprintln!("\x1b[38;2;{r};{g};{b}m{line}\x1b[0m");
+    }
+    eprintln!("\x1b[38;2;0;210;190mvoice dictation for everyone  ·  v{}\x1b[0m\n",
+        env!("CARGO_PKG_VERSION"));
+}
+
+
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Print banner when the user asks for help so it appears above the usage.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        print_ascii_banner();
+    }
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -140,6 +174,7 @@ async fn main() -> Result<()> {
 // ── Subcommand: setup ────────────────────────────────────────────────────────
 
 fn cmd_setup() -> Result<()> {
+    print_ascii_banner();
     onboarding::run_onboarding()
 }
 

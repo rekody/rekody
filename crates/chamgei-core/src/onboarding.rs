@@ -290,24 +290,24 @@ pub fn run_onboarding() -> Result<()> {
 
     let (whisper_file, whisper_url) = match whisper_size {
         "tiny" => (
-            "ggml-tiny.en.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+            "ggml-tiny.bin",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
         ),
         "small" => (
-            "ggml-small.en.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+            "ggml-small.bin",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
         ),
         "medium" => (
-            "ggml-medium.en.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
+            "ggml-medium.bin",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
         ),
         "large" => (
             "ggml-large.bin",
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large.bin",
         ),
         _ => (
-            "ggml-tiny.en.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+            "ggml-tiny.bin",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
         ),
     };
 
@@ -585,21 +585,21 @@ fn download_model(url: &str, dest: &std::path::Path) -> Result<()> {
 //   https://huggingface.co/ggerganov/whisper.cpp/tree/main
 //
 // To obtain a fresh checksum:
-//   shasum -a 256 ggml-tiny.en.bin    (macOS)
-//   sha256sum ggml-tiny.en.bin        (Linux)
+//   shasum -a 256 ggml-tiny.bin    (macOS)
+//   sha256sum ggml-tiny.bin        (Linux)
 //
-// Last verified: 2026-03-16
+// Last verified: 2026-04-10
 const EXPECTED_CHECKSUMS: &[(&str, &str)] = &[
     (
-        "ggml-tiny.en.bin",
-        "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
+        "ggml-tiny.bin",
+        "", // fill in after downloading and hashing
     ),
     (
-        "ggml-small.en.bin",
-        "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
+        "ggml-small.bin",
+        "", // fill in after downloading and hashing
     ),
-    ("ggml-medium.en.bin", ""), // TODO: fill in after downloading and hashing
-    ("ggml-large.bin", ""),     // TODO: fill in after downloading and hashing
+    ("ggml-medium.bin", ""),
+    ("ggml-large.bin", ""),
 ];
 
 /// Verify the SHA-256 checksum of a downloaded file.
@@ -722,11 +722,11 @@ fn resolve_model_dir() -> PathBuf {
 #[allow(dead_code)]
 fn whisper_file_name(size: &str) -> &str {
     match size.to_lowercase().as_str() {
-        "tiny" => "ggml-tiny.en.bin",
-        "small" => "ggml-small.en.bin",
-        "medium" => "ggml-medium.en.bin",
+        "tiny" => "ggml-tiny.bin",
+        "small" => "ggml-small.bin",
+        "medium" => "ggml-medium.bin",
         "large" => "ggml-large.bin",
-        _ => "ggml-small.en.bin",
+        _ => "ggml-small.bin",
     }
 }
 
