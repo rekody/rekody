@@ -23,7 +23,7 @@ const pipeline = [
   { key: 'vad',     label: 'Trim',     sub: 'VAD silences',   ms: '< 5ms',   icon: 'scissors' },
   { key: 'stt',     label: 'Transcribe', sub: 'Deepgram Nova-3', ms: '~180ms', icon: 'wave', highlight: true },
   { key: 'format',  label: 'Format',   sub: 'smart_format',   ms: '< 5ms',   icon: 'sparkle' },
-  { key: 'inject',  label: 'Type it',  sub: 'CGEvent inject', ms: '< 10ms',  icon: 'cursor' },
+  { key: 'inject',  label: 'Paste',    sub: 'CGEvent inject', ms: '< 10ms',  icon: 'cursor' },
 ];
 ---
 
@@ -77,9 +77,10 @@ const pipeline = [
     <!-- Flow -->
     <div class="relative px-6 sm:px-8 pb-8">
       <div class="relative overflow-x-auto scrollbar-none">
-        <!-- Animated connector line -->
-        <div class="hidden sm:block absolute left-8 right-8 top-[32px] h-px" style="background:linear-gradient(90deg, rgba(251,250,244,0.08) 0%, rgba(32,128,141,0.5) 20%, rgba(32,128,141,0.5) 80%, rgba(251,250,244,0.08) 100%);" aria-hidden="true"></div>
-        <div class="hidden sm:block absolute left-8 top-[32px] h-px pipeline-pulse" style="width:80px; background:linear-gradient(90deg, transparent, var(--color-teal), transparent);" aria-hidden="true"></div>
+        <!-- Scramble stream: text flows left→right across the pipeline, resolves to a sentence -->
+        <div class="hidden sm:flex absolute left-8 right-8 top-[26px] items-center justify-center overflow-hidden h-[16px] pointer-events-none" aria-hidden="true">
+          <span id="pipeline-scramble" class="font-mono whitespace-pre" style="font-size:10px; letter-spacing:0.14em; color:rgba(32,128,141,0.9); text-shadow:0 0 12px rgba(32,128,141,0.35);"></span>
+        </div>
 
         <div class="relative grid grid-cols-5 min-w-[640px] gap-2">
           {pipeline.map((p, i) => (
@@ -142,12 +143,43 @@ const pipeline = [
   </div>
 </section>
 
-<style>
-  @keyframes pipeline-pulse-kf {
-    0%   { transform: translateX(0); opacity: 0; }
-    10%  { opacity: 1; }
-    90%  { opacity: 1; }
-    100% { transform: translateX(calc(100% + 560px)); opacity: 0; }
+<script>
+  const el = document.getElementById('pipeline-scramble');
+  const target = "move thursday's stand-up to 10.";
+  const pool  = "!<>-_/=+*#@01·•→Xo?";
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+  function randChar() {
+    return pool[Math.floor(Math.random() * pool.length)];
   }
-  .pipeline-pulse { animation: pipeline-pulse-kf 3.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-</style>
+
+  function run() {
+    if (!el) return;
+    if (reduce) { el.textContent = target; return; }
+
+    let tick = 0;
+    const charDuration = 14;
+    const stagger = 2;
+    const holdFrames = 40;
+    const timer = window.setInterval(() => {
+      tick++;
+      let out = '';
+      for (let i = 0; i < target.length; i++) {
+        const start = i * stagger;
+        const end = start + charDuration;
+        const ch = target[i];
+        if (ch === ' ') { out += ' '; continue; }
+        if (tick < start)      out += ' ';
+        else if (tick < end)   out += randChar();
+        else                    out += ch;
+      }
+      el.textContent = out;
+      if (tick > target.length * stagger + charDuration + holdFrames) {
+        window.clearInterval(timer);
+        window.setTimeout(run, 400);
+      }
+    }, 45);
+  }
+
+  run();
+</script>
