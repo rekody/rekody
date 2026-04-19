@@ -1,80 +1,153 @@
 ---
+const steps = [
+  {
+    num: '01',
+    title: 'Hold',
+    body: 'Hold <span class="key">⌥</span> <span class="key">Space</span> anywhere on macOS. A quiet indicator shows the mic is live.',
+  },
+  {
+    num: '02',
+    title: 'Speak',
+    body: 'Talk normally. Silence gets trimmed; language auto-detects across 100+ tongues.',
+  },
+  {
+    num: '03',
+    title: 'Release',
+    body: 'Let go. Text lands at your cursor — engine of your choice, no paste step.',
+  },
+];
+
+// Pipeline stages with timing + tiny glyph
+const pipeline = [
+  { key: 'capture', label: 'Capture',  sub: 'Mic stream',     ms: '·',       icon: 'mic' },
+  { key: 'vad',     label: 'Trim',     sub: 'VAD silences',   ms: '< 5ms',   icon: 'scissors' },
+  { key: 'stt',     label: 'Transcribe', sub: 'Deepgram Nova-3', ms: '~180ms', icon: 'wave', highlight: true },
+  { key: 'format',  label: 'Format',   sub: 'smart_format',   ms: '< 5ms',   icon: 'sparkle' },
+  { key: 'inject',  label: 'Type it',  sub: 'CGEvent inject', ms: '< 10ms',  icon: 'cursor' },
+];
 ---
 
-<section id="how-it-works" class="max-w-5xl mx-auto px-6 py-24">
-  <div class="text-center mb-16">
-    <h2 class="text-4xl sm:text-5xl font-bold mb-4 grad-text-white">How it works</h2>
-    <p class="text-lg" style="color:#6b7fa0;">From ⌥Space to text at your cursor in under a second.</p>
+<section id="how-it-works" class="relative max-w-6xl mx-auto px-6 py-20">
+  <!-- Section heading -->
+  <div class="mb-16 max-w-2xl">
+    <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-ink-faint); letter-spacing:0.12em;">How it works</p>
+    <h2 class="display" style="font-size:clamp(36px, 5vw, 56px);">
+      Three beats<span class="display-italic" style="color:var(--color-teal);">,</span> no friction.
+    </h2>
+    <p class="body-serif mt-5" style="font-size:18px;">
+      Push to talk. Release to send. Desktop-grade latency, native to macOS.
+    </p>
   </div>
 
-  <!-- Timeline pipeline -->
-  <div class="relative">
-    <!-- Connecting line (desktop) -->
-    <div class="hidden sm:block absolute top-5 left-0 right-0 h-px" style="background:linear-gradient(90deg, transparent, #1e3a5f 15%, #0ea5e9 50%, #1e3a5f 85%, transparent);"></div>
-
-    <div class="grid grid-cols-1 sm:grid-cols-5 gap-8 sm:gap-4 relative">
-      {[
-        { num:"01", label:"Hold ⌥Space", sub:"Tap to start recording" },
-        { num:"02", label:"Speak", sub:"VAD filters silence" },
-        { num:"03", label:"Release", sub:"Audio sent to STT" },
-        { num:"04", label:"Transcribed", sub:"~200ms via Deepgram" },
-        { num:"05", label:"Injected", sub:"Text at your cursor" },
-      ].map((step, i) => (
-        <div class="flex sm:flex-col items-center sm:items-center gap-4 sm:gap-3 text-left sm:text-center">
-          <!-- Node -->
-          <div class="relative shrink-0">
-            <div
-              class="w-10 h-10 rounded-full flex items-center justify-center text-xs font-mono font-bold z-10 relative"
-              style="background:#060d1a; border:1px solid #0ea5e9; color:#0ea5e9; box-shadow:0 0 12px rgba(14,165,233,0.3);"
-            >
-              {step.num}
-            </div>
-          </div>
-          <!-- Label -->
-          <div>
-            <div class="text-sm font-semibold" style="color:#e8f0fa;">{step.label}</div>
-            <div class="text-xs mt-0.5" style="color:#3d5278;">{step.sub}</div>
-          </div>
+  <!-- Steps grid -->
+  <div class="grid md:grid-cols-3 gap-px rounded-2xl overflow-hidden" style="background:var(--color-hairline); border:1px solid var(--color-hairline);">
+    {steps.map(s => (
+      <article class="p-8 flex flex-col gap-5" style="background:var(--color-cream);">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-mono" style="color:var(--color-ink-faint); letter-spacing:0.08em;">{s.num}</span>
+          <span class="display-italic" style="font-size:28px; color:var(--color-teal);">·</span>
         </div>
-      ))}
-    </div>
+        <h3 class="display" style="font-size:40px;">{s.title}</h3>
+        <p class="body-serif" style="font-size:16px;" set:html={s.body}></p>
+      </article>
+    ))}
   </div>
 
-  <!-- Terminal demo -->
-  <div class="mt-14 rounded-2xl overflow-hidden border border-[#1e2e4a]" style="box-shadow:0 0 40px -10px rgba(14,165,233,0.15);">
-    <!-- Window chrome -->
-    <div class="flex items-center justify-between px-5 py-3 border-b border-[#1e2e4a]" style="background:#080f1e;">
-      <div class="flex items-center gap-2">
-        <span class="w-3 h-3 rounded-full" style="background:#ef4444;"></span>
-        <span class="w-3 h-3 rounded-full" style="background:#f59e0b;"></span>
-        <span class="w-3 h-3 rounded-full" style="background:#22c55e;"></span>
+  <!-- Pipeline — visual flow -->
+  <div class="mt-16 rounded-3xl overflow-hidden" style="background:var(--color-ink); color:var(--color-cream); border:1px solid rgba(251,250,244,0.06);">
+
+    <!-- Header -->
+    <div class="px-6 sm:px-8 pt-7 pb-5 flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <p class="text-[11px] font-mono uppercase mb-1" style="color:rgba(251,250,244,0.5); letter-spacing:0.12em;">Under the hood</p>
+        <h3 class="display" style="font-size:clamp(22px, 2.8vw, 30px); color:var(--color-cream);">Five stages, start to cursor.</h3>
       </div>
-      <span class="text-xs font-mono" style="color:#3d5278;">chamgei</span>
-      <div class="w-14"></div>
+      <div class="flex items-center gap-3">
+        <span class="text-[11px] font-mono" style="color:rgba(251,250,244,0.5); letter-spacing:0.08em;">END-TO-END</span>
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full" style="background:rgba(32,128,141,0.18); border:1px solid rgba(32,128,141,0.35); color:var(--color-teal);">
+          <span class="relative inline-flex h-1.5 w-1.5">
+            <span class="absolute inline-flex h-full w-full rounded-full animate-ping opacity-60" style="background:var(--color-teal);"></span>
+            <span class="relative inline-flex rounded-full h-1.5 w-1.5" style="background:var(--color-teal);"></span>
+          </span>
+          <span class="font-mono text-[12px]">~200ms total</span>
+        </span>
+      </div>
     </div>
 
-    <!-- Output -->
-    <div class="p-6 sm:p-8 font-mono text-sm leading-7" style="background:#060d1a;">
-      <div><span style="color:#3d5278;">~ $</span> <span style="color:#6b7fa0;">chamgei</span></div>
-      <div class="mt-1" style="color:#3d5278;">  chamgei v0.3.0 · deepgram nova-3 · push ⌥Space to dictate</div>
-      <div class="mt-4"><span style="color:#6b7fa0;">●</span> <span style="color:#6b7fa0;">Listening...</span></div>
-      <div class="mt-1">
-        <span style="color:#0ea5e9;">◉</span>
-        <span style="color:#0ea5e9;"> Recording</span>
-        <span style="color:#3d5278;"> ████████░░ 0.9s</span>
+    <!-- Flow -->
+    <div class="relative px-6 sm:px-8 pb-8">
+      <div class="relative overflow-x-auto scrollbar-none">
+        <!-- Animated connector line -->
+        <div class="hidden sm:block absolute left-8 right-8 top-[32px] h-px" style="background:linear-gradient(90deg, rgba(251,250,244,0.08) 0%, rgba(32,128,141,0.5) 20%, rgba(32,128,141,0.5) 80%, rgba(251,250,244,0.08) 100%);" aria-hidden="true"></div>
+        <div class="hidden sm:block absolute left-8 top-[32px] h-px pipeline-pulse" style="width:80px; background:linear-gradient(90deg, transparent, var(--color-teal), transparent);" aria-hidden="true"></div>
+
+        <div class="relative grid grid-cols-5 min-w-[640px] gap-2">
+          {pipeline.map((p, i) => (
+            <div class="flex flex-col items-center text-center gap-3 px-1">
+              <!-- Node -->
+              <div
+                class="relative w-16 h-16 rounded-2xl flex items-center justify-center"
+                style={p.highlight
+                  ? 'background:rgba(32,128,141,0.18); border:1px solid rgba(32,128,141,0.5); box-shadow:0 0 40px -8px rgba(32,128,141,0.6);'
+                  : 'background:rgba(251,250,244,0.03); border:1px solid rgba(251,250,244,0.1);'}
+              >
+                <!-- Icons -->
+                {p.icon === 'mic' && (
+                  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style={`color:${p.highlight ? 'var(--color-teal)' : 'var(--color-cream)'};`}>
+                    <rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+                  </svg>
+                )}
+                {p.icon === 'scissors' && (
+                  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style={`color:${p.highlight ? 'var(--color-teal)' : 'var(--color-cream)'};`}>
+                    <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/>
+                  </svg>
+                )}
+                {p.icon === 'wave' && (
+                  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style={`color:${p.highlight ? 'var(--color-teal)' : 'var(--color-cream)'};`}>
+                    <path d="M4 12v0M8 8v8M12 5v14M16 8v8M20 12v0"/>
+                  </svg>
+                )}
+                {p.icon === 'sparkle' && (
+                  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style={`color:${p.highlight ? 'var(--color-teal)' : 'var(--color-cream)'};`}>
+                    <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/>
+                  </svg>
+                )}
+                {p.icon === 'cursor' && (
+                  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style={`color:${p.highlight ? 'var(--color-teal)' : 'var(--color-cream)'};`}>
+                    <path d="m3 3 7 19 2-8 8-2z"/>
+                  </svg>
+                )}
+              </div>
+
+              <!-- Stage number -->
+              <span class="text-[10px] font-mono" style="color:rgba(251,250,244,0.4); letter-spacing:0.12em;">0{i + 1}</span>
+              <!-- Label -->
+              <div>
+                <div class="display" style={`font-size:16px; color:${p.highlight ? 'var(--color-teal)' : 'var(--color-cream)'};`}>{p.label}</div>
+                <div class="text-[11px] font-mono mt-0.5" style="color:rgba(251,250,244,0.5);">{p.sub}</div>
+              </div>
+              <!-- Timing chip -->
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded" style={`background:${p.highlight ? 'rgba(32,128,141,0.25)' : 'rgba(251,250,244,0.04)'}; color:${p.highlight ? 'var(--color-teal)' : 'rgba(251,250,244,0.55)'};`}>{p.ms}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <div class="mt-1"><span style="color:#a78bfa;">◈</span> <span style="color:#6b7fa0;"> Transcribing...</span></div>
-      <div class="mt-1">
-        <span style="color:#06d6a0;">✓</span>
-        <span style="color:#06d6a0;"> "Open a pull request for the auth refactor"</span>
-      </div>
-      <div class="flex items-center gap-4 mt-1 text-xs" style="color:#3d5278;">
-        <span>injected at cursor</span>
-        <span>·</span>
-        <span style="color:#0ea5e9;">187ms</span>
-        <span>·</span>
-        <span>7 words</span>
-      </div>
+    </div>
+
+    <!-- Footer line -->
+    <div class="px-6 sm:px-8 py-4 flex flex-wrap items-center justify-between gap-3 text-[11px] font-mono" style="border-top:1px solid rgba(251,250,244,0.08); color:rgba(251,250,244,0.5);">
+      <span>Every stage runs in the rekody Rust binary. No browser, no Electron, no background daemon.</span>
+      <span style="color:var(--color-teal);">audio in → text at cursor</span>
     </div>
   </div>
 </section>
+
+<style>
+  @keyframes pipeline-pulse-kf {
+    0%   { transform: translateX(0); opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { transform: translateX(calc(100% + 560px)); opacity: 0; }
+  }
+  .pipeline-pulse { animation: pipeline-pulse-kf 3.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+</style>

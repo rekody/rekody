@@ -1,78 +1,245 @@
 ---
-const features = [
-  {
-    emoji: "⌥",
-    color: "#0ea5e9",
-    bg: "rgba(14,165,233,0.1)",
-    border: "rgba(14,165,233,0.2)",
-    title: 'Push-to-talk hotkey',
-    desc: 'Hold ⌥Space to record, release to transcribe. Injected at your cursor — no paste, no switching apps.',
-  },
-  {
-    emoji: "⚡",
-    color: "#06d6a0",
-    bg: "rgba(6,214,160,0.1)",
-    border: "rgba(6,214,160,0.2)",
-    title: 'Deepgram Nova-3',
-    desc: '~200ms round-trip. Auto-detects 100+ languages — English, Swahili, Arabic, Japanese, and more. smart_format punctuation included.',
-  },
-  {
-    emoji: "🧠",
-    color: "#a78bfa",
-    bg: "rgba(167,139,250,0.1)",
-    border: "rgba(167,139,250,0.2)",
-    title: 'Optional LLM polish',
-    desc: 'Route transcripts through Groq, GPT, Gemini, Ollama and 8 more. Auto-off when using Deepgram.',
-  },
-  {
-    emoji: "✦",
-    color: "#f59e0b",
-    bg: "rgba(245,158,11,0.1)",
-    border: "rgba(245,158,11,0.2)",
-    title: 'Works in any app',
-    desc: 'Notion, Slack, VS Code, Terminal — text injects exactly where your cursor is via keyboard simulation.',
-  },
-  {
-    emoji: "◆",
-    color: "#34d399",
-    bg: "rgba(52,211,153,0.1)",
-    border: "rgba(52,211,153,0.2)",
-    title: 'Open source · MIT',
-    desc: 'No subscription, no lock-in. Fork it, audit it, extend it. Your voice assistant, your rules.',
-  },
-  {
-    emoji: "◈",
-    color: "#fb7185",
-    bg: "rgba(251,113,133,0.1)",
-    border: "rgba(251,113,133,0.2)",
-    title: 'Rust binary · 5MB',
-    desc: 'No Electron. No JVM. A single native binary that starts in milliseconds and stays out of your way.',
-  },
+// Diverse, global sample — expanded out for the marquee.
+const languages = [
+  { flag: '🇺🇸', name: 'English' },
+  { flag: '🇪🇸', name: 'Spanish' },
+  { flag: '🇫🇷', name: 'French' },
+  { flag: '🇩🇪', name: 'German' },
+  { flag: '🇧🇷', name: 'Portuguese' },
+  { flag: '🇮🇹', name: 'Italian' },
+  { flag: '🇯🇵', name: 'Japanese' },
+  { flag: '🇨🇳', name: 'Mandarin' },
+  { flag: '🇰🇷', name: 'Korean' },
+  { flag: '🇸🇦', name: 'Arabic' },
+  { flag: '🇮🇳', name: 'Hindi' },
+  { flag: '🇰🇪', name: 'Swahili' },
+  { flag: '🇷🇺', name: 'Russian' },
+  { flag: '🇳🇱', name: 'Dutch' },
+  { flag: '🇹🇷', name: 'Turkish' },
+  { flag: '🇵🇱', name: 'Polish' },
+  { flag: '🇻🇳', name: 'Vietnamese' },
+  { flag: '🇮🇩', name: 'Indonesian' },
+  { flag: '🇬🇷', name: 'Greek' },
+  { flag: '🇺🇦', name: 'Ukrainian' },
+  { flag: '🇮🇱', name: 'Hebrew' },
+  { flag: '🇵🇭', name: 'Filipino' },
+  { flag: '🇹🇭', name: 'Thai' },
+  { flag: '🇸🇪', name: 'Swedish' },
+  { flag: '🇳🇴', name: 'Norwegian' },
+  { flag: '🇩🇰', name: 'Danish' },
+  { flag: '🇫🇮', name: 'Finnish' },
+  { flag: '🇭🇺', name: 'Hungarian' },
+  { flag: '🇨🇿', name: 'Czech' },
+  { flag: '🇷🇴', name: 'Romanian' },
 ];
+
+// Distribute languages across 5 parallax columns. Chips shuffled per column for visual variety.
+const columnCount = 5;
+const columnDurations = [62, 48, 78, 56, 70]; // seconds — prime-ish, avoids visible sync
+const columnReverse   = [false, true, false, true, false];
+const columns = Array.from({ length: columnCount }, (_, c) =>
+  languages.filter((_, i) => i % columnCount === c)
+);
+
+// Real brand marks only, from Simple Icons (MIT licensed). Each path is the
+// authentic logo — we render it in the brand's iOS-icon bg/fg so the tile
+// reads as the real app rather than a stylized imitation.
+//
+// Mix spans notes, email, writing, chat, design, tasks, calls, messaging
+// so the wall signals breadth beyond dev tools.
+const apps = [
+  { name: 'Notion', bg: '#FFFFFF', fg: '#111111',
+    d: 'M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.981-.7-2.055-.607L3.01 2.295c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.167V6.354c0-.606-.233-.933-.748-.887l-15.177.887c-.56.047-.747.327-.747.933zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952L12.21 19s0 .84-1.168.84l-3.222.186c-.093-.186 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.456-.233 4.764 7.279v-6.44l-1.215-.139c-.093-.514.28-.887.747-.933zM1.936 1.035l13.31-.98c1.634-.14 2.055-.047 3.082.7l4.249 2.986c.7.513.934.653.934 1.213v16.378c0 1.026-.373 1.634-1.68 1.726l-15.458.934c-.98.047-1.448-.093-1.962-.747l-3.129-4.06c-.56-.747-.793-1.306-.793-1.96V2.667c0-.839.374-1.54 1.447-1.632z' },
+  { name: 'Gmail', bg: '#FFFFFF', fg: '#EA4335',
+    d: 'M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z' },
+  { name: 'Docs', bg: '#FFFFFF', fg: '#4285F4',
+    d: 'M14.727 6.727H14V0H4.91c-.905 0-1.637.732-1.637 1.636v20.728c0 .904.732 1.636 1.636 1.636h14.182c.904 0 1.636-.732 1.636-1.636V6.727h-6zm-.545 10.455H7.091v-1.364h7.09v1.364zm2.727-3.273H7.091v-1.364h9.818v1.364zm0-3.273H7.091V9.273h9.818v1.363zM14.727 6h6l-6-6v6z' },
+  { name: 'Discord', bg: '#5865F2', fg: '#FFFFFF',
+    d: 'M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z' },
+  { name: 'Figma', bg: '#FFFFFF', fg: '#F24E1E',
+    d: 'M15.852 8.981h-4.588V0h4.588c2.476 0 4.49 2.014 4.49 4.49s-2.014 4.491-4.49 4.491zM12.735 7.51h3.117c1.665 0 3.019-1.355 3.019-3.019s-1.355-3.019-3.019-3.019h-3.117V7.51zm0 1.471H8.148c-2.476 0-4.49-2.014-4.49-4.49S5.672 0 8.148 0h4.588v8.981zm-4.587-7.51c-1.665 0-3.019 1.355-3.019 3.019s1.354 3.02 3.019 3.02h3.117V1.471H8.148zm4.587 15.019H8.148c-2.476 0-4.49-2.014-4.49-4.49s2.014-4.49 4.49-4.49h4.588v8.98zM8.148 8.981c-1.665 0-3.019 1.355-3.019 3.019s1.355 3.019 3.019 3.019h3.117V8.981H8.148zM8.172 24c-2.489 0-4.515-2.014-4.515-4.49s2.014-4.49 4.49-4.49h4.588v4.441c0 2.503-2.047 4.539-4.563 4.539zm-.024-7.51a3.023 3.023 0 0 0-3.019 3.019c0 1.665 1.365 3.019 3.044 3.019 1.705 0 3.093-1.376 3.093-3.068v-2.97H8.148zm7.704 0h-.098c-2.476 0-4.49-2.014-4.49-4.49s2.014-4.49 4.49-4.49h.098c2.476 0 4.49 2.014 4.49 4.49s-2.014 4.49-4.49 4.49zm-.097-7.509c-1.665 0-3.019 1.355-3.019 3.019s1.355 3.019 3.019 3.019h.098c1.665 0 3.019-1.355 3.019-3.019s-1.355-3.019-3.019-3.019h-.098z' },
+  { name: 'Linear', bg: '#FFFFFF', fg: '#5E6AD2',
+    d: 'M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z' },
+  { name: 'Zoom', bg: '#0B5CFF', fg: '#FFFFFF',
+    d: 'M5.033 14.649H.743a.74.74 0 0 1-.686-.458.74.74 0 0 1 .16-.808L3.19 10.41H1.06A1.06 1.06 0 0 1 0 9.35h3.957c.301 0 .57.18.686.458a.74.74 0 0 1-.161.808L1.51 13.59h2.464c.585 0 1.06.475 1.06 1.06zM24 11.338c0-1.14-.927-2.066-2.066-2.066-.61 0-1.158.265-1.537.686a2.061 2.061 0 0 0-1.536-.686c-1.14 0-2.066.926-2.066 2.066v3.311a1.06 1.06 0 0 0 1.06-1.06v-2.251a1.004 1.004 0 0 1 2.013 0v2.251c0 .586.474 1.06 1.06 1.06v-3.311a1.004 1.004 0 0 1 2.012 0v2.251c0 .586.475 1.06 1.06 1.06zM16.265 12a2.728 2.728 0 1 1-5.457 0 2.728 2.728 0 0 1 5.457 0zm-1.06 0a1.669 1.669 0 1 0-3.338 0 1.669 1.669 0 0 0 3.338 0zm-4.82 0a2.728 2.728 0 1 1-5.458 0 2.728 2.728 0 0 1 5.457 0zm-1.06 0a1.669 1.669 0 1 0-3.338 0 1.669 1.669 0 0 0 3.338 0z' },
+  { name: 'WhatsApp', bg: '#25D366', fg: '#FFFFFF',
+    d: 'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z' },
+];
+
+// Honest + Small are rendered inline below with custom visuals.
 ---
 
-<section id="features" class="max-w-5xl mx-auto px-6 py-24">
-  <div class="text-center mb-16">
-    <h2 class="text-4xl sm:text-5xl font-bold mb-4 grad-text-white">Everything you need.</h2>
-    <p class="text-lg max-w-lg mx-auto" style="color:#6b7fa0;">Built for anyone who wants to speak faster than they can type.</p>
+<section id="features" class="relative py-20" style="background:var(--color-cream);">
+  <div class="max-w-6xl mx-auto px-6">
+
+    <!-- Heading -->
+    <div class="mb-16 max-w-2xl">
+      <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-ink-faint); letter-spacing:0.12em;">What it feels like</p>
+      <h2 class="display" style="font-size:clamp(36px, 5vw, 56px);">
+        Speaking <span class="display-italic" style="color:var(--color-teal);">should feel</span> like typing — only faster.
+      </h2>
+    </div>
+
+    <!-- Feature: Any app -->
+    <article>
+      <p class="text-[11px] font-mono uppercase mb-3" style="color:var(--color-teal); letter-spacing:0.12em;">Any app</p>
+      <h3 class="display mb-5" style="font-size:clamp(28px, 3.5vw, 40px);">Text appears where your cursor lives.</h3>
+      <p class="body-serif max-w-2xl mb-10" style="font-size:18px;">
+        It types into whatever is in front of you — a chart note, a Slack thread, a patient email, a pull-request review, a grant draft. No copy, no paste, no context switch.
+      </p>
+
+      <!-- App logo wall — iOS-style tiles, real brand marks (Simple Icons, MIT) -->
+      <div class="grid grid-cols-4 md:grid-cols-8 gap-x-4 gap-y-6 justify-items-center py-4">
+        {apps.map(a => (
+          <div class="flex flex-col items-center gap-2.5">
+            <div
+              class="app-ios-tile"
+              style={`position:relative; width:64px; height:64px; border-radius:16px; background:${a.bg}; box-shadow: 0 10px 24px -12px rgba(15,23,23,0.35), 0 2px 4px -2px rgba(15,23,23,0.15), inset 0 1px 0 rgba(255,255,255,0.18); display:flex; align-items:center; justify-content:center; overflow:hidden;`}
+            >
+              <div style="position:absolute; inset:0; background:linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 40%); pointer-events:none;"></div>
+              <svg viewBox="0 0 24 24" width="32" height="32" fill={a.fg} aria-hidden="true" style="position:relative;"><path d={a.d}/></svg>
+            </div>
+            <span style="font-size:11px; color:var(--color-ink); font-weight:500;">{a.name}</span>
+          </div>
+        ))}
+      </div>
+
+      <p class="text-[12px] font-mono mt-5 text-center md:text-left" style="color:var(--color-ink-faint);">
+        If it accepts keystrokes, rekody writes into it.
+      </p>
+    </article>
   </div>
 
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-    {features.map(f => (
-      <div
-        class="card-glow rounded-2xl p-6 transition-all"
-        style={`background-color:#0c1528; border: 1px solid ${f.border};`}
-      >
-        <!-- Icon -->
-        <div
-          class="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-bold mb-5"
-          style={`background:${f.bg}; color:${f.color};`}
-        >
-          {f.emoji}
-        </div>
-        <h3 class="font-semibold text-base mb-2" style="color:#e8f0fa;">{f.title}</h3>
-        <p class="text-sm leading-relaxed" style="color:#6b7fa0;">{f.desc}</p>
+  <!-- Feature: Languages — vertical parallax columns -->
+  <article class="relative mt-24 mb-24 py-16 overflow-hidden" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline); border-bottom:1px solid var(--color-hairline);">
+    <div class="max-w-6xl mx-auto px-6 mb-10 text-center">
+      <p class="text-[11px] font-mono uppercase mb-3" style="color:var(--color-teal); letter-spacing:0.12em;">100+ languages</p>
+      <h3 class="display" style="font-size:clamp(28px, 3.5vw, 40px);">
+        Speak <span class="display-italic" style="color:var(--color-teal);">however</span> you speak.
+      </h3>
+      <p class="body-serif mt-4 max-w-2xl mx-auto" style="font-size:18px;">
+        Nova-3 hears the language you're speaking — and switches mid-sentence when you do.
+      </p>
+      <span class="inline-flex items-center gap-2 mt-6 px-4 py-2 rounded-full" style="background:var(--color-ink); color:var(--color-cream); font-size:12px; box-shadow:0 10px 30px -10px rgba(15,23,23,0.4);">
+        <span class="w-1.5 h-1.5 rounded-full" style="background:var(--color-teal);"></span>
+        auto-detect
+      </span>
+    </div>
+
+    <!-- Parallax column stage -->
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="col-stage" role="list" aria-label="Supported languages">
+        {columns.map((col, idx) => (
+          <div
+            class={`col-track ${columnReverse[idx] ? 'reverse' : ''}`}
+            style={`animation-duration: ${columnDurations[idx]}s;`}
+            role="list"
+          >
+            {[...col, ...col].map((l, i) => (
+              <span class="col-chip" role="listitem" aria-hidden={i >= col.length ? 'true' : 'false'}>
+                <span class="flag" aria-hidden="true">{l.flag}</span>
+                {l.name}
+              </span>
+            ))}
+          </div>
+        ))}
       </div>
-    ))}
+    </div>
+
+    <div class="max-w-6xl mx-auto px-6 mt-10 text-center">
+      <p class="text-[12px] font-mono" style="color:var(--color-ink-faint);">
+        …and ~80 more. <span style="color:var(--color-ink-mute);">Every language Deepgram Nova-3 supports.</span>
+      </p>
+    </div>
+  </article>
+
+  <!-- Remaining features: honesty + small -->
+  <div class="max-w-6xl mx-auto px-6 flex flex-col gap-20">
+
+    <!-- Honest by default — terminal mock proves the claim -->
+    <article class="grid md:grid-cols-[1fr_380px] gap-12 items-center">
+      <div>
+        <p class="text-[11px] font-mono uppercase mb-3" style="color:var(--color-teal); letter-spacing:0.12em;">Honest by default</p>
+        <h3 class="display mb-5" style="font-size:clamp(28px, 3.5vw, 40px);">Your words stay your words.</h3>
+        <p class="body-serif max-w-xl" style="font-size:18px;">
+          No analytics. No tracking. No phone-home. Your audio leaves this Mac only when you hold <span class="key">⌥</span> <span class="key">Space</span> — and only to the engine <em>you</em> picked. Update checks are manual: <code style="font-family:var(--font-mono);font-size:13px;color:var(--color-teal);">rekody update</code>. GitHub sees a download count. That's the entire footprint.
+        </p>
+      </div>
+
+      <!-- Privacy report card -->
+      <div class="rounded-2xl overflow-hidden" style="background:var(--color-ink); border:1px solid rgba(251,250,244,0.08); box-shadow:0 24px 60px -30px rgba(15,23,23,0.28);">
+        <div class="px-6 pt-6 pb-5" style="border-bottom:1px solid rgba(251,250,244,0.08);">
+          <p class="text-[10px] font-mono uppercase" style="color:rgba(251,250,244,0.45); letter-spacing:0.14em;">Data sent to us</p>
+          <p class="display mt-2" style="font-size:56px; color:var(--color-cream); line-height:1; letter-spacing:-0.03em;">Nothing<span style="color:var(--color-teal);">.</span></p>
+        </div>
+        <div class="px-6 py-5 flex flex-col gap-3.5">
+          {[
+            { label: 'Analytics events',    value: '0' },
+            { label: 'Trackers',            value: '0' },
+            { label: 'Audio saved to disk', value: '0 bytes' },
+            { label: 'Account required',    value: 'no' },
+            { label: 'Cloud sync',          value: 'never' },
+          ].map(row => (
+            <div class="flex items-center justify-between">
+              <span style="color:rgba(251,250,244,0.7); font-size:14px;">{row.label}</span>
+              <span class="font-mono text-[13px]" style="color:var(--color-teal);">{row.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </article>
+
+    <!-- Small + fast — size comparison bars -->
+    <article class="grid md:grid-cols-[380px_1fr] gap-12 items-center">
+
+      <!-- Bar chart -->
+      <div class="rounded-2xl p-6" style="background:var(--color-cream-warm); border:1px solid var(--color-hairline); box-shadow:0 24px 60px -30px rgba(15,23,23,0.12);">
+        <div class="flex items-baseline justify-between mb-5">
+          <span class="text-[11px] font-mono uppercase" style="color:var(--color-ink-faint); letter-spacing:0.12em;">Binary size</span>
+          <span class="text-[10px] font-mono uppercase" style="color:var(--color-ink-faint); letter-spacing:0.08em;">representative</span>
+        </div>
+
+        <div class="flex flex-col gap-5">
+          <div>
+            <div class="flex items-baseline justify-between mb-2">
+              <span class="text-[13px] font-mono" style="color:var(--color-ink);">rekody</span>
+              <span class="text-[13px] font-mono" style="color:var(--color-teal);">5 MB</span>
+            </div>
+            <div class="h-2 rounded-full overflow-hidden" style="background:rgba(15,23,23,0.06);">
+              <div class="h-full rounded-full" style="width:6%; background:var(--color-teal);"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-baseline justify-between mb-2">
+              <span class="text-[13px] font-mono" style="color:var(--color-ink-mute);">Electron app</span>
+              <span class="text-[13px] font-mono" style="color:var(--color-ink-faint);">~250 MB</span>
+            </div>
+            <div class="h-2 rounded-full overflow-hidden" style="background:rgba(15,23,23,0.06);">
+              <div class="h-full rounded-full" style="width:45%; background:rgba(15,23,23,0.35);"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-baseline justify-between mb-2">
+              <span class="text-[13px] font-mono" style="color:var(--color-ink-mute);">JVM-based tool</span>
+              <span class="text-[13px] font-mono" style="color:var(--color-ink-faint);">~800 MB</span>
+            </div>
+            <div class="h-2 rounded-full overflow-hidden" style="background:rgba(15,23,23,0.06);">
+              <div class="h-full rounded-full" style="width:95%; background:rgba(15,23,23,0.35);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="text-[11px] font-mono uppercase mb-3" style="color:var(--color-teal); letter-spacing:0.12em;">Small + fast</p>
+        <h3 class="display mb-5" style="font-size:clamp(28px, 3.5vw, 40px);">A native binary. Not an Electron app.</h3>
+        <p class="body-serif max-w-xl" style="font-size:18px;">
+          Rust, compiled to a single binary. Launches in milliseconds, lives in the menu bar, stays out of your way. MIT — fork it, audit it, take it with you.
+        </p>
+      </div>
+    </article>
+
   </div>
 </section>

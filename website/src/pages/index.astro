@@ -2,32 +2,23 @@
 import Base from '../layouts/Base.astro';
 import Navbar from '../components/Navbar.astro';
 import Hero from '../components/Hero.astro';
-import WordOrigin from '../components/WordOrigin.astro';
 import Demo from '../components/Demo.astro';
 import Features from '../components/Features.astro';
-import Languages from '../components/Languages.astro';
-import SttTable from '../components/SttTable.astro';
+import Engines from '../components/Engines.astro';
 import InstallSection from '../components/InstallSection.astro';
-import PrivacyBlock from '../components/PrivacyBlock.astro';
-import SocialProof from '../components/SocialProof.astro';
-import Faq from '../components/Faq.astro';
+import WordOrigin from '../components/WordOrigin.astro';
 import Footer from '../components/Footer.astro';
-import { faqs } from '../components/Faq.astro';
 ---
 
-<Base faqSchema={faqs}>
+<Base>
   <Navbar />
   <main>
     <Hero />
-    <WordOrigin />
     <Demo />
     <Features />
-    <Languages />
-    <SttTable />
+    <Engines />
     <InstallSection />
-    <PrivacyBlock />
-    <SocialProof />
-    <Faq />
+    <WordOrigin />
   </main>
   <Footer />
 </Base>

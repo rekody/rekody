@@ -1,23 +1,89 @@
 ---
+const cols = [
+  {
+    title: 'Product',
+    links: [
+      { label: 'How it works', href: '#how-it-works' },
+      { label: 'Features',     href: '#features' },
+      { label: 'Engines',      href: '#engines' },
+      { label: 'Install',      href: '#install' },
+    ],
+  },
+  {
+    title: 'Source',
+    links: [
+      { label: 'GitHub',       href: 'https://github.com/tonykipkemboi/rekody', external: true },
+      { label: 'Releases',     href: 'https://github.com/tonykipkemboi/rekody/releases', external: true },
+      { label: 'Changelog',    href: 'https://github.com/tonykipkemboi/rekody/blob/main/CHANGELOG.md', external: true },
+      { label: 'Contributing', href: 'https://github.com/tonykipkemboi/rekody/blob/main/CONTRIBUTING.md', external: true },
+    ],
+  },
+  {
+    title: 'Legal',
+    links: [
+      { label: 'MIT License',   href: 'https://github.com/tonykipkemboi/rekody/blob/main/LICENSE', external: true },
+      { label: 'Privacy',       href: '#features' },
+      { label: 'Security',      href: 'https://github.com/tonykipkemboi/rekody/security', external: true },
+    ],
+  },
+];
 ---
 
-<footer class="border-t border-[#2a3a5c] mt-24" style="background-color:#0f172a;">
-  <div class="max-w-5xl mx-auto px-6 py-10">
-    <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
-      <!-- Left: links -->
-      <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" style="color:#a0a0b0;">
-        <a href="https://github.com/tonykipkemboi/chamgei" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">GitHub</a>
-        <a href="https://github.com/tonykipkemboi/chamgei/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">Changelog</a>
-        <a href="https://github.com/tonykipkemboi/chamgei/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">MIT License</a>
-        <a href="https://github.com/tonykipkemboi/chamgei/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">Contributing</a>
+<footer class="relative" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline);">
+  <div class="max-w-6xl mx-auto px-6 py-16">
+
+    <div class="grid gap-x-10 gap-y-12 md:gap-x-16 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+
+      <!-- Brand column -->
+      <div>
+        <div class="flex items-center gap-2.5 mb-4">
+          <span
+            class="flex items-center justify-center w-7 h-7 rounded-md"
+            style="background:var(--color-ink); color:var(--color-cream); font-family:var(--font-serif); font-weight:500; font-size:15px; line-height:1;"
+            aria-hidden="true"
+          >r</span>
+          <span style="font-family:var(--font-serif); font-size:20px; color:var(--color-ink);">rekody</span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded" style="background:var(--color-teal-soft); color:var(--color-teal); letter-spacing:0.02em;">v0.4.3</span>
+        </div>
+        <p class="body-serif max-w-sm" style="font-size:14px;">
+          Open-source voice dictation for macOS. Hold <span class="key">⌥</span> <span class="key">Space</span> anywhere. Text lands at your cursor — in any app, in 100+ languages.
+        </p>
       </div>
 
-      <!-- Right: byline -->
-      <p class="text-sm" style="color:#a0a0b0;">
-        Made with ♥ by <a href="https://github.com/tonykipkemboi" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors" style="color:#0d9488;">Tony Kipkemboi</a>
-        &nbsp;·&nbsp;
-        <span title="A Kalenjin greeting meaning 'How are you?'">chamgei /tʃɑːm.ɡeɪ/</span>
+      {cols.map(c => (
+        <div>
+          <h4 class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-ink-faint); letter-spacing:0.12em;">{c.title}</h4>
+          <ul class="flex flex-col gap-2.5">
+            {c.links.map(l => (
+              <li>
+                <a
+                  href={l.href}
+                  target={l.external ? '_blank' : undefined}
+                  rel={l.external ? 'noopener noreferrer' : undefined}
+                  class="text-[14px] transition-colors"
+                  style="color:var(--color-ink-soft);"
+                >{l.label}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+
+    <div class="hairline my-10"></div>
+
+    <!-- Bottom bar -->
+    <div class="flex flex-col sm:flex-row sm:items-center gap-3 justify-between text-[13px]" style="color:var(--color-ink-mute);">
+      <p>
+        Made by <a href="https://github.com/tonykipkemboi" target="_blank" rel="noopener noreferrer" style="color:var(--color-teal);">Tony Kipkemboi</a>
+        <span class="mx-2" aria-hidden="true">·</span>
+        <span title="From Swahili 'rekodi' — to record">rekody /rɛˈkoʊ.di/</span>
       </p>
+      <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">© 2026 · MIT License</p>
     </div>
   </div>
 </footer>
+
+<style>
+  footer a:hover { color: var(--color-ink); }
+</style>
