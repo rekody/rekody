@@ -4,10 +4,10 @@
 # Hotkey activation mode: "push_to_talk" or "toggle"
 activation_mode = "push_to_talk"
 
-# Whisper model size: "tiny", "small", "medium", "turbo", "large"
-# "turbo" is a distilled large-v3 quantized to ~574 MB — fast decode with
-# near-large accuracy. Recommended default for local STT.
-whisper_model = "tiny"
+# Whisper model size: "turbo", "tiny", "small", "medium", "large"
+# "turbo" (default): distilled large-v3 quantized to ~574 MB — fast decode
+# with near-large accuracy. Best for local STT in most cases.
+whisper_model = "turbo"
 
 # VAD sensitivity — RMS energy above this = speech.
 # Lower = more sensitive. 0.01 works well for most mics.

@@ -277,15 +277,16 @@ pub fn run_onboarding() -> Result<()> {
     // For local Whisper, ask model size and download
     let whisper_size: &str = if stt_engine == "local" {
         select("Choose local Whisper model size")
-            .item("tiny", "Tiny (75 MB)", "fastest — good for most use")
-            .item("small", "Small (250 MB)", "balanced")
-            .item("medium", "Medium (750 MB)", "better accuracy")
             .item(
                 "turbo",
                 "Turbo (574 MB)",
                 "fast + near-large accuracy (recommended)",
             )
+            .item("tiny", "Tiny (75 MB)", "fastest — basic accuracy")
+            .item("small", "Small (250 MB)", "balanced")
+            .item("medium", "Medium (750 MB)", "better accuracy")
             .item("large", "Large (1.5 GB)", "best accuracy")
+            .initial_value("turbo")
             .interact()
             .map_err(|e| anyhow::anyhow!(e))?
     } else {

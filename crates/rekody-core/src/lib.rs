@@ -150,7 +150,7 @@ impl Default for RekodyConfig {
             llm_provider: "groq".into(),
             groq_api_key: None,
             cerebras_api_key: None,
-            whisper_model: "tiny".into(),
+            whisper_model: "turbo".into(),
             stt_engine: "local".into(),
             deepgram_api_key: None,
             cohere_stt_port: 8099,
@@ -411,10 +411,10 @@ impl Pipeline {
                 // Use multilingual model file when no language is pinned or language != "en".
                 let whisper_model = match config.whisper_model.to_lowercase().as_str() {
                     "tiny" => WhisperModel::Tiny,
+                    "small" => WhisperModel::Small,
                     "medium" => WhisperModel::Medium,
-                    "turbo" => WhisperModel::Turbo,
                     "large" => WhisperModel::Large,
-                    _ => WhisperModel::Small,
+                    _ => WhisperModel::Turbo,
                 };
                 let model_dir = resolve_model_dir();
                 let is_english_only = lang.as_deref() == Some("en");
