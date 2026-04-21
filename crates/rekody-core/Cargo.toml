@@ -1,0 +1,38 @@
+[package]
+name = "rekody-core"
+description = "Pipeline orchestration for rekody voice dictation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rekody-audio = { workspace = true }
+rekody-stt = { workspace = true }
+rekody-llm = { workspace = true }
+rekody-inject = { workspace = true }
+rekody-hotkey = { workspace = true }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+dirs = "6"
+cliclack = "0.3"
+indicatif = "0.17"
+console = "0.15"
+reqwest = { workspace = true, features = ["blocking"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+clap = { workspace = true }
+arboard = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[[bin]]
+name = "rekody"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"

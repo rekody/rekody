@@ -1,5 +1,5 @@
-# Chamgei — Default Configuration
-# Copy to ~/.config/chamgei/config.toml and customize.
+# rekody — Default Configuration
+# Copy to ~/.config/rekody/config.toml and customize.
 
 # Hotkey activation mode: "push_to_talk" or "toggle"
 activation_mode = "push_to_talk"

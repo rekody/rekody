@@ -1,4 +1,4 @@
-# Chamgei Onboarding Flow -- Product Spec
+# rekody Onboarding Flow -- Product Spec
 
 **Version:** 1.0
 **Date:** 2026-03-17
@@ -9,8 +9,8 @@
 ## Architecture Overview
 
 - **Frontend:** React 19 + Tailwind CSS 4, rendered in Tauri v2 webview
-- **Backend:** Rust (Tauri v2 IPC commands), workspace crates: `chamgei-core`, `chamgei-audio`, `chamgei-stt`, `chamgei-llm`, `chamgei-inject`, `chamgei-hotkey`
-- **Config:** TOML file at `~/.config/chamgei/config.toml` (seeded from `config/default.toml`)
+- **Backend:** Rust (Tauri v2 IPC commands), workspace crates: `rekody-core`, `rekody-audio`, `rekody-stt`, `rekody-llm`, `rekody-inject`, `rekody-hotkey`
+- **Config:** TOML file at `~/.config/rekody/config.toml` (seeded from `config/default.toml`)
 - **State persistence:** Onboarding completion flag stored in config. If `onboarding_completed = true`, skip directly to menu bar mode on launch.
 
 ---
@@ -68,8 +68,8 @@ A thin progress bar or step dots displayed at the top of every screen (except Sc
 ### Layout
 
 - Centered vertically and horizontally
-- App icon (96x96, the Chamgei logo from `src-tauri/icons/`)
-- "Chamgei" in 32px semibold
+- App icon (96x96, the rekody logo from `src-tauri/icons/`)
+- "rekody" in 32px semibold
 - Tagline: "Privacy-first voice dictation" in 16px, muted text color
 - 16px vertical spacer
 - "Get Started" primary button (full-width, max 280px)
@@ -104,7 +104,7 @@ A thin progress bar or step dots displayed at the top of every screen (except Sc
 
 ### Layout
 
-- Heading: "How should Chamgei hear you?" (24px semibold)
+- Heading: "How should rekody hear you?" (24px semibold)
 - Subheading: "Choose your speech-to-text engine" (14px muted)
 - Three selectable cards in a vertical stack, each containing:
 
@@ -149,7 +149,7 @@ Local state:
 ### Tauri IPC Commands
 
 - `validate_api_key(provider: string, key: string) -> Result<bool, String>` -- Makes a lightweight test request to verify the key works. For Groq, hit the models endpoint. For Deepgram, hit the projects endpoint. Returns true/false. Called on blur of the API key field (debounced 500ms).
-- `get_whisper_model_status(model: string) -> { downloaded: bool, size_bytes: u64 }` -- Check if the model file already exists in `~/.config/chamgei/models/` or the `models/` directory.
+- `get_whisper_model_status(model: string) -> { downloaded: bool, size_bytes: u64 }` -- Check if the model file already exists in `~/.config/rekody/models/` or the `models/` directory.
 
 ### Transitions
 
@@ -257,13 +257,13 @@ Local state:
 ### Layout
 
 - Heading: "Two quick permissions" (24px semibold)
-- Subheading: "Both are required for Chamgei to work. We never collect or transmit your data." (14px muted)
+- Subheading: "Both are required for rekody to work. We never collect or transmit your data." (14px muted)
 - Two permission cards stacked vertically:
 
 **Card 1 -- Microphone**
 - Icon: microphone icon (48px)
 - Title: "Microphone Access"
-- Explanation: "Chamgei needs to hear your voice. Audio is processed locally or sent only to your chosen STT provider."
+- Explanation: "rekody needs to hear your voice. Audio is processed locally or sent only to your chosen STT provider."
 - Status badge: dynamic
   - `unknown`: "Not yet granted" (gray)
   - `granted`: "Granted" (green, with checkmark)
@@ -274,10 +274,10 @@ Local state:
 **Card 2 -- Accessibility**
 - Icon: accessibility/cursor icon (48px)
 - Title: "Accessibility Access"
-- Explanation: "Required to type text into any app. Chamgei simulates keystrokes to insert your dictated text."
+- Explanation: "Required to type text into any app. rekody simulates keystrokes to insert your dictated text."
 - Status badge: same pattern as above
 - "Open System Settings" button: opens `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility` via `tauri-plugin-shell` `open`
-- Note below: "Toggle Chamgei ON in the list, then come back here."
+- Note below: "Toggle rekody ON in the list, then come back here."
 
 - "Continue" button at bottom: DISABLED until both permissions are `granted`. Tooltip on hover when disabled: "Grant both permissions to continue."
 - "Back" text button
@@ -296,7 +296,7 @@ Local state:
 - `request_microphone_permission() -> Result<String, String>` -- triggers the macOS microphone permission prompt. Returns "granted" or "denied". On macOS, this involves calling `AVCaptureDevice.requestAccess(for: .audio)` equivalent from Rust (via `coreaudio-rs` or direct `objc` call).
 - `check_microphone_permission() -> "unknown" | "granted" | "denied"` -- checks current status without prompting.
 - `check_accessibility_permission() -> bool` -- checks if accessibility is enabled via `AXIsProcessTrusted()`.
-- `open_accessibility_settings()` -- opens System Settings to the Accessibility pane with Chamgei highlighted.
+- `open_accessibility_settings()` -- opens System Settings to the Accessibility pane with rekody highlighted.
 
 ### Polling
 
@@ -311,8 +311,8 @@ Local state:
 
 ### Error States
 
-- Microphone denied: "Microphone access was denied. Open System Settings > Privacy & Security > Microphone and enable Chamgei." with "Open Settings" button.
-- Accessibility not granted after 30 seconds of being on this screen: show helper text "Having trouble? Make sure you see Chamgei in the Accessibility list and the toggle is ON."
+- Microphone denied: "Microphone access was denied. Open System Settings > Privacy & Security > Microphone and enable rekody." with "Open Settings" button.
+- Accessibility not granted after 30 seconds of being on this screen: show helper text "Having trouble? Make sure you see rekody in the Accessibility list and the toggle is ON."
 - If user navigates back and returns, re-check permissions immediately.
 
 ### Time Budget
@@ -430,7 +430,7 @@ Local state:
 
 ### Hotkey Note
 
-During onboarding, the hotkey listener should be active ONLY on this screen. The `chamgei-hotkey` crate needs an IPC command to enable/disable listening:
+During onboarding, the hotkey listener should be active ONLY on this screen. The `rekody-hotkey` crate needs an IPC command to enable/disable listening:
 
 - `enable_hotkey_listener() -> ()` -- called on mount
 - `disable_hotkey_listener() -> ()` -- called on unmount (cleanup)
@@ -476,10 +476,10 @@ During onboarding, the hotkey listener should be active ONLY on this screen. The
   - "Quick Reference"
   - `Fn (hold)` -- Start dictating
   - `Fn (release)` -- Stop and transcribe
-  - `Cmd + Shift + C` -- Open Chamgei settings (placeholder, configurable later)
+  - `Cmd + Shift + C` -- Open rekody settings (placeholder, configurable later)
 
-- "Start Chamgei" primary button (full width, max 280px)
-- Below button: "Chamgei will live in your menu bar" (14px muted, with a small arrow icon pointing up-right toward where the menu bar icon will appear)
+- "Start rekody" primary button (full width, max 280px)
+- Below button: "rekody will live in your menu bar" (14px muted, with a small arrow icon pointing up-right toward where the menu bar icon will appear)
 
 ### Props / State
 
@@ -491,7 +491,7 @@ Props (from OnboardingProvider):
 
 ### Tauri IPC Commands
 
-- `save_config(config: OnboardingConfig) -> Result<(), String>` -- writes the assembled configuration to `~/.config/chamgei/config.toml`. Sets `onboarding_completed = true`.
+- `save_config(config: OnboardingConfig) -> Result<(), String>` -- writes the assembled configuration to `~/.config/rekody/config.toml`. Sets `onboarding_completed = true`.
 - `start_app() -> ()` -- transitions from the onboarding window to menu-bar-only mode. Closes the onboarding window, initializes the system tray, starts the hotkey listener, and the app is live.
 
 ### Transitions
@@ -499,12 +499,12 @@ Props (from OnboardingProvider):
 - Slide-in from right (300ms)
 - Checkmark draw animation on mount (600ms)
 - Summary rows: staggered fade-in (100ms delay per row)
-- "Start Chamgei" click: window shrinks/fades out (300ms) as the menu bar icon appears
+- "Start rekody" click: window shrinks/fades out (300ms) as the menu bar icon appears
 
 ### Error States
 
-- Config write failure: "Could not save configuration. [Error details]" with "Retry" button. Provide the file path (`~/.config/chamgei/config.toml`) so the user can manually check permissions.
-- App start failure: "Could not start Chamgei. Please try relaunching the app." This should be exceedingly rare.
+- Config write failure: "Could not save configuration. [Error details]" with "Retry" button. Provide the file path (`~/.config/rekody/config.toml`) so the user can manually check permissions.
+- App start failure: "Could not start rekody. Please try relaunching the app." This should be exceedingly rare.
 
 ### Time Budget
 
@@ -539,24 +539,24 @@ All commands are exposed from `src-tauri` via `#[tauri::command]` and invoked fr
 
 | Command | Screen | Crate | Description |
 |---------|--------|-------|-------------|
-| `validate_api_key(provider, key)` | 2, 3 | `chamgei-core` or `chamgei-llm`/`chamgei-stt` | Lightweight API call to verify key validity |
-| `get_whisper_model_status(model)` | 2 | `chamgei-stt` | Check if model file exists locally |
-| `detect_ollama()` | 3 | `chamgei-llm` | Hit Ollama API, return available models |
-| `get_provider_models(provider)` | 3 | `chamgei-llm` | Return hardcoded recommended model list |
-| `request_microphone_permission()` | 4 | `chamgei-audio` | Trigger macOS mic permission prompt |
-| `check_microphone_permission()` | 4 | `chamgei-audio` | Check mic permission status |
-| `check_accessibility_permission()` | 4 | `chamgei-inject` | Call `AXIsProcessTrusted()` |
-| `open_accessibility_settings()` | 4 | `chamgei-inject` | Open System Settings to Accessibility |
-| `get_input_device_name()` | 5 | `chamgei-audio` | Return default input device name |
-| `start_mic_test()` | 5 | `chamgei-audio` | Begin audio capture, emit `mic-level` events |
-| `stop_mic_test()` | 5 | `chamgei-audio` | Stop test capture |
-| `enable_hotkey_listener()` | 6 | `chamgei-hotkey` | Start listening for Fn key |
-| `disable_hotkey_listener()` | 6 | `chamgei-hotkey` | Stop listening for Fn key |
-| `start_recording()` | 6 | `chamgei-audio` | Begin dictation audio capture |
-| `stop_recording()` | 6 | `chamgei-audio` + `chamgei-stt` | Stop capture, run STT, return text |
-| `format_text(raw)` | 6 | `chamgei-llm` | Send raw text to LLM for formatting |
-| `save_config(config)` | 7 | `chamgei-core` | Write config.toml |
-| `start_app()` | 7 | `chamgei-core` | Transition to menu bar mode |
+| `validate_api_key(provider, key)` | 2, 3 | `rekody-core` or `rekody-llm`/`rekody-stt` | Lightweight API call to verify key validity |
+| `get_whisper_model_status(model)` | 2 | `rekody-stt` | Check if model file exists locally |
+| `detect_ollama()` | 3 | `rekody-llm` | Hit Ollama API, return available models |
+| `get_provider_models(provider)` | 3 | `rekody-llm` | Return hardcoded recommended model list |
+| `request_microphone_permission()` | 4 | `rekody-audio` | Trigger macOS mic permission prompt |
+| `check_microphone_permission()` | 4 | `rekody-audio` | Check mic permission status |
+| `check_accessibility_permission()` | 4 | `rekody-inject` | Call `AXIsProcessTrusted()` |
+| `open_accessibility_settings()` | 4 | `rekody-inject` | Open System Settings to Accessibility |
+| `get_input_device_name()` | 5 | `rekody-audio` | Return default input device name |
+| `start_mic_test()` | 5 | `rekody-audio` | Begin audio capture, emit `mic-level` events |
+| `stop_mic_test()` | 5 | `rekody-audio` | Stop test capture |
+| `enable_hotkey_listener()` | 6 | `rekody-hotkey` | Start listening for Fn key |
+| `disable_hotkey_listener()` | 6 | `rekody-hotkey` | Stop listening for Fn key |
+| `start_recording()` | 6 | `rekody-audio` | Begin dictation audio capture |
+| `stop_recording()` | 6 | `rekody-audio` + `rekody-stt` | Stop capture, run STT, return text |
+| `format_text(raw)` | 6 | `rekody-llm` | Send raw text to LLM for formatting |
+| `save_config(config)` | 7 | `rekody-core` | Write config.toml |
+| `start_app()` | 7 | `rekody-core` | Transition to menu bar mode |
 
 ### Tauri Events (backend -> frontend)
 
@@ -660,10 +660,10 @@ None. Zero telemetry. No tracking of onboarding completion rates, drop-off scree
 
 ## Open Questions for Engineering
 
-1. **Fn key detection on macOS:** The Fn key behaves differently from regular modifier keys on macOS. Confirm that `chamgei-hotkey` can reliably detect Fn press/release via `CGEventTap` or similar. If Fn is problematic, the fallback is `Right Option` or a configurable key shown during onboarding.
+1. **Fn key detection on macOS:** The Fn key behaves differently from regular modifier keys on macOS. Confirm that `rekody-hotkey` can reliably detect Fn press/release via `CGEventTap` or similar. If Fn is problematic, the fallback is `Right Option` or a configurable key shown during onboarding.
 
 2. **Accessibility permission prompt:** macOS does not provide a programmatic way to grant accessibility. The user must manually toggle it in System Settings. Confirm the polling approach (1s interval calling `AXIsProcessTrusted()`) is performant and reliable.
 
-3. **Whisper model download location:** Currently models appear to live in the project's `models/` directory. For the installed app, they should go to `~/Library/Application Support/com.chamgei.app/models/` or `~/.config/chamgei/models/`. Align with the existing `chamgei-stt` crate's expectations.
+3. **Whisper model download location:** Currently models appear to live in the project's `models/` directory. For the installed app, they should go to `~/Library/Application Support/com.rekody.app/models/` or `~/.config/rekody/models/`. Align with the existing `rekody-stt` crate's expectations.
 
 4. **Window transition to menu bar:** The `start_app()` command needs to close the onboarding webview window and initialize the tray. Confirm Tauri v2 supports closing/hiding the main window while keeping the tray alive without the app quitting (requires `RunEvent::ExitRequested` handling or `prevent_close` + `hide`).

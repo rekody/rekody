@@ -46,7 +46,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.arch }}-cargo-release-
 
       - name: Build CLI binary
-        run: cargo build --release -p chamgei-core --target ${{ matrix.target }}
+        run: cargo build --release -p rekody-core --target ${{ matrix.target }}
 
       - name: Get version from tag
         id: version
@@ -56,15 +56,15 @@ jobs:
         run: |
           mkdir -p dist
           PKGDIR=$(mktemp -d)
-          cp target/${{ matrix.target }}/release/chamgei "$PKGDIR/chamgei"
-          tar -czf "dist/chamgei-${{ steps.version.outputs.version }}-macos-${{ matrix.arch }}.tar.gz" -C "$PKGDIR" .
+          cp target/${{ matrix.target }}/release/rekody "$PKGDIR/rekody"
+          tar -czf "dist/rekody-${{ steps.version.outputs.version }}-macos-${{ matrix.arch }}.tar.gz" -C "$PKGDIR" .
           rm -rf "$PKGDIR"
 
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
           name: cli-macos-${{ matrix.arch }}
-          path: dist/chamgei-*.tar.gz
+          path: dist/rekody-*.tar.gz
 
   # ---------------------------------------------------------------------------
   # Create GitHub Release with all artifacts
@@ -121,7 +121,7 @@ jobs:
         id: sums
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          SUMS=$(curl -fsSL "https://github.com/tonykipkemboi/chamgei/releases/download/v${VERSION}/SHA256SUMS")
+          SUMS=$(curl -fsSL "https://github.com/tonykipkemboi/rekody/releases/download/v${VERSION}/SHA256SUMS")
           SHA_AARCH64=$(echo "$SUMS" | grep "macos-aarch64" | awk '{print $1}')
           SHA_X86_64=$(echo  "$SUMS" | grep "macos-x86_64"  | awk '{print $1}')
           echo "sha_aarch64=$SHA_AARCH64" >> "$GITHUB_OUTPUT"
@@ -130,7 +130,7 @@ jobs:
       - name: Checkout homebrew tap
         uses: actions/checkout@v4
         with:
-          repository: tonykipkemboi/homebrew-chamgei
+          repository: tonykipkemboi/homebrew-rekody
           token: ${{ secrets.PAT_HOMEBREW }}
           path: tap
 
@@ -140,17 +140,17 @@ jobs:
           SHA_AARCH64="${{ steps.sums.outputs.sha_aarch64 }}"
           SHA_X86_64="${{ steps.sums.outputs.sha_x86_64 }}"
 
-          sed -i "s/version \".*\"/version \"${VERSION}\"/" tap/Formula/chamgei.rb
-          sed -i "/macos-aarch64/{ n; s/sha256 \".*\"/sha256 \"${SHA_AARCH64}\"/ }" tap/Formula/chamgei.rb
-          sed -i "/macos-x86_64/{  n; s/sha256 \".*\"/sha256 \"${SHA_X86_64}\"/ }"  tap/Formula/chamgei.rb
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" tap/Formula/rekody.rb
+          sed -i "/macos-aarch64/{ n; s/sha256 \".*\"/sha256 \"${SHA_AARCH64}\"/ }" tap/Formula/rekody.rb
+          sed -i "/macos-x86_64/{  n; s/sha256 \".*\"/sha256 \"${SHA_X86_64}\"/ }"  tap/Formula/rekody.rb
 
-          cat tap/Formula/chamgei.rb
+          cat tap/Formula/rekody.rb
 
       - name: Commit and push formula update
         run: |
           cd tap
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/chamgei.rb
-          git diff --staged --quiet || git commit -m "chore: update chamgei to v${{ steps.version.outputs.version }}"
+          git add Formula/rekody.rb
+          git diff --staged --quiet || git commit -m "chore: update rekody to v${{ steps.version.outputs.version }}"
           git push

@@ -45,15 +45,15 @@ jobs:
           FAIL=0
 
           # ── cmd_update (main.rs) ──────────────────────────────────────────────
-          UPDATE_PATTERN=$(grep 'let tarball = format!' crates/chamgei-core/src/main.rs | \
+          UPDATE_PATTERN=$(grep 'let tarball = format!' crates/rekody-core/src/main.rs | \
             sed 's/.*format!("\(.*\)".*/\1/')
           echo "cmd_update pattern : $UPDATE_PATTERN"
 
-          if echo "$UPDATE_PATTERN" | grep -qE 'chamgei-v\{'; then
+          if echo "$UPDATE_PATTERN" | grep -qE 'rekody-v\{'; then
             echo "ERROR: cmd_update has spurious 'v' prefix in tarball name"
             FAIL=1
           fi
-          if grep -A2 '"aarch64"' crates/chamgei-core/src/main.rs | grep -q '"arm64"'; then
+          if grep -A2 '"aarch64"' crates/rekody-core/src/main.rs | grep -q '"arm64"'; then
             echo "ERROR: cmd_update maps aarch64 -> arm64 but release.yml uses aarch64"
             FAIL=1
           fi

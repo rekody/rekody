@@ -1,4 +1,4 @@
-# Contributing to Chamgei
+# Contributing to rekody
 
 Thanks for your interest in contributing! This guide covers everything you need to get started.
 
@@ -20,8 +20,8 @@ Thanks for your interest in contributing! This guide covers everything you need 
 ### Getting started
 
 ```bash
-git clone https://github.com/tonykipkemboi/chamgei.git
-cd chamgei
+git clone https://github.com/tonykipkemboi/rekody.git
+cd rekody
 npm install
 cargo tauri dev
 ```
@@ -29,17 +29,17 @@ cargo tauri dev
 ## Project Structure
 
 ```
-chamgei/
+rekody/
   Cargo.toml              # Workspace root
   config/
     default.toml           # Default configuration template
   crates/
-    chamgei-core/          # Pipeline orchestration, config, context, prompts
-    chamgei-audio/         # Mic capture, resampling, VAD
-    chamgei-stt/           # Speech-to-text (local Whisper)
-    chamgei-llm/           # LLM providers (Cerebras, Groq, local stub)
-    chamgei-inject/        # Text injection (clipboard, native)
-    chamgei-hotkey/        # Global hotkey listener
+    rekody-core/           # Pipeline orchestration, config, context, prompts
+    rekody-audio/          # Mic capture, resampling, VAD
+    rekody-stt/            # Speech-to-text (local Whisper)
+    rekody-llm/            # LLM providers (Cerebras, Groq, local stub)
+    rekody-inject/         # Text injection (clipboard, native)
+    rekody-hotkey/         # Global hotkey listener
   src-tauri/               # Tauri app shell and commands
   src/                     # React + TypeScript frontend
   models/                  # Local model files (not committed)
@@ -55,7 +55,7 @@ cargo tauri dev
 cargo test --workspace
 
 # Run tests for a specific crate
-cargo test -p chamgei-audio
+cargo test -p rekody-audio
 
 # Build a production release
 cargo tauri build

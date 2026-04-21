@@ -1,0 +1,79 @@
+---
+interface Props {
+  size?: number | string;
+  strokeColor?: string;
+  dotColor?: string;
+  strokeWidth?: number;
+  hideDot?: boolean;
+  animate?: boolean;
+  duration?: string;
+  class?: string;
+  ariaLabel?: string;
+}
+
+const {
+  size = 28,
+  strokeColor = 'currentColor',
+  dotColor = 'var(--color-teal)',
+  strokeWidth = 20,
+  hideDot = false,
+  animate = false,
+  duration = '2.4s',
+  class: className = '',
+  ariaLabel,
+} = Astro.props;
+---
+
+<svg
+  width={size}
+  height={size}
+  viewBox="0 0 200 200"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+  class={className}
+  role={ariaLabel ? 'img' : undefined}
+  aria-label={ariaLabel}
+  aria-hidden={ariaLabel ? undefined : 'true'}
+>
+  <path
+    d="M 160.6 135 A 70 70 0 0 1 30 100 A 70 70 0 0 1 160.6 65"
+    stroke={strokeColor}
+    stroke-width={strokeWidth}
+    stroke-linecap="round"
+    fill="none"
+  />
+  {!hideDot && !animate && (
+    <circle cx="170" cy="100" r="10" fill={dotColor} />
+  )}
+  {!hideDot && animate && (
+    <circle cx="170" cy="100" r="10" fill={dotColor}>
+      <animateTransform
+        attributeName="transform"
+        type="rotate"
+        from="0 100 100"
+        to="-360 100 100"
+        dur={duration}
+        repeatCount="indefinite"
+        calcMode="spline"
+        keySplines="0.65 0 0.35 1"
+        keyTimes="0;1"
+      />
+      <animate
+        attributeName="opacity"
+        values="0.2;1;1;0.2"
+        keyTimes="0;0.08;0.92;1"
+        dur={duration}
+        repeatCount="indefinite"
+      />
+    </circle>
+  )}
+</svg>
+
+<style>
+  @media (prefers-reduced-motion: reduce) {
+    svg animateTransform,
+    svg animate {
+      display: none;
+    }
+  }
+</style>

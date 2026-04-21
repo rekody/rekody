@@ -5,7 +5,7 @@ const BASE = 'http://localhost:4321';
 test.describe('SEO', () => {
   test('page title', async ({ page }) => {
     await page.goto(BASE);
-    await expect(page).toHaveTitle(/chamgei/i);
+    await expect(page).toHaveTitle(/rekody/i);
     await expect(page).toHaveTitle(/Voice Dictation for Everyone/i);
   });
 
@@ -22,7 +22,7 @@ test.describe('SEO', () => {
     await page.goto(BASE);
     const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
     expect(canonical).toBeTruthy();
-    expect(canonical).toContain('chamgei.com');
+    expect(canonical).toContain('rekody.com');
   });
 
   test('Open Graph tags', async ({ page }) => {
@@ -34,11 +34,11 @@ test.describe('SEO', () => {
     const ogSiteName = await page.locator('meta[property="og:site_name"]').getAttribute('content');
     const ogImgAlt   = await page.locator('meta[property="og:image:alt"]').getAttribute('content');
 
-    expect(ogTitle).toContain('chamgei');
+    expect(ogTitle).toContain('rekody');
     expect(ogDesc).toBeTruthy();
     expect(ogImage).toContain('og-image.png');
     expect(ogLocale).toBe('en_US');
-    expect(ogSiteName).toBe('chamgei');
+    expect(ogSiteName).toBe('rekody');
     expect(ogImgAlt).toBeTruthy();
   });
 
@@ -108,7 +108,7 @@ test.describe('SEO', () => {
     for (const s of scripts) {
       const json = JSON.parse(await s.innerHTML());
       if (json['@type'] === 'SoftwareApplication') {
-        expect(json.name).toBe('chamgei');
+        expect(json.name).toBe('rekody');
         expect(json.operatingSystem).toBe('macOS');
         expect(json.offers?.price).toBe('0');
         expect(json.author?.name).toBeTruthy();

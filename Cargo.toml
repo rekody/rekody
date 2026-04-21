@@ -1,28 +1,28 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/chamgei-core",
-    "crates/chamgei-audio",
-    "crates/chamgei-stt",
-    "crates/chamgei-llm",
-    "crates/chamgei-inject",
-    "crates/chamgei-hotkey",
+    "crates/rekody-core",
+    "crates/rekody-audio",
+    "crates/rekody-stt",
+    "crates/rekody-llm",
+    "crates/rekody-inject",
+    "crates/rekody-hotkey",
 ]
 
 [workspace.package]
-version = "0.4.3"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 authors = ["Tony Kipkemboi"]
-repository = "https://github.com/tonykipkemboi/chamgei"
+repository = "https://github.com/tonykipkemboi/rekody"
 
 [workspace.dependencies]
-chamgei-core = { path = "crates/chamgei-core" }
-chamgei-audio = { path = "crates/chamgei-audio" }
-chamgei-stt = { path = "crates/chamgei-stt" }
-chamgei-llm = { path = "crates/chamgei-llm" }
-chamgei-inject = { path = "crates/chamgei-inject" }
-chamgei-hotkey = { path = "crates/chamgei-hotkey" }
+rekody-core = { path = "crates/rekody-core" }
+rekody-audio = { path = "crates/rekody-audio" }
+rekody-stt = { path = "crates/rekody-stt" }
+rekody-llm = { path = "crates/rekody-llm" }
+rekody-inject = { path = "crates/rekody-inject" }
+rekody-hotkey = { path = "crates/rekody-hotkey" }
 
 # Shared dependencies
 tokio = { version = "1", features = ["full"] }

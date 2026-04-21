@@ -1,4 +1,4 @@
-# Chamgei — Build & Packaging
+# rekody — Build & Packaging
 # Usage:
 #   make build          Build release binary
 #   make install        Build + install binary + download default model
@@ -6,10 +6,10 @@
 #   make package-macos  Create a distributable .tar.gz
 #   make clean          Cargo clean
 
-BINARY_NAME  := chamgei
+BINARY_NAME  := rekody
 INSTALL_DIR  := /usr/local/bin
-MODEL_DIR    := $(HOME)/.local/share/chamgei/models
-CONFIG_DIR   := $(HOME)/.config/chamgei
+MODEL_DIR    := $(HOME)/.local/share/rekody/models
+CONFIG_DIR   := $(HOME)/.config/rekody
 WHISPER_FILE := ggml-tiny.bin
 WHISPER_URL  := https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$(WHISPER_FILE)
 
@@ -20,7 +20,7 @@ VERSION := $(shell grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/'
 .PHONY: build install uninstall package-macos clean
 
 build:
-	cargo build --release -p chamgei-core
+	cargo build --release -p rekody-core
 
 install: build
 	@echo "Installing $(BINARY_NAME) to $(INSTALL_DIR)..."
@@ -39,7 +39,7 @@ install: build
 	@echo "  Binary:  $(INSTALL_DIR)/$(BINARY_NAME)"
 	@echo "  Model:   $(MODEL_DIR)/$(WHISPER_FILE)"
 	@echo ""
-	@echo "Run 'chamgei' to start. On first launch it will guide you through setup."
+	@echo "Run 'rekody' to start. On first launch it will guide you through setup."
 
 uninstall:
 	@echo "Removing $(BINARY_NAME)..."
@@ -63,9 +63,9 @@ package-macos: build
 		curl -fSL --progress-bar -o "$$PKGDIR/models/$(WHISPER_FILE)" "$(WHISPER_URL)"; \
 	fi && \
 	cp config/default.toml "$$PKGDIR/config.toml" && \
-	tar -czf "dist/chamgei-$(VERSION)-macos-$(ARCH).tar.gz" -C "$$PKGDIR" . && \
+	tar -czf "dist/rekody-$(VERSION)-macos-$(ARCH).tar.gz" -C "$$PKGDIR" . && \
 	rm -rf "$$PKGDIR" && \
-	echo "Package created: dist/chamgei-$(VERSION)-macos-$(ARCH).tar.gz"
+	echo "Package created: dist/rekody-$(VERSION)-macos-$(ARCH).tar.gz"
 
 clean:
 	cargo clean

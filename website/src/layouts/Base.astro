@@ -10,14 +10,14 @@ export interface Props {
 }
 
 const {
-  title = 'chamgei — Voice Dictation for Everyone',
+  title = 'rekody — Voice Dictation for Everyone',
   description = 'Open-source macOS voice dictation. Hold ⌥Space, speak, release. Text injected at your cursor in any app. Push-to-talk, 100+ languages, powered by Deepgram Nova-3 (~200ms).',
   ogImage = '/og-image.png',
   faqSchema,
 } = Astro.props;
 
-const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://chamgei.com');
-const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://chamgei.com');
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://rekody.com');
+const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
 ---
 
 <!doctype html>
@@ -31,14 +31,14 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://chamgei.com');
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="author" content="Tony Kipkemboi" />
-    <meta name="theme-color" content="#0d9488" />
+    <meta name="theme-color" content="#FBFAF4" />
 
     <!-- Robots -->
     <meta name="robots" content="index, follow, max-image-preview:large" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="chamgei" />
+    <meta property="og:site_name" content="rekody" />
     <meta property="og:locale" content="en_US" />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:title" content={title} />
@@ -46,7 +46,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://chamgei.com');
     <meta property="og:image" content={ogImageUrl} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="chamgei — Voice dictation for everyone. Speak. Release. Done." />
+    <meta property="og:image:alt" content="rekody — Voice dictation for everyone. Speak. Release. Done." />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -55,22 +55,23 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://chamgei.com');
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
-    <meta name="twitter:image:alt" content="chamgei — Voice dictation for everyone. Speak. Release. Done." />
+    <meta name="twitter:image:alt" content="rekody — Voice dictation for everyone. Speak. Release. Done." />
 
     <!-- Favicons -->
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <link rel="icon" type="image/png" href="/icon.png" sizes="128x128" />
-    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
+    <link rel="icon" type="image/png" href="/icon.png?v=2" sizes="1024x1024" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon.png?v=2" />
 
     <!-- JSON-LD: SoftwareApplication -->
     <script type="application/ld+json" set:html={JSON.stringify({
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
-      "name": "chamgei",
+      "name": "rekody",
       "applicationCategory": "UtilitiesApplication",
       "operatingSystem": "macOS",
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "url": "https://chamgei.com",
+      "url": "https://rekody.com",
       "description": description,
       "license": "https://opensource.org/licenses/MIT",
       "author": {

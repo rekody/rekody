@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.0] - 2026-04-19
+
+### Changed (Breaking)
+
+- **Project renamed: `chamgei` → `rekody`.** Hard cutover, no backward compatibility.
+- **Binary renamed:** `chamgei` → `rekody`. Update scripts, aliases, and shell completions.
+- **All 6 crates renamed:**
+  - `chamgei-core` → `rekody-core`
+  - `chamgei-audio` → `rekody-audio`
+  - `chamgei-stt` → `rekody-stt`
+  - `chamgei-llm` → `rekody-llm`
+  - `chamgei-inject` → `rekody-inject`
+  - `chamgei-hotkey` → `rekody-hotkey`
+- **Config directory moved:** `~/.config/chamgei/` → `~/.config/rekody/` (including `config.toml` and `history.json`).
+- **Model directory moved:** `~/.local/share/chamgei/models/` → `~/.local/share/rekody/models/`.
+- **Keychain service changed:** `com.chamgei.voice` → `com.rekody.voice`. **Users must re-add API keys** — stored keys under the old service will not be read.
+- **Environment variable renamed:** `CHAMGEI_MODEL_DIR` → `REKODY_MODEL_DIR`.
+- **GitHub repo renamed:** `tonykipkemboi/chamgei` → `tonykipkemboi/rekody`.
+- **Homebrew tap moved:** `tonykipkemboi/homebrew-chamgei` → `tonykipkemboi/homebrew-rekody`. Re-tap with `brew untap tonykipkemboi/chamgei && brew tap tonykipkemboi/rekody`.
+
+### Migration
+
+Existing users should run `rekody setup` fresh to regenerate config, move/redownload models, and re-store API keys in the keychain. The old `~/.config/chamgei/` directory can be deleted once you've confirmed `rekody` is working.
+
 ## v0.3.0 (2026-03-18)
 
 ### Added

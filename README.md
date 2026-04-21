@@ -1,12 +1,10 @@
 <p align="center">
-  <img src="website/public/icon.png" alt="chamgei logo" width="96" />
+  <img src="website/public/icon.png" alt="rekody logo" width="96" />
 </p>
 
-<h1 align="center">chamgei</h1>
+<h1 align="center">rekody</h1>
 
-<p align="center"><strong>/tʃɑːm.ɡeɪ/</strong> — a Kalenjin greeting meaning "How are you?"</p>
-
-> Kalenjin is a community from the highlands of Kenya. *Chamgei* is how you say hello — a word that opens conversation. We chose it because that's what this tool does: opens the conversation between your voice and your computer.
+<p align="center"><strong>/ˈrɛ.kə.di/</strong> — record + melody, the rhythm of your voice becoming text.</p>
 
 **Open-source, privacy-first voice dictation for the terminal.**
 
@@ -18,28 +16,28 @@ Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on
 
 ```bash
 # Install via Homebrew (recommended)
-brew tap tonykipkemboi/chamgei
-brew install chamgei
+brew tap tonykipkemboi/rekody
+brew install rekody
 
 # Or one-line installer (no Homebrew needed)
-curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/chamgei/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/rekody/main/install.sh | bash
 
 # Or build from source
-git clone https://github.com/tonykipkemboi/chamgei.git
-cd chamgei
+git clone https://github.com/tonykipkemboi/rekody.git
+cd rekody
 make install
 
 # First run launches the setup wizard
-chamgei
+rekody
 ```
 
 **Requirements:** macOS (Apple Silicon or Intel).
 
 ```bash
 # Update
-brew upgrade chamgei
+brew upgrade rekody
 # or
-chamgei update
+rekody update
 ```
 
 ---
@@ -47,7 +45,7 @@ chamgei update
 ## Usage
 
 ```
-chamgei [COMMAND]
+rekody [COMMAND]
 
 Commands:
   (none)   Run voice dictation
@@ -71,30 +69,30 @@ Options:
 | **Push-to-talk** (default) | `⌥Space` | Hold to record, release to transcribe |
 | **Toggle** | `⌥Space` | Tap to start, tap again to stop |
 
-> **macOS:** chamgei uses an active `CGEventTap` so `⌥Space` is fully suppressed — it will not insert a non-breaking space into your focused window. Requires **Accessibility** permission (System Settings → Privacy & Security → Accessibility).
+> **macOS:** rekody uses an active `CGEventTap` so `⌥Space` is fully suppressed — it will not insert a non-breaking space into your focused window. Requires **Accessibility** permission (System Settings → Privacy & Security → Accessibility).
 
 ### macOS permissions
 
-chamgei needs two TCC permissions:
+rekody needs two TCC permissions:
 
 | Permission | Why | Granted to |
 |------------|-----|------------|
-| **Accessibility** | Suppress `⌥Space` before it reaches the focused app (so it doesn't type a non-breaking space) | `chamgei` binary |
+| **Accessibility** | Suppress `⌥Space` before it reaches the focused app (so it doesn't type a non-breaking space) | `rekody` binary |
 | **Microphone** | Capture audio for transcription | **Your terminal** (see below) |
 
-> **Why "Terminal.app" (or iTerm / Warp / Ghostty) shows up in your Microphone list instead of chamgei:** macOS TCC attributes microphone access to the *responsible process* of a CLI app, which for terminal-launched binaries is the parent terminal emulator — not chamgei itself. This is a system-level design, not a bug. The permission granted to your terminal applies to every command you run inside it, including chamgei.
+> **Why "Terminal.app" (or iTerm / Warp / Ghostty) shows up in your Microphone list instead of rekody:** macOS TCC attributes microphone access to the *responsible process* of a CLI app, which for terminal-launched binaries is the parent terminal emulator — not rekody itself. This is a system-level design, not a bug. The permission granted to your terminal applies to every command you run inside it, including rekody.
 >
-> If you've granted microphone access to your terminal once, chamgei will work. If the permission is missing or denied, `chamgei setup` will prompt for it eagerly; `chamgei doctor` probes the device and shows the current state.
+> If you've granted microphone access to your terminal once, rekody will work. If the permission is missing or denied, `rekody setup` will prompt for it eagerly; `rekody doctor` probes the device and shows the current state.
 
 ### Configuration
 
 ```bash
-chamgei config          # show current config
-chamgei config edit     # open config.toml in $EDITOR
-chamgei config path     # print config file location
+rekody config          # show current config
+rekody config edit     # open config.toml in $EDITOR
+rekody config path     # print config file location
 ```
 
-Config file lives at `~/.config/chamgei/config.toml`.
+Config file lives at `~/.config/rekody/config.toml`.
 
 **All options:**
 
@@ -128,32 +126,32 @@ model = "llama3.2:3b"
 Keys are stored in the macOS Keychain — never in plaintext on disk.
 
 ```bash
-chamgei key set deepgram     # securely prompt + save
-chamgei key set groq
-chamgei key list             # show which keys are stored
-chamgei key delete groq      # remove a key
+rekody key set deepgram     # securely prompt + save
+rekody key set groq
+rekody key list             # show which keys are stored
+rekody key delete groq      # remove a key
 ```
 
 ### History
 
 ```bash
-chamgei history                    # last 20 dictations
-chamgei history -c 50              # last 50
-chamgei history -s "bug fix"       # search by text
-chamgei history -a "VS Code"       # filter by app
-chamgei history --full             # show full text + raw transcript
-chamgei history --stats            # usage statistics + top apps
-chamgei history --json             # raw JSON output (pipe-friendly)
-chamgei history --copy 1           # copy latest entry to clipboard
-chamgei history --copy 3           # copy 3rd-most-recent to clipboard
+rekody history                    # last 20 dictations
+rekody history -c 50              # last 50
+rekody history -s "bug fix"       # search by text
+rekody history -a "VS Code"       # filter by app
+rekody history --full             # show full text + raw transcript
+rekody history --stats            # usage statistics + top apps
+rekody history --json             # raw JSON output (pipe-friendly)
+rekody history --copy 1           # copy latest entry to clipboard
+rekody history --copy 3           # copy 3rd-most-recent to clipboard
 ```
 
-History is stored at `~/.config/chamgei/history.json` (up to 5,000 entries).
+History is stored at `~/.config/rekody/history.json` (up to 5,000 entries).
 
 ### Doctor
 
 ```bash
-chamgei doctor    # live connectivity check for all configured providers
+rekody doctor    # live connectivity check for all configured providers
 ```
 
 ---
@@ -204,14 +202,14 @@ Multiple providers fall back automatically: first success wins.
 ```
 
 ```
-chamgei/
+rekody/
 ├── crates/
-│   ├── chamgei-core      Pipeline orchestrator, config, onboarding, context detection
-│   ├── chamgei-audio     Microphone capture, resampling, energy-based VAD
-│   ├── chamgei-stt       Deepgram Nova-3, Groq Whisper, local whisper.cpp, Cohere
-│   ├── chamgei-llm       11 LLM providers + custom, automatic failover chain
-│   ├── chamgei-inject    Text injection: clipboard paste + native CGEvent/SendInput
-│   └── chamgei-hotkey    Global ⌥Space listener via CGEventTap (active, suppressing)
+│   ├── rekody-core      Pipeline orchestrator, config, onboarding, context detection
+│   ├── rekody-audio     Microphone capture, resampling, energy-based VAD
+│   ├── rekody-stt       Deepgram Nova-3, Groq Whisper, local whisper.cpp, Cohere
+│   ├── rekody-llm       11 LLM providers + custom, automatic failover chain
+│   ├── rekody-inject    Text injection: clipboard paste + native CGEvent/SendInput
+│   └── rekody-hotkey    Global ⌥Space listener via CGEventTap (active, suppressing)
 └── config/
     └── default.toml      Template configuration
 ```
@@ -232,32 +230,32 @@ chamgei/
 
 ## For AI Agents
 
-Chamgei is designed to be easy for AI coding agents to install and configure:
+rekody is designed to be easy for AI coding agents to install and configure:
 
 ```bash
 # Point your agent at this file, then:
-# "Install chamgei and set it up with Deepgram"
+# "Install rekody and set it up with Deepgram"
 
 # Quick machine-readable status
-chamgei doctor --json 2>/dev/null || chamgei --version
+rekody doctor --json 2>/dev/null || rekody --version
 
 # Non-interactive config update
-chamgei config path           # get config file path
-# then edit ~/.config/chamgei/config.toml directly
+rekody config path           # get config file path
+# then edit ~/.config/rekody/config.toml directly
 
 # Set a key non-interactively (via security CLI)
-security add-generic-password -s "com.chamgei.voice" -a "deepgram" -w "YOUR_KEY" -U
+security add-generic-password -s "com.rekody.voice" -a "deepgram" -w "YOUR_KEY" -U
 
 # Get history as JSON for downstream processing
-chamgei history --json -c 100
+rekody history --json -c 100
 
 # Copy last transcript to clipboard
-chamgei history --copy 1
+rekody history --copy 1
 ```
 
 **SKILLS.md** contains a structured agent onboarding guide — point your agent at it:
 
-> "Read SKILLS.md and set up chamgei for voice dictation on this machine."
+> "Read SKILLS.md and set up rekody for voice dictation on this machine."
 
 ---
 
@@ -266,7 +264,7 @@ chamgei history --copy 1
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 
 ```bash
-cargo build -p chamgei-core --release   # build
+cargo build -p rekody-core --release    # build
 cargo test                              # test
 make install                            # build + install to /usr/local/bin
 ```

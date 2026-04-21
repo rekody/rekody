@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Chamgei — One-line installer (downloads precompiled binary, no Rust needed)
+# rekody — One-line installer (downloads precompiled binary, no Rust needed)
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/chamgei/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/rekody/main/install.sh | bash
 #
 # What it does:
 #   1. Downloads the precompiled binary for your platform
@@ -12,9 +12,9 @@
 
 set -euo pipefail
 
-GITHUB_REPO="tonykipkemboi/chamgei"
+GITHUB_REPO="tonykipkemboi/rekody"
 INSTALL_DIR="/usr/local/bin"
-MODEL_DIR="$HOME/.local/share/chamgei/models"
+MODEL_DIR="$HOME/.local/share/rekody/models"
 WHISPER_FILE="ggml-tiny.bin"
 WHISPER_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$WHISPER_FILE"
 
@@ -38,7 +38,7 @@ fi
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║   Chamgei Installer                  ║"
+echo "  ║   rekody Installer                   ║"
 echo "  ║   Privacy-first voice dictation      ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
@@ -59,17 +59,17 @@ case "$ARCH" in
     *)             echo "  ERROR: Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-# Release assets are named without the 'v' prefix (e.g. chamgei-0.4.3-macos-aarch64.tar.gz)
+# Release assets are named without the 'v' prefix (e.g. rekody-0.4.3-macos-aarch64.tar.gz)
 # but the GitHub download path uses the full tag (v0.4.3).
 VERSION_NUM="${VERSION#v}"
-TARBALL="chamgei-${VERSION_NUM}-${PLATFORM}-${ARCH_NAME}.tar.gz"
+TARBALL="rekody-${VERSION_NUM}-${PLATFORM}-${ARCH_NAME}.tar.gz"
 DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${TARBALL}"
 
 echo "  Platform:  $PLATFORM ($ARCH_NAME)"
 echo ""
 
 # --- Download binary ---
-echo "  [1/3] Downloading chamgei ${VERSION}..."
+echo "  [1/3] Downloading rekody ${VERSION}..."
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -94,13 +94,13 @@ if ! curl -fSL --progress-bar -o "$TMPDIR/$TARBALL" "$DOWNLOAD_URL" 2>&1; then
     fi
 
     echo "  Building from source (this takes 1-2 minutes)..."
-    BUILD_DIR="$HOME/.chamgei-build"
+    BUILD_DIR="$HOME/.rekody-build"
     # Try release tag first; fall back to main so help/CLI always works
     git clone --depth 1 --branch "$VERSION" "https://github.com/${GITHUB_REPO}.git" "$BUILD_DIR" 2>/dev/null \
       || git clone --depth 1 "https://github.com/${GITHUB_REPO}.git" "$BUILD_DIR"
     cd "$BUILD_DIR"
-    cargo build --release -p chamgei-core 2>&1 | tail -1
-    cp target/release/chamgei "$TMPDIR/chamgei"
+    cargo build --release -p rekody-core 2>&1 | tail -1
+    cp target/release/rekody "$TMPDIR/rekody"
     cd -
 else
     # Verify tarball checksum against the SHA256SUMS published with the release
@@ -131,13 +131,13 @@ fi
 echo "  [2/3] Installing to $INSTALL_DIR..."
 
 if [ -w "$INSTALL_DIR" ]; then
-    cp "$TMPDIR/chamgei" "$INSTALL_DIR/chamgei"
+    cp "$TMPDIR/rekody" "$INSTALL_DIR/rekody"
 else
-    sudo cp "$TMPDIR/chamgei" "$INSTALL_DIR/chamgei"
+    sudo cp "$TMPDIR/rekody" "$INSTALL_DIR/rekody"
 fi
-chmod +x "$INSTALL_DIR/chamgei"
+chmod +x "$INSTALL_DIR/rekody"
 # Remove macOS quarantine attribute so Gatekeeper does not block the unsigned binary
-xattr -d com.apple.quarantine "$INSTALL_DIR/chamgei" 2>/dev/null || true
+xattr -d com.apple.quarantine "$INSTALL_DIR/rekody" 2>/dev/null || true
 
 # --- Download Whisper model ---
 echo "  [3/3] Downloading Whisper model (tiny, ~75 MB)..."
@@ -169,12 +169,12 @@ fi
 
 # --- Done ---
 echo ""
-echo "  ✓ Chamgei installed successfully!"
+echo "  ✓ rekody installed successfully!"
 echo ""
-echo "  Run 'chamgei' to start."
+echo "  Run 'rekody' to start."
 echo "  First launch will walk you through setup."
 echo ""
 echo "  To uninstall:"
-echo "    rm $INSTALL_DIR/chamgei"
-echo "    rm -rf ~/.config/chamgei ~/.local/share/chamgei"
+echo "    rm $INSTALL_DIR/rekody"
+echo "    rm -rf ~/.config/rekody ~/.local/share/rekody"
 echo ""

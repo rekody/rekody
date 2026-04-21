@@ -1,0 +1,19 @@
+[package]
+name = "rekody-stt"
+description = "Speech-to-text engines for rekody (local Whisper + cloud)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+whisper-rs = "0.13"
+reqwest.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

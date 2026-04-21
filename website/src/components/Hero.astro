@@ -1,156 +1,173 @@
 ---
+import Mark from './Mark.astro';
 ---
 
-<section id="hero" class="relative min-h-screen flex flex-col items-center justify-center text-center px-6 pt-24 pb-20 overflow-hidden bg-grid" style="--mx:50%;--my:40%;">
+<section id="hero" class="relative shader-hero overflow-hidden">
+  <div class="grain"></div>
 
-  <!-- Static ambient glows -->
-  <div class="hero-glow w-[600px] h-[600px] opacity-15" style="background:radial-gradient(circle, #0ea5e9 0%, transparent 70%); top:-100px; left:50%; transform:translateX(-50%);"></div>
-  <div class="hero-glow w-[400px] h-[400px] opacity-8"  style="background:radial-gradient(circle, #06d6a0 0%, transparent 70%); bottom:0; right:10%;"></div>
-  <div class="hero-glow w-[300px] h-[300px] opacity-8"  style="background:radial-gradient(circle, #818cf8 0%, transparent 70%); bottom:100px; left:5%;"></div>
+  <div class="relative max-w-6xl mx-auto px-6 pt-32 pb-32 grid lg:grid-cols-[1.1fr_1fr] gap-16 items-center">
 
-  <!-- Cursor spotlight — position driven by --mx/--my CSS vars -->
-  <div
-    aria-hidden="true"
-    style="
-      position:absolute; inset:0; pointer-events:none; z-index:0;
-      background: radial-gradient(700px circle at var(--mx) var(--my), rgba(14,165,233,0.10) 0%, rgba(6,214,160,0.04) 40%, transparent 70%);
-      transition: background 0.1s ease;
-    "
-  ></div>
+    <!-- Left: copy -->
+    <div class="relative z-10">
+      <!-- Eyebrow -->
+      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-8" style="background:rgba(251,250,244,0.6); border:1px solid var(--color-hairline);">
+        <span class="relative inline-flex h-2 w-2">
+          <span class="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style="background:var(--color-teal);"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2" style="background:var(--color-teal);"></span>
+        </span>
+        <span class="text-[11px] font-mono uppercase" style="color:var(--color-ink-mute); letter-spacing:0.08em;">Voice dictation · macOS · open source</span>
+      </div>
 
-  <!-- Recording badge -->
-  <div class="relative z-10 mb-8 inline-flex items-center gap-2.5 px-4 py-2 rounded-full glass ring-pulse text-xs font-mono" style="color:#0ea5e9;">
-    <span class="relative flex h-2 w-2">
-      <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background:#0ea5e9;"></span>
-      <span class="relative inline-flex rounded-full h-2 w-2" style="background:#0ea5e9;"></span>
-    </span>
-    Hold ⌥Space · Speak · Release
+      <!-- Headline -->
+      <h1 class="display mb-6" style="font-size:clamp(48px, 7.5vw, 96px);">
+        Speak.
+        <span class="display-italic" style="color:var(--color-teal);">Release.</span>
+        <br/>
+        Done.
+      </h1>
+
+      <!-- Deck -->
+      <p class="body-serif mb-10 max-w-xl" style="font-size:19px; line-height:1.55;">
+        Open-source macOS voice dictation. Hold <span class="key">⌥</span> <span class="key">Space</span>, speak, release — text appears at your cursor in <em>any app</em>, powered by <strong style="color:var(--color-ink); font-weight:500;">Deepgram Nova-3</strong> in ~200ms.
+      </p>
+
+      <!-- CTAs -->
+      <div class="flex flex-wrap items-center gap-3 mb-6">
+        <a
+          href="https://github.com/tonykipkemboi/rekody/releases/latest"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="pill pill-dark"
+          style="padding:0.75rem 1.25rem; font-size:14px;"
+        >
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download for Mac
+        </a>
+
+        <button
+          id="hero-install-btn"
+          class="pill pill-ghost group"
+          style="padding:0.75rem 1.125rem; font-size:13px;"
+          aria-label="Copy install command"
+        >
+          <span class="font-mono text-[11px]" style="color:var(--color-ink-faint);">$</span>
+          <code class="font-mono text-[12px]" style="color:var(--color-ink-soft);">curl … | bash</code>
+          <span id="hero-copy-icon" style="color:var(--color-ink-faint);">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+            </svg>
+          </span>
+        </button>
+      </div>
+      <p id="hero-copy-feedback" class="text-xs transition-opacity duration-300 opacity-0 mb-2" style="color:var(--color-teal);">✓ Copied to clipboard</p>
+
+      <!-- Trust line -->
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px]" style="color:var(--color-ink-faint);">
+        <span>macOS 13+</span>
+        <span aria-hidden="true">·</span>
+        <span>Apple Silicon &amp; Intel</span>
+        <span aria-hidden="true">·</span>
+        <span>MIT License</span>
+        <span aria-hidden="true">·</span>
+        <span>No telemetry</span>
+      </div>
+    </div>
+
+    <!-- Right: inline mock demo card -->
+    <div id="demo" class="relative z-10 scroll-mt-24">
+      <div class="relative rounded-3xl overflow-hidden" style="background:#FFFFFF; border:1px solid var(--color-hairline); box-shadow: 0 30px 80px -30px rgba(15,23,23,0.25), 0 8px 20px -10px rgba(15,23,23,0.08);">
+
+        <!-- Window chrome -->
+        <div class="flex items-center gap-1.5 px-4 py-3 border-b" style="border-color:var(--color-hairline-soft);">
+          <span class="w-2.5 h-2.5 rounded-full" style="background:#F4C3B8;"></span>
+          <span class="w-2.5 h-2.5 rounded-full" style="background:#F4E4B8;"></span>
+          <span class="w-2.5 h-2.5 rounded-full" style="background:#C8E0C8;"></span>
+          <div class="ml-auto flex items-center gap-1.5">
+            <Mark size={14} hideDot strokeColor="var(--color-ink-faint)" strokeWidth={26} />
+            <span class="text-[10px] font-mono uppercase" style="color:var(--color-ink-faint); letter-spacing:0.08em;">rekody</span>
+          </div>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6">
+          <!-- Recording row -->
+          <div class="is-recording flex items-center gap-3 mb-5">
+            <div class="flex items-center gap-1.5">
+              <span class="key key-dark">⌥</span>
+              <span class="key key-dark">Space</span>
+            </div>
+            <div class="flex items-end gap-[3px] h-6" aria-hidden="true">
+              {Array.from({length: 14}).map(() => (
+                <span class="wave-bar" style="height:100%;"></span>
+              ))}
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+              <Mark size={18} animate strokeColor="var(--color-ink)" dotColor="var(--color-teal)" ariaLabel="Listening" />
+              <span class="text-[11px] font-mono uppercase" style="color:var(--color-teal); letter-spacing:0.08em;">Listening</span>
+            </div>
+          </div>
+
+          <!-- Transcript -->
+          <div class="rounded-xl p-4 mb-4" style="background:#FBFAF4; border:1px solid var(--color-hairline-soft);">
+            <p class="body-serif" style="font-size:17px; color:var(--color-ink); line-height:1.55;">
+              Move Thursday's stand-up to 10, ping design about the launch ticket, and remind me to book the <em style="color:var(--color-teal); font-style:italic;">flight home</em>.
+            </p>
+          </div>
+
+          <!-- Meta -->
+          <div class="flex items-center justify-between text-[11px] font-mono" style="color:var(--color-ink-faint);">
+            <div class="flex items-center gap-3">
+              <span>Deepgram · Nova-3</span>
+              <span aria-hidden="true">·</span>
+              <span>auto · 100+ langs</span>
+            </div>
+            <span style="color:var(--color-teal);">194ms</span>
+          </div>
+
+          <!-- Target app strip -->
+          <div class="mt-5 pt-5 border-t flex items-center gap-3" style="border-color:var(--color-hairline-soft);">
+            <span class="text-[11px] font-mono uppercase" style="color:var(--color-ink-faint); letter-spacing:0.08em;">Inject at cursor →</span>
+            <div class="flex items-center gap-2 text-[11px]" style="color:var(--color-ink-mute);">
+              <span class="px-2 py-0.5 rounded" style="background:var(--color-hairline-soft);">Notion</span>
+              <span class="px-2 py-0.5 rounded" style="background:var(--color-hairline-soft);">Slack</span>
+              <span class="px-2 py-0.5 rounded" style="background:var(--color-hairline-soft);">VS Code</span>
+              <span class="px-2 py-0.5 rounded" style="background:var(--color-hairline-soft);">Terminal</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Floating label -->
+      <div class="hidden sm:flex absolute -bottom-4 -left-4 items-center gap-2 px-3 py-2 rounded-full" style="background:var(--color-ink); color:var(--color-cream); font-size:12px; box-shadow:0 10px 30px -10px rgba(15,23,23,0.4);">
+        <span class="w-1.5 h-1.5 rounded-full" style="background:var(--color-teal);"></span>
+        Non-interactive preview
+      </div>
+    </div>
   </div>
 
-  <!-- Headline -->
-  <div class="relative z-10 mb-6">
-    <h1 class="text-5xl sm:text-7xl lg:text-8xl font-bold tracking-tight leading-[0.95] mb-0">
-      <span class="grad-text-white text-glow block">Speak.</span>
-      <span class="grad-text block">Release.</span>
-      <span class="grad-text-white block">Done.</span>
-    </h1>
-  </div>
-
-  <!-- Animated waveform -->
-  <div class="relative z-10 flex items-center justify-center gap-[3px] h-16 mb-8" id="waveform" aria-hidden="true">
-    {Array.from({length: 10}).map((_, i) => (
-      <div class="wave-bar w-[5px]" style="background:linear-gradient(to top, #0ea5e9, #06d6a0); height:8px;"></div>
-    ))}
-  </div>
-
-  <!-- Subtext -->
-  <p class="relative z-10 text-lg sm:text-xl max-w-xl mx-auto mb-10 leading-relaxed" style="color:#6b7fa0;">
-    Open-source macOS voice dictation. Text appears at your cursor in <em style="color:#d4dce8;">any&nbsp;app</em> — powered by <strong style="color:#d4dce8;">Deepgram&nbsp;Nova-3</strong>.
-  </p>
-
-  <!-- CTAs -->
-  <div class="relative z-10 flex flex-col sm:flex-row items-center gap-3 w-full max-w-lg mx-auto">
-
-    <!-- Copy-on-click install -->
-    <button
-      id="hero-install-btn"
-      class="group flex-1 w-full flex items-center gap-3 px-4 py-3.5 rounded-xl glass hover:border-[rgba(14,165,233,0.4)] transition-all cursor-pointer text-left"
-      aria-label="Copy install command"
-    >
-      <span class="font-mono text-xs shrink-0" style="color:#6b7fa0;">$</span>
-      <code class="font-mono text-xs truncate flex-1" style="color:#0ea5e9;">
-        curl -fsSL …/install.sh | bash
-      </code>
-      <span id="hero-copy-icon" class="shrink-0" style="color:#6b7fa0;">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-        </svg>
-      </span>
-    </button>
-
-    <!-- Download .dmg -->
-    <a
-      href="https://github.com/tonykipkemboi/chamgei/releases/latest"
-      target="_blank"
-      rel="noopener noreferrer"
-      class="btn-shimmer flex items-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98] glow-teal-sm"
-      style="color:#ffffff;"
-    >
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-      </svg>
-      Download for Mac
-    </a>
-  </div>
-
-  <!-- Copy feedback -->
-  <p id="hero-copy-feedback" class="relative z-10 mt-3 text-xs transition-opacity duration-300 opacity-0" style="color:#06d6a0;">
-    ✓ Copied to clipboard
-  </p>
-
-  <!-- Trust line -->
-  <p class="relative z-10 mt-8 text-xs flex flex-wrap items-center justify-center gap-x-3 gap-y-1" style="color:#3d5278;">
-    <span>macOS 13+</span><span style="color:#1e2e4a;">·</span>
-    <span>Apple Silicon &amp; Intel</span><span style="color:#1e2e4a;">·</span>
-    <span>MIT License</span><span style="color:#1e2e4a;">·</span>
-    <span>No telemetry</span>
-  </p>
-
-  <!-- Scroll hint -->
-  <div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 animate-bounce" style="color:#1e2e4a;">
-    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-    </svg>
-  </div>
+  <!-- Hairline at bottom of hero -->
+  <div class="relative hairline"></div>
 </section>
 
 <script>
   const btn = document.getElementById('hero-install-btn');
   const feedback = document.getElementById('hero-copy-feedback');
   const icon = document.getElementById('hero-copy-icon');
-  const CMD = 'curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/chamgei/main/install.sh | bash';
+  const CMD = 'curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/rekody/main/install.sh | bash';
 
   btn?.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(CMD);
-      if (icon) icon.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="#06d6a0" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>`;
-      if (feedback) feedback.classList.replace('opacity-0', 'opacity-100');
+      if (icon) icon.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="#20808D" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>`;
+      feedback?.classList.replace('opacity-0', 'opacity-100');
       setTimeout(() => {
         if (icon) icon.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>`;
-        if (icon) icon.style.color = '#6b7fa0';
-        if (feedback) feedback.classList.replace('opacity-100', 'opacity-0');
+        feedback?.classList.replace('opacity-100', 'opacity-0');
       }, 2000);
-    } catch { window.getSelection()?.selectAllChildren(btn!); }
-  });
-
-  // ── Cursor / touch spotlight ─────────────────────────────────────────────
-  const hero = document.getElementById('hero');
-  if (hero) {
-    function setGlow(x: number, y: number) {
-      const r = hero!.getBoundingClientRect();
-      hero!.style.setProperty('--mx', (x - r.left) + 'px');
-      hero!.style.setProperty('--my', (y - r.top)  + 'px');
-    }
-    hero.addEventListener('mousemove',  (e) => setGlow(e.clientX, e.clientY));
-    hero.addEventListener('mouseleave', ()  => {
-      hero.style.setProperty('--mx', '50%');
-      hero.style.setProperty('--my', '40%');
-    });
-    hero.addEventListener('touchmove', (e) => {
-      const t = e.touches[0];
-      setGlow(t.clientX, t.clientY);
-    }, { passive: true });
-  }
-
-  // Pause waveform when not "recording"
-  const waveform = document.getElementById('waveform');
-  let recording = false;
-  document.addEventListener('keydown', (e) => {
-    if (e.altKey && e.code === 'Space') { recording = true; waveform?.classList.remove('wave-bars-paused'); }
-  });
-  document.addEventListener('keyup', (e) => {
-    if (e.code === 'Space') { recording = false; waveform?.classList.add('wave-bars-paused'); }
+    } catch {}
   });
 </script>

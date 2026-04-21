@@ -1,102 +1,204 @@
 ---
 const tabs = [
   {
+    id: 'brew',
+    label: 'brew',
+    recommended: true,
+    lines: [
+      { tokens: [ {c:'cmd', t:'brew'}, {c:'flag', t:' tap'}, {c:'str', t:' tonykipkemboi/rekody'} ] },
+      { tokens: [ {c:'cmd', t:'brew'}, {c:'flag', t:' install'}, {c:'str', t:' rekody'} ] },
+    ],
+    note: '— tap + install. Updates via <code>brew upgrade rekody</code>.',
+  },
+  {
     id: 'curl',
-    label: 'curl (recommended)',
-    cmd: 'curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/chamgei/main/install.sh | bash',
-    note: 'Installs binary + downloads Whisper tiny model for offline fallback.',
+    label: 'curl',
+    recommended: false,
+    lines: [
+      { tokens: [ {c:'cmd', t:'curl'}, {c:'flag', t:' -fsSL'}, {c:'url', t:' https://rekody.com/install.sh'}, {c:'flag', t:' |'}, {c:'cmd', t:' bash'} ] },
+    ],
+    note: '— installs the binary + Whisper tiny model (~75MB), sets up the hotkey.',
   },
   {
     id: 'make',
-    label: 'make install',
-    cmd: 'git clone https://github.com/tonykipkemboi/chamgei.git\ncd chamgei\nmake install',
-    note: 'Build from source. Requires Rust stable toolchain.',
+    label: 'make',
+    recommended: false,
+    lines: [
+      { tokens: [ {c:'cmd', t:'git'}, {c:'flag', t:' clone'}, {c:'url', t:' https://github.com/tonykipkemboi/rekody.git'} ] },
+      { tokens: [ {c:'cmd', t:'cd'}, {c:'str', t:' rekody'}, {c:'flag', t:' && '}, {c:'cmd', t:'make'}, {c:'str', t:' install'} ] },
+    ],
+    note: '— builds from source. Requires the Rust stable toolchain.',
   },
   {
     id: 'cargo',
-    label: 'cargo install',
-    cmd: 'cargo install --git https://github.com/tonykipkemboi/chamgei chamgei-core',
-    note: 'For Rust users. Binary placed in ~/.cargo/bin.',
+    label: 'cargo',
+    recommended: false,
+    lines: [
+      { tokens: [ {c:'cmd', t:'cargo'}, {c:'flag', t:' install --git'}, {c:'url', t:' https://github.com/tonykipkemboi/rekody'}, {c:'str', t:' rekody-core'} ] },
+    ],
+    note: '— installs into <code>~/.cargo/bin</code>. Rust users only.',
+  },
+  {
+    id: 'dmg',
+    label: '.dmg',
+    recommended: false,
+    lines: [
+      { tokens: [ {c:'comment', t:'# signed universal .dmg — drag into Applications'} ] },
+      { tokens: [ {c:'cmd', t:'open'}, {c:'url', t:' https://github.com/tonykipkemboi/rekody/releases/latest'} ] },
+    ],
+    note: '— no terminal required. Double-click the .dmg, drag to Applications.',
   },
 ];
 ---
 
-<section id="install" class="max-w-5xl mx-auto px-6 py-20">
-  <h2 class="text-3xl font-bold text-center mb-3" style="color:#ffffff;">Install</h2>
-  <p class="text-center mb-10" style="color:#a0a0b0;">macOS 13 or later. Apple Silicon and Intel.</p>
+<section id="install" class="relative py-20" style="background:var(--color-cream);">
+  <div class="max-w-4xl mx-auto px-6">
 
-  <!-- Tabs -->
-  <div class="rounded-xl border border-[#2a3a5c] overflow-hidden" style="background-color:#131c30;">
-    <!-- Tab bar (scrollable on mobile) -->
-    <div class="flex border-b border-[#2a3a5c] overflow-x-auto scrollbar-none" style="background-color:#1f2b47;">
-      {tabs.map((t, i) => (
-        <button
-          data-tab={t.id}
-          class={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${i === 0 ? 'border-[#0d9488]' : 'border-transparent'}`}
-          style={i === 0 ? 'color:#0d9488;' : 'color:#a0a0b0;'}
-        >
-          {t.label}
-        </button>
-      ))}
+    <!-- Heading -->
+    <div class="text-center mb-14">
+      <p class="text-[11px] font-mono uppercase mb-5" style="color:var(--color-teal); letter-spacing:0.16em;">— One command. One minute.</p>
+      <h2 class="display" style="font-size:clamp(44px, 6vw, 72px);">
+        Install. Then hold <span class="key" style="padding:4px 10px; font-size:inherit; background:transparent; border:0; color:var(--color-ink-soft); font-family:var(--font-serif);">⌥Space</span>.
+      </h2>
     </div>
 
-    <!-- Panels -->
-    {tabs.map((t, i) => (
-      <div data-panel={t.id} class={i !== 0 ? 'hidden' : ''}>
-        <div class="flex items-start justify-between gap-4 px-5 py-5">
-          <pre class="font-mono text-sm leading-relaxed overflow-x-auto flex-1" style="color:#0d9488;">{t.cmd}</pre>
-          <button
-            data-copy-btn={t.id}
-            class="shrink-0 mt-0.5 transition-colors hover:text-white"
-            style="color:#a0a0b0;"
-            aria-label={`Copy ${t.label} command`}
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-            </svg>
-          </button>
-        </div>
-        <p class="px-5 pb-4 text-xs" style="color:#a0a0b0;">{t.note}</p>
-      </div>
-    ))}
-  </div>
+    <!-- Tabbed card -->
+    <div class="rounded-2xl overflow-hidden" style="background:var(--color-cream-warm); border:1px solid var(--color-hairline); box-shadow:0 24px 60px -30px rgba(15,23,23,0.18);">
 
-  <!-- Requirements -->
-  <div class="mt-6 flex flex-wrap gap-3 justify-center">
-    {['macOS 13+', 'Apple Silicon or Intel', 'Accessibility permission required', 'Microphone permission required'].map(req => (
-      <span class="text-xs px-3 py-1 rounded-full border border-[#2a3a5c]" style="color:#a0a0b0;">{req}</span>
-    ))}
+      <!-- Tab bar -->
+      <div class="flex items-center gap-1 px-4 pt-4 pb-0 overflow-x-auto scrollbar-none">
+        {tabs.map((t, i) => (
+          <button
+            data-tab={t.id}
+            class="install-tab inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full text-[13px] font-mono whitespace-nowrap shrink-0 transition-colors"
+            data-active={i === 0 ? 'true' : 'false'}
+          >
+            <span class="install-tab-dot w-1.5 h-1.5 rounded-full" style="background:var(--color-teal);"></span>
+            {t.label}
+          </button>
+        ))}
+        <span class="ml-auto hidden sm:inline-block text-[10px] font-mono uppercase pr-2" style="color:var(--color-ink-faint); letter-spacing:0.12em;" data-recommended-label>
+          Recommended
+        </span>
+      </div>
+
+      <!-- Panels -->
+      <div class="px-4 pb-4">
+        {tabs.map((t, i) => (
+          <div data-panel={t.id} class={i !== 0 ? 'hidden' : ''}>
+            <div class="rounded-xl mt-3" style="background:#FFFFFF; border:1px solid var(--color-hairline-soft);">
+              <div class="flex items-start gap-4 px-5 py-4">
+                <span class="tok-prompt font-mono text-sm shrink-0 mt-0.5">$</span>
+                <pre class="font-mono text-[14px] leading-[1.65] overflow-x-auto flex-1 m-0">{t.lines.map(line => (
+                  <div>{line.tokens.map(tok => <span class={`tok-${tok.c}`}>{tok.t}</span>)}</div>
+                ))}</pre>
+                <button
+                  data-copy-btn={t.id}
+                  class="shrink-0 mt-0.5 pill pill-ghost"
+                  style="padding:0.4rem 0.7rem; font-size:12px;"
+                  aria-label={`Copy ${t.label} command`}
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                  Copy
+                </button>
+              </div>
+              <p class="px-5 pb-4 text-[13px] body-serif italic" style="color:var(--color-ink-faint);" set:html={t.note}></p>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex flex-wrap items-center gap-2 mt-4 mb-1 px-1">
+              <a
+                href="https://github.com/tonykipkemboi/rekody/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="pill pill-dark"
+                style="padding:0.625rem 1rem;"
+              >
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Download for Mac
+                <span class="font-mono text-[11px] ml-1" style="color:var(--color-ink-faint);">5MB</span>
+              </a>
+              <a
+                href="https://github.com/tonykipkemboi/rekody"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="pill pill-ghost"
+                style="padding:0.625rem 1rem;"
+              >
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.7c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.69.92.69 1.85V21c0 .27.16.58.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/>
+                </svg>
+                View source
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <!-- Single-line meta -->
+    <div class="mt-10 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[12px] font-mono" style="color:var(--color-ink-mute);">
+      <span class="inline-flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>
+        </svg>
+        macOS 13+
+      </span>
+      <span aria-hidden="true">|</span>
+      <span>Apple Silicon · Intel</span>
+      <span aria-hidden="true">|</span>
+      <span>Accessibility + Microphone permissions</span>
+      <span aria-hidden="true">|</span>
+      <span>MIT</span>
+    </div>
   </div>
 </section>
 
+<style>
+  .install-tab { color: var(--color-ink-mute); background: transparent; border: 1px solid transparent; }
+  .install-tab:hover { color: var(--color-ink); background: rgba(15,23,23,0.04); }
+  .install-tab[data-active="true"] {
+    color: var(--color-ink);
+    background: #FFFFFF;
+    border-color: var(--color-hairline);
+  }
+  /* Inactive: hide dot entirely so label stays centered */
+  .install-tab .install-tab-dot { display: none; }
+  .install-tab[data-active="true"] .install-tab-dot { display: inline-block; }
+</style>
+
 <script>
-  // Tab switching
-  const tabBtns = document.querySelectorAll<HTMLButtonElement>('[data-tab]');
-  const panels = document.querySelectorAll<HTMLElement>('[data-panel]');
+  const tabBtns = document.querySelectorAll<HTMLButtonElement>('.install-tab');
+  const panels  = document.querySelectorAll<HTMLElement>('[data-panel]');
+  const recommendedLabel = document.querySelector<HTMLElement>('[data-recommended-label]');
 
   tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const target = btn.dataset.tab!;
-      tabBtns.forEach(b => {
-        b.style.color = '#a0a0b0';
-        b.classList.replace('border-[#0d9488]', 'border-transparent');
-      });
+      tabBtns.forEach(b => b.setAttribute('data-active', 'false'));
+      btn.setAttribute('data-active', 'true');
       panels.forEach(p => p.classList.add('hidden'));
-      btn.style.color = '#0d9488';
-      btn.classList.replace('border-transparent', 'border-[#0d9488]');
       document.querySelector<HTMLElement>(`[data-panel="${target}"]`)?.classList.remove('hidden');
+      if (recommendedLabel) recommendedLabel.style.opacity = target === 'brew' ? '1' : '0.35';
     });
   });
 
-  // Copy buttons
-  const copyIconHtml = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>`;
-  const checkIconHtml = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>`;
+  const copyIcon  = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy`;
+  const checkIcon = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied`;
 
   const cmds: Record<string, string> = {
-    curl: 'curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/chamgei/main/install.sh | bash',
-    make: 'git clone https://github.com/tonykipkemboi/chamgei.git\ncd chamgei\nmake install',
-    cargo: 'cargo install --git https://github.com/tonykipkemboi/chamgei chamgei-core',
+    brew:  'brew tap tonykipkemboi/rekody\nbrew install rekody',
+    curl:  'curl -fsSL https://rekody.com/install.sh | bash',
+    make:  'git clone https://github.com/tonykipkemboi/rekody.git\ncd rekody && make install',
+    cargo: 'cargo install --git https://github.com/tonykipkemboi/rekody rekody-core',
+    dmg:   'open https://github.com/tonykipkemboi/rekody/releases/latest',
   };
 
   document.querySelectorAll<HTMLButtonElement>('[data-copy-btn]').forEach(btn => {
@@ -104,13 +206,9 @@ const tabs = [
       const id = btn.dataset.copyBtn!;
       try {
         await navigator.clipboard.writeText(cmds[id] ?? '');
-        btn.innerHTML = checkIconHtml;
-        btn.style.color = '#0d9488';
-        setTimeout(() => {
-          btn.innerHTML = copyIconHtml;
-          btn.style.color = '#a0a0b0';
-        }, 2000);
-      } catch { /* silent */ }
+        btn.innerHTML = checkIcon;
+        setTimeout(() => { btn.innerHTML = copyIcon; }, 1800);
+      } catch {}
     });
   });
 </script>

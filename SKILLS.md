@@ -1,15 +1,15 @@
 ---
-name: chamgei-setup
-description: Install and configure Chamgei voice dictation CLI. Use when the user wants to set up voice dictation, install Chamgei, configure STT/LLM providers, or troubleshoot dictation issues.
+name: rekody-setup
+description: Install and configure rekody voice dictation CLI. Use when the user wants to set up voice dictation, install rekody, configure STT/LLM providers, or troubleshoot dictation issues.
 allowed-tools: Bash, Read, Grep, Write, AskUserQuestion
 ---
 
-# Chamgei -- Agent Setup Skill
+# rekody -- Agent Setup Skill
 
 > Point your AI agent (Claude Code, Codex, Cursor, Windsurf, Aider, etc.) at this file
-> and it will install and configure Chamgei voice dictation for you.
+> and it will install and configure rekody voice dictation for you.
 
-Chamgei is an open-source, privacy-first voice dictation system. It turns your voice
+rekody is an open-source, privacy-first voice dictation system. It turns your voice
 into text anywhere on your desktop using a local Whisper model for speech-to-text,
 optional LLM cleanup, and text injection at your cursor -- all behind a single hotkey.
 
@@ -21,12 +21,12 @@ optional LLM cleanup, and text injection at your cursor -- all behind a single h
 2. **LLM Provider choice** — Ask: "Would you like an LLM to clean up transcriptions (fix grammar, remove filler words)? Options: Groq (free tier), Ollama (local), OpenAI, Anthropic, or None (skip — Deepgram already includes punctuation)."
 3. **API Keys** — Ask: "Please provide your [provider] API key. You can get one at [signup URL]." Never guess or skip API keys.
 4. **Whisper model size** (if local STT) — Ask: "Which Whisper model? Tiny (75MB, fastest), Small (250MB, balanced), Medium (750MB), or Large (1.5GB, most accurate)?"
-5. **Hotkey preference** — Inform the user: "Chamgei uses the Fn key for dictation. You'll need to set System Settings > Keyboard > 'Press globe key to' → 'Do Nothing'. Is that okay, or would you prefer to configure a different key?"
+5. **Hotkey preference** — Inform the user: "rekody uses the Fn key for dictation. You'll need to set System Settings > Keyboard > 'Press globe key to' → 'Do Nothing'. Is that okay, or would you prefer to configure a different key?"
 
 If the user gives a vague instruction like "just set it up", ask them at minimum which STT engine and whether they want LLM cleanup. Do not default to cloud providers without explicit consent — privacy is a core value of this tool.
 
-**Repository:** <https://github.com/tonykipkemboi/chamgei>
-**Version:** 0.3.0
+**Repository:** <https://github.com/tonykipkemboi/rekody>
+**Version:** 0.5.0
 **License:** MIT OR Apache-2.0
 
 ---
@@ -60,7 +60,7 @@ cargo --version
 
 ### macOS-specific
 
-On macOS, Chamgei needs **Accessibility** and **Microphone** permissions. The first-run
+On macOS, rekody needs **Accessibility** and **Microphone** permissions. The first-run
 wizard will prompt to open System Settings, but an agent can also open them directly:
 
 ```bash
@@ -73,7 +73,7 @@ open "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone
 
 **IMPORTANT -- Fn key setting (macOS only):**
 The user MUST set **System Settings > Keyboard > "Press globe key to"** to **"Do Nothing"**
-so the Fn key is not intercepted by the system. Without this, Chamgei hotkeys will not work.
+so the Fn key is not intercepted by the system. Without this, rekody hotkeys will not work.
 
 ---
 
@@ -86,20 +86,20 @@ Follow the decision tree below. Prefer the one-line installer (Option A) for sim
 Downloads the precompiled binary and a Whisper model. No Rust toolchain needed.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/chamgei/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tonykipkemboi/rekody/main/install.sh | bash
 ```
 
 This script will:
 1. Detect the platform (macOS/Linux) and architecture (arm64/x86_64)
-2. Download the precompiled binary to `/usr/local/bin/chamgei`
-3. Download the tiny Whisper model (~75 MB) to `~/.local/share/chamgei/models/`
+2. Download the precompiled binary to `/usr/local/bin/rekody`
+3. Download the tiny Whisper model (~75 MB) to `~/.local/share/rekody/models/`
 4. If no precompiled binary is available, fall back to building from source
 
 After install, verify:
 
 ```bash
-chamgei --version
-# Expected output: chamgei 0.3.0
+rekody --version
+# Expected output: rekody 0.5.0
 ```
 
 ### Option B: Build from source
@@ -114,20 +114,20 @@ if ! command -v cargo &>/dev/null; then
 fi
 
 # 2. Clone the repository
-git clone https://github.com/tonykipkemboi/chamgei.git
-cd chamgei
+git clone https://github.com/tonykipkemboi/rekody.git
+cd rekody
 
 # 3. Build the release binary
-cargo build -p chamgei-core --bin chamgei --release
+cargo build -p rekody-core --bin rekody --release
 
 # 4. Install the binary
-sudo cp target/release/chamgei /usr/local/bin/chamgei
-sudo chmod +x /usr/local/bin/chamgei
+sudo cp target/release/rekody /usr/local/bin/rekody
+sudo chmod +x /usr/local/bin/rekody
 
 # 5. Download the default Whisper model
-mkdir -p ~/.local/share/chamgei/models
+mkdir -p ~/.local/share/rekody/models
 curl -fSL --progress-bar \
-    -o ~/.local/share/chamgei/models/ggml-tiny.en.bin \
+    -o ~/.local/share/rekody/models/ggml-tiny.en.bin \
     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
 ```
 
@@ -136,7 +136,7 @@ curl -fSL --progress-bar \
 If the repo is already cloned:
 
 ```bash
-cd /path/to/chamgei
+cd /path/to/rekody
 make install
 ```
 
@@ -144,17 +144,17 @@ make install
 
 ```bash
 # Binary exists and is executable
-which chamgei
+which rekody
 
 # Whisper model is present
-ls ~/.local/share/chamgei/models/ggml-tiny.en.bin
+ls ~/.local/share/rekody/models/ggml-tiny.en.bin
 ```
 
 ---
 
 ## Configuration
 
-Configuration lives at `~/.config/chamgei/config.toml`. The first-run wizard creates
+Configuration lives at `~/.config/rekody/config.toml`. The first-run wizard creates
 this file interactively, but an agent can also create or edit it directly.
 
 ### Running the interactive onboarding wizard
@@ -163,10 +163,10 @@ If you want the user to go through the interactive wizard:
 
 ```bash
 # Delete existing config to trigger the wizard on next run
-# rm ~/.config/chamgei/config.toml
+# rm ~/.config/rekody/config.toml
 
-# Run chamgei -- if no config exists, the wizard starts automatically
-chamgei
+# Run rekody -- if no config exists, the wizard starts automatically
+rekody
 ```
 
 The wizard walks through: LLM provider selection, API key entry, Whisper model download,
@@ -174,11 +174,11 @@ and macOS permission checks.
 
 ### Creating the config file directly (non-interactive)
 
-This is the preferred method for an agent. Write `~/.config/chamgei/config.toml` directly.
+This is the preferred method for an agent. Write `~/.config/rekody/config.toml` directly.
 
 ```bash
-mkdir -p ~/.config/chamgei
-chmod 700 ~/.config/chamgei
+mkdir -p ~/.config/rekody
+chmod 700 ~/.config/rekody
 ```
 
 #### Minimal config (local-only, no LLM)
@@ -309,20 +309,20 @@ model = "openai/gpt-oss-20b"
 
 ### API key storage
 
-On macOS, Chamgei stores API keys in the system Keychain under the service
-`com.chamgei.voice`. The onboarding wizard handles this automatically.
+On macOS, rekody stores API keys in the system Keychain under the service
+`com.rekody.voice`. The onboarding wizard handles this automatically.
 
 To store a key via the agent without running the wizard, write the key directly
 into the config file. The config file should have permissions `600`:
 
 ```bash
-chmod 600 ~/.config/chamgei/config.toml
+chmod 600 ~/.config/rekody/config.toml
 ```
 
 ### Changing settings without re-running onboarding
 
-Edit `~/.config/chamgei/config.toml` directly with any text editor or agent tool.
-Changes take effect the next time `chamgei` is started. There is no need to re-run
+Edit `~/.config/rekody/config.toml` directly with any text editor or agent tool.
+Changes take effect the next time `rekody` is started. There is no need to re-run
 the onboarding wizard.
 
 Examples of common changes:
@@ -332,7 +332,7 @@ Examples of common changes:
 # In config.toml, change: whisper_model = "small"
 # Then download the model:
 curl -fSL --progress-bar \
-    -o ~/.local/share/chamgei/models/ggml-small.en.bin \
+    -o ~/.local/share/rekody/models/ggml-small.en.bin \
     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
 
 # Switch to toggle mode instead of push-to-talk
@@ -347,7 +347,7 @@ curl -fSL --progress-bar \
 
 ### Whisper model downloads
 
-Models are stored in `~/.local/share/chamgei/models/` (or `$CHAMGEI_MODEL_DIR` if set).
+Models are stored in `~/.local/share/rekody/models/` (or `$REKODY_MODEL_DIR` if set).
 
 | Model    | File                   | Size    | Download URL                                                                       |
 |----------|------------------------|---------|------------------------------------------------------------------------------------|
@@ -365,20 +365,20 @@ After installation and configuration, verify the setup works end-to-end.
 ### Step 1: Check binary
 
 ```bash
-chamgei --version
-# Expected: chamgei 0.3.0
+rekody --version
+# Expected: rekody 0.5.0
 ```
 
 ### Step 2: Check config
 
 ```bash
-test -f ~/.config/chamgei/config.toml && echo "Config exists" || echo "Config MISSING"
+test -f ~/.config/rekody/config.toml && echo "Config exists" || echo "Config MISSING"
 ```
 
 ### Step 3: Check Whisper model
 
 ```bash
-WHISPER_MODEL=$(grep 'whisper_model' ~/.config/chamgei/config.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+WHISPER_MODEL=$(grep 'whisper_model' ~/.config/rekody/config.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 case "$WHISPER_MODEL" in
     tiny)   FILE="ggml-tiny.en.bin" ;;
     small)  FILE="ggml-small.en.bin" ;;
@@ -386,20 +386,20 @@ case "$WHISPER_MODEL" in
     large)  FILE="ggml-large.bin" ;;
     *)      FILE="ggml-tiny.en.bin" ;;
 esac
-test -f ~/.local/share/chamgei/models/$FILE && echo "Model exists" || echo "Model MISSING"
+test -f ~/.local/share/rekody/models/$FILE && echo "Model exists" || echo "Model MISSING"
 ```
 
 ### Step 4: Test launch
 
 ```bash
-# Run chamgei -- it should start listening for hotkeys.
+# Run rekody -- it should start listening for hotkeys.
 # If config is valid, you will see log output like:
-#   chamgei pipeline starting
+#   rekody pipeline starting
 #   hotkey listener started
 #   audio capture initialized
 #
 # Press Ctrl+C to stop.
-chamgei
+rekody
 ```
 
 ### Step 5: Verify Fn key (macOS only)
@@ -419,12 +419,12 @@ If the Fn key opens the emoji picker instead, the user needs to change:
 
 ### Fn key opens emoji picker / input sources (macOS)
 
-**Cause:** macOS intercepts the Fn key before Chamgei can see it.
+**Cause:** macOS intercepts the Fn key before rekody can see it.
 **Fix:** System Settings > Keyboard > set "Press globe key to" to "Do Nothing".
 
 ### "Permission denied" when accessing microphone
 
-**Cause:** macOS has not granted microphone access to the terminal / chamgei.
+**Cause:** macOS has not granted microphone access to the terminal / rekody.
 **Fix:**
 ```bash
 open "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
@@ -444,7 +444,7 @@ is less critical since clipboard paste usually works without Accessibility.
 ### API key errors ("401 Unauthorized")
 
 **Cause:** Invalid or expired API key in config.
-**Fix:** Check the key in `~/.config/chamgei/config.toml` and verify it at the
+**Fix:** Check the key in `~/.config/rekody/config.toml` and verify it at the
 provider's dashboard (e.g., https://console.groq.com for Groq).
 
 ### No sound detected / empty transcriptions
@@ -461,12 +461,12 @@ provider's dashboard (e.g., https://console.groq.com for Groq).
 **Fix:**
 ```bash
 # Check which model is configured
-grep 'whisper_model' ~/.config/chamgei/config.toml
+grep 'whisper_model' ~/.config/rekody/config.toml
 
 # Download the matching model (example for "tiny")
-mkdir -p ~/.local/share/chamgei/models
+mkdir -p ~/.local/share/rekody/models
 curl -fSL --progress-bar \
-    -o ~/.local/share/chamgei/models/ggml-tiny.en.bin \
+    -o ~/.local/share/rekody/models/ggml-tiny.en.bin \
     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
 ```
 
@@ -491,12 +491,12 @@ API key (or is a local provider like Ollama that is running).
 
 ## For Agents: Integration Guide
 
-This section is for AI agents that want to USE Chamgei data or control Chamgei
+This section is for AI agents that want to USE rekody data or control rekody
 programmatically, not just install it.
 
 ### Reading transcription history
 
-All dictations are saved to `~/.config/chamgei/history.json`. The file is JSON
+All dictations are saved to `~/.config/rekody/history.json`. The file is JSON
 with this structure:
 
 ```json
@@ -520,7 +520,7 @@ Entries are stored newest-first, capped at 5000. The file has `600` permissions.
 **Example: Read the last 5 dictations**
 
 ```bash
-cat ~/.config/chamgei/history.json | python3 -c "
+cat ~/.config/rekody/history.json | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for e in data['entries'][:5]:
@@ -531,7 +531,7 @@ for e in data['entries'][:5]:
 **Example: Search history for a phrase**
 
 ```bash
-cat ~/.config/chamgei/history.json | python3 -c "
+cat ~/.config/rekody/history.json | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 query = sys.argv[1].lower()
@@ -545,12 +545,12 @@ for e in data['entries']:
 
 | What                 | Path                                          |
 |----------------------|-----------------------------------------------|
-| Binary               | `/usr/local/bin/chamgei`                      |
-| Config               | `~/.config/chamgei/config.toml`               |
-| History              | `~/.config/chamgei/history.json`              |
-| Whisper models       | `~/.local/share/chamgei/models/`              |
-| Keychain service     | `com.chamgei.voice` (macOS Keychain)          |
-| Model dir override   | `$CHAMGEI_MODEL_DIR` environment variable     |
+| Binary               | `/usr/local/bin/rekody`                       |
+| Config               | `~/.config/rekody/config.toml`                |
+| History              | `~/.config/rekody/history.json`               |
+| Whisper models       | `~/.local/share/rekody/models/`               |
+| Keychain service     | `com.rekody.voice` (macOS Keychain)           |
+| Model dir override   | `$REKODY_MODEL_DIR` environment variable      |
 
 ### Hotkey reference
 
@@ -570,22 +570,22 @@ Fn key --> Audio Capture --> VAD --> STT (Whisper) --> LLM (optional) --> Text I
 
 | Crate           | Purpose                                                    |
 |-----------------|------------------------------------------------------------|
-| `chamgei-core`  | Pipeline orchestrator, config, context detection, prompts  |
-| `chamgei-audio` | Microphone capture, resampling, energy-based VAD           |
-| `chamgei-stt`   | Local Whisper STT + Groq/Deepgram cloud STT                |
-| `chamgei-llm`   | LLM providers (11 presets + custom) with automatic failover|
-| `chamgei-inject` | Cross-platform text injection (clipboard + native)        |
-| `chamgei-hotkey` | Global Fn-key listener (push-to-talk + toggle)            |
+| `rekody-core`   | Pipeline orchestrator, config, context detection, prompts  |
+| `rekody-audio`  | Microphone capture, resampling, energy-based VAD           |
+| `rekody-stt`    | Local Whisper STT + Groq/Deepgram cloud STT                |
+| `rekody-llm`    | LLM providers (11 presets + custom) with automatic failover|
+| `rekody-inject` | Cross-platform text injection (clipboard + native)         |
+| `rekody-hotkey` | Global Fn-key listener (push-to-talk + toggle)             |
 
 ### Uninstall
 
 ```bash
 # Remove binary
-sudo rm -f /usr/local/bin/chamgei
+sudo rm -f /usr/local/bin/rekody
 
 # Remove config and history
-rm -rf ~/.config/chamgei
+rm -rf ~/.config/rekody
 
 # Remove Whisper models
-rm -rf ~/.local/share/chamgei
+rm -rf ~/.local/share/rekody
 ```
