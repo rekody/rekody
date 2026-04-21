@@ -114,7 +114,7 @@ import Mark from './Mark.astro';
           <!-- Transcript -->
           <div class="rounded-xl p-4 mb-4" style="background:#FBFAF4; border:1px solid var(--color-hairline-soft);">
             <p class="body-serif" style="font-size:17px; color:var(--color-ink); line-height:1.55;">
-              Move Thursday's stand-up to 10, ping design about the launch ticket, and remind me to book the <em class="hero-polish" aria-label="flight home."><span class="hero-polish-ghost" aria-hidden="true">flight home.</span><span class="hero-polish-live" aria-hidden="true"><span id="hero-polish-text"></span><span id="hero-polish-caret" class="hero-caret">|</span></span></em>
+              Flag the TP53 variant for tumor board — it's classified as <em class="hero-polish" aria-label="likely pathogenic."><span id="hero-polish-done"></span><span id="hero-polish-caret" class="hero-caret" aria-hidden="true">|</span><span id="hero-polish-pending" class="hero-polish-pending">likely pathogenic.</span></em>
             </p>
           </div>
 
@@ -171,56 +171,53 @@ import Mark from './Mark.astro';
     } catch {}
   });
 
-  // Transcription typing loop: type out the teal "flight home" tail, hold, clear, repeat.
-  const polishText  = document.getElementById('hero-polish-text');
-  const polishCaret = document.getElementById('hero-polish-caret');
-  const PHRASE = 'flight home.';
-  const TYPE_MS  = 90;   // per character
-  const HOLD_MS  = 2600; // pause after full phrase
-  const CLEAR_MS = 650;  // pause before next loop
+  // Ghost-text autocomplete loop: reveal the phrase char-by-char from a faded ghost.
+  // Total width stays constant (done + pending = full phrase), so no container reflow.
+  const polishDone    = document.getElementById('hero-polish-done');
+  const polishPending = document.getElementById('hero-polish-pending');
+  const polishCaret   = document.getElementById('hero-polish-caret');
+  const PHRASE = 'likely pathogenic.';
+  const TYPE_MS  = 90;
+  const HOLD_MS  = 2600;
+  const CLEAR_MS = 650;
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  if (polishText && !reduceMotion) {
+  function setPolish(done: number) {
+    if (polishDone)    polishDone.textContent    = PHRASE.slice(0, done);
+    if (polishPending) polishPending.textContent = PHRASE.slice(done);
+  }
+
+  if (polishDone && polishPending && !reduceMotion) {
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
     (async () => {
-      // small startup delay so the page has time to settle
       await sleep(800);
       while (true) {
-        polishText.textContent = '';
+        setPolish(0);
         for (let i = 1; i <= PHRASE.length; i++) {
-          polishText.textContent = PHRASE.slice(0, i);
+          setPolish(i);
           await sleep(TYPE_MS);
         }
-        // hide caret while holding so only the phrase is visible
         polishCaret?.classList.add('hero-caret-hidden');
         await sleep(HOLD_MS);
         polishCaret?.classList.remove('hero-caret-hidden');
         await sleep(CLEAR_MS);
       }
     })();
-  } else if (polishText) {
-    polishText.textContent = PHRASE;
+  } else {
+    setPolish(PHRASE.length);
     polishCaret?.classList.add('hero-caret-hidden');
   }
 </script>
 
 <style>
-  /* Stack ghost + live text in the same grid cell so the container
-     reserves the full "flight home" width and doesn't reflow mid-type. */
+  /* Done + pending always sum to the full phrase, so total width is constant
+     and no container reflow happens as characters "type in." */
   .hero-polish {
-    display: inline-grid;
-    grid-template-columns: auto;
     color: var(--color-teal);
     font-style: italic;
-    vertical-align: baseline;
     white-space: nowrap;
   }
-  .hero-polish > span {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .hero-polish-ghost { visibility: hidden; }
-  .hero-polish-live  { text-align: left; }
+  .hero-polish-pending { opacity: 0.3; }
 
   .hero-caret {
     display: inline-block;
