@@ -93,6 +93,10 @@ pub enum WhisperModel {
     Small,
     /// ~750MB, better accuracy.
     Medium,
+    /// ~574MB, distilled large-v3 with 4 decoder layers (~8x faster decode)
+    /// quantized to 5-bit. Near-large accuracy at ~1/3 the size. Recommended
+    /// for most users who want fast + accurate.
+    Turbo,
     /// ~1.5GB, best accuracy.
     Large,
 }
@@ -116,6 +120,7 @@ impl WhisperModel {
             WhisperModel::Tiny => "ggml-tiny.bin",
             WhisperModel::Small => "ggml-small.bin",
             WhisperModel::Medium => "ggml-medium.bin",
+            WhisperModel::Turbo => "ggml-large-v3-turbo-q5_0.bin",
             WhisperModel::Large => "ggml-large.bin",
         }
     }

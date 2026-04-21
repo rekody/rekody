@@ -100,7 +100,7 @@ Config file lives at `~/.config/rekody/config.toml`.
 activation_mode = "push_to_talk"   # "push_to_talk" | "toggle"
 injection_method = "clipboard"     # "clipboard" | "native"
 vad_threshold = 0.01               # RMS energy threshold (0.005–0.05)
-whisper_model = "tiny"             # "tiny" | "small" | "medium" | "large"
+whisper_model = "tiny"             # "tiny" | "small" | "medium" | "turbo" | "large"
 
 # STT engine
 stt_engine = "deepgram"            # "local" | "deepgram" | "groq" | "cohere"

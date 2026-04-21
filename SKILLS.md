@@ -354,6 +354,7 @@ Models are stored in `~/.local/share/rekody/models/` (or `$REKODY_MODEL_DIR` if 
 | tiny     | `ggml-tiny.en.bin`     | ~75 MB  | `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin`       |
 | small    | `ggml-small.en.bin`    | ~250 MB | `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin`      |
 | medium   | `ggml-medium.en.bin`   | ~750 MB | `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin`     |
+| turbo    | `ggml-large-v3-turbo-q5_0.bin` | ~574 MB | `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin` |
 | large    | `ggml-large.bin`       | ~1.5 GB | `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large.bin`         |
 
 ---
@@ -383,6 +384,7 @@ case "$WHISPER_MODEL" in
     tiny)   FILE="ggml-tiny.en.bin" ;;
     small)  FILE="ggml-small.en.bin" ;;
     medium) FILE="ggml-medium.en.bin" ;;
+    turbo)  FILE="ggml-large-v3-turbo-q5_0.bin" ;;
     large)  FILE="ggml-large.bin" ;;
     *)      FILE="ggml-tiny.en.bin" ;;
 esac

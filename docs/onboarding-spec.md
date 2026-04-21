@@ -27,7 +27,7 @@ State:
   config: OnboardingConfig {
     sttEngine: "local" | "groq" | "deepgram"
     sttApiKey: string | null
-    whisperModel: "tiny" | "small" | "medium" | "large"  // only if sttEngine = "local"
+    whisperModel: "tiny" | "small" | "medium" | "turbo" | "large"  // only if sttEngine = "local"
     llmProvider: string | null   // "groq" | "ollama" | "openai" | "anthropic" | "cerebras" | "together" | "openrouter" | "gemini" | "lm-studio" | "vllm" | null
     llmApiKey: string | null
     llmModel: string | null

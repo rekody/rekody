@@ -280,6 +280,11 @@ pub fn run_onboarding() -> Result<()> {
             .item("tiny", "Tiny (75 MB)", "fastest — good for most use")
             .item("small", "Small (250 MB)", "balanced")
             .item("medium", "Medium (750 MB)", "better accuracy")
+            .item(
+                "turbo",
+                "Turbo (574 MB)",
+                "fast + near-large accuracy (recommended)",
+            )
             .item("large", "Large (1.5 GB)", "best accuracy")
             .interact()
             .map_err(|e| anyhow::anyhow!(e))?
@@ -300,6 +305,10 @@ pub fn run_onboarding() -> Result<()> {
         "medium" => (
             "ggml-medium.bin",
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+        ),
+        "turbo" => (
+            "ggml-large-v3-turbo-q5_0.bin",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         ),
         "large" => (
             "ggml-large.bin",
@@ -680,6 +689,7 @@ const EXPECTED_CHECKSUMS: &[(&str, &str)] = &[
         "", // fill in after downloading and hashing
     ),
     ("ggml-medium.bin", ""),
+    ("ggml-large-v3-turbo-q5_0.bin", ""),
     ("ggml-large.bin", ""),
 ];
 
@@ -801,6 +811,7 @@ fn whisper_file_name(size: &str) -> &str {
         "tiny" => "ggml-tiny.bin",
         "small" => "ggml-small.bin",
         "medium" => "ggml-medium.bin",
+        "turbo" => "ggml-large-v3-turbo-q5_0.bin",
         "large" => "ggml-large.bin",
         _ => "ggml-small.bin",
     }

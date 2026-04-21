@@ -412,6 +412,7 @@ impl Pipeline {
                 let whisper_model = match config.whisper_model.to_lowercase().as_str() {
                     "tiny" => WhisperModel::Tiny,
                     "medium" => WhisperModel::Medium,
+                    "turbo" => WhisperModel::Turbo,
                     "large" => WhisperModel::Large,
                     _ => WhisperModel::Small,
                 };
