@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.1] - 2026-04-21
+
+### Added
+
+- **Turbo Whisper model** (`ggml-large-v3-turbo-q5_0.bin`, ~574 MB) — distilled large-v3 quantized to 5-bit. ~8× faster decode than full large with near-large accuracy. Now the default for local STT.
+
+### Changed
+
+- Local Whisper picker in `rekody setup` now preselects **Turbo** and lists it first.
+- `config/default.toml` default `whisper_model` changed from `"tiny"` to `"turbo"`.
+- Unknown `whisper_model` values fall back to `turbo` (previously `small`).
+
 ## [0.5.0] - 2026-04-19
 
 ### Changed (Breaking)

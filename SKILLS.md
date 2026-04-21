@@ -26,7 +26,7 @@ optional LLM cleanup, and text injection at your cursor -- all behind a single h
 If the user gives a vague instruction like "just set it up", ask them at minimum which STT engine and whether they want LLM cleanup. Do not default to cloud providers without explicit consent — privacy is a core value of this tool.
 
 **Repository:** <https://github.com/tonykipkemboi/rekody>
-**Version:** 0.5.0
+**Version:** 0.5.1
 **License:** MIT OR Apache-2.0
 
 ---
