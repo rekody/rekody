@@ -1,5 +1,5 @@
 ---
-import Mark from './Mark.astro';
+import Lettermark from './Lettermark.astro';
 import { version } from '../lib/version';
 
 const links = [
@@ -14,8 +14,8 @@ const links = [
   <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
 
     <!-- Wordmark -->
-    <a href="/" class="flex items-center gap-2.5 shrink-0" aria-label="rekody — home">
-      <Mark size={28} strokeColor="var(--color-ink)" />
+    <a href="/" class="flex items-center gap-2 shrink-0" aria-label="rekody — home">
+      <Lettermark size={28} />
       <span style="font-family:var(--font-serif); font-size:20px; font-weight:400; letter-spacing:-0.02em; color:var(--color-ink);">rekody</span>
     </a>
 

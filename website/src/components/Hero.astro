@@ -1,5 +1,5 @@
 ---
-import Mark from './Mark.astro';
+import Lettermark from './Lettermark.astro';
 ---
 
 <section id="hero" class="relative shader-hero overflow-hidden">
@@ -87,7 +87,7 @@ import Mark from './Mark.astro';
           <span class="w-2.5 h-2.5 rounded-full" style="background:#F4E4B8;"></span>
           <span class="w-2.5 h-2.5 rounded-full" style="background:#C8E0C8;"></span>
           <div class="ml-auto flex items-center gap-1.5">
-            <Mark size={14} hideDot strokeColor="var(--color-ink-faint)" strokeWidth={26} />
+            <Lettermark size={14} inkColor="var(--color-ink-faint)" hideDot />
             <span class="text-[10px] font-mono uppercase" style="color:var(--color-ink-faint); letter-spacing:0.08em;">rekody</span>
           </div>
         </div>
@@ -106,7 +106,9 @@ import Mark from './Mark.astro';
               ))}
             </div>
             <div class="ml-auto flex items-center gap-2">
-              <Mark size={18} animate strokeColor="var(--color-ink)" dotColor="var(--color-teal)" ariaLabel="Listening" />
+              <span class="listening-pulse" role="img" aria-label="Listening">
+                <span></span><span></span><span></span>
+              </span>
               <span class="text-[11px] font-mono uppercase" style="color:var(--color-teal); letter-spacing:0.08em;">Listening</span>
             </div>
           </div>
@@ -235,5 +237,27 @@ import Mark from './Mark.astro';
   }
   @media (prefers-reduced-motion: reduce) {
     .hero-caret { animation: none; opacity: 0; }
+  }
+
+  .listening-pulse {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .listening-pulse > span {
+    width: 5px;
+    height: 5px;
+    border-radius: 9999px;
+    background: var(--color-teal);
+    animation: listening-pulse-fade 1.2s ease-in-out infinite;
+  }
+  .listening-pulse > span:nth-child(2) { animation-delay: 0.15s; }
+  .listening-pulse > span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes listening-pulse-fade {
+    0%, 100% { opacity: 0.25; transform: scale(0.85); }
+    50%      { opacity: 1;    transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .listening-pulse > span { animation: none; opacity: 0.8; }
   }
 </style>

@@ -1,0 +1,51 @@
+---
+interface Props {
+  size?: number;
+  inkColor?: string;
+  dotColor?: string;
+  hideDot?: boolean;
+  class?: string;
+  ariaLabel?: string;
+}
+
+const {
+  size = 28,
+  inkColor = 'var(--color-ink)',
+  dotColor = 'var(--color-teal)',
+  hideDot = false,
+  class: className = '',
+  ariaLabel = 'rekody',
+} = Astro.props;
+---
+
+<span
+  class={`lettermark ${className}`}
+  role="img"
+  aria-label={ariaLabel}
+  style={`--lm-size:${size}px; --lm-ink:${inkColor}; --lm-dot:${dotColor};`}
+>
+  <span class="lettermark-r" aria-hidden="true">r</span>
+  {!hideDot && <span class="lettermark-dot" aria-hidden="true">.</span>}
+</span>
+
+<style>
+  .lettermark {
+    display: inline-flex;
+    align-items: flex-end;
+    line-height: 0.78;
+    font-family: "Fraunces", "Source Serif 4", ui-serif, Georgia, serif;
+    font-variation-settings: 'SOFT' 30;
+    font-weight: 900;
+    font-size: var(--lm-size);
+    letter-spacing: -0.04em;
+    color: var(--lm-ink);
+    user-select: none;
+  }
+  .lettermark-r {
+    color: var(--lm-ink);
+  }
+  .lettermark-dot {
+    color: var(--lm-dot);
+    margin-left: -0.04em;
+  }
+</style>
