@@ -900,6 +900,11 @@ fn print_permission(name: &str, status: MicCheck) {
 
 // ── Subcommand: update ───────────────────────────────────────────────────────
 
+fn is_homebrew_install(path: &std::path::Path) -> bool {
+    let s = path.to_string_lossy();
+    s.contains("/Cellar/") || s.contains("/homebrew/")
+}
+
 async fn cmd_update(check_only: bool) -> Result<()> {
     const CURRENT: &str = env!("CARGO_PKG_VERSION");
     const REPO: &str = "rekody/rekody";
@@ -971,9 +976,42 @@ async fn cmd_update(check_only: bool) -> Result<()> {
         latest_tag
     );
 
+    // Resolve where the running binary actually lives, following symlinks
+    // (e.g. /opt/homebrew/bin/rekody → Cellar/...). Hardcoding
+    // /usr/local/bin/rekody silently desynced any install outside that path.
+    let install_path = match std::env::current_exe().and_then(|p| p.canonicalize()) {
+        Ok(p) => p,
+        Err(e) => {
+            println!();
+            println!(
+                "  {} Could not resolve current binary path: {}",
+                style("✗").red(),
+                e
+            );
+            return Ok(());
+        }
+    };
+
+    let owned_by_brew = is_homebrew_install(&install_path);
+
     if check_only {
         println!();
-        println!("  Run {} to install it.", style("rekody update").cyan());
+        let cmd = if owned_by_brew {
+            "brew upgrade rekody"
+        } else {
+            "rekody update"
+        };
+        println!("  Run {} to install it.", style(cmd).cyan());
+        println!();
+        return Ok(());
+    }
+
+    // Defer to the package manager when one owns this install — overwriting
+    // its files breaks `brew upgrade` / `brew uninstall` bookkeeping.
+    if owned_by_brew {
+        println!();
+        println!("  {} rekody was installed via Homebrew.", style("ℹ").cyan());
+        println!("  Run {} to upgrade.", style("brew upgrade rekody").cyan());
         println!();
         return Ok(());
     }
@@ -1047,14 +1085,29 @@ async fn cmd_update(check_only: bool) -> Result<()> {
     }
 
     let new_bin = tmp.join("rekody");
-    let install_path = std::path::PathBuf::from("/usr/local/bin/rekody");
 
-    // Try direct copy; fall back to sudo
-    let copy_ok = std::fs::copy(&new_bin, &install_path).is_ok();
-    if !copy_ok {
+    // Atomic replace: stage next to the target, then rename over it. On POSIX
+    // rename() swaps inodes atomically and works even though we're replacing
+    // the running binary (the live process keeps the old inode). Direct
+    // fs::copy onto a running executable fails with ETXTBSY on Linux.
+    let staged = install_path.with_file_name(format!(
+        ".rekody.update-{}.{}",
+        latest_tag,
+        std::process::id()
+    ));
+
+    let install_ok = std::fs::copy(&new_bin, &staged)
+        .and_then(|_| std::fs::rename(&staged, &install_path))
+        .is_ok();
+
+    if !install_ok {
+        // Clean up the staged file before falling back so we don't leave litter.
+        let _ = std::fs::remove_file(&staged);
         let sudo = std::process::Command::new("sudo")
             .args([
-                "cp",
+                "install",
+                "-m",
+                "0755",
                 new_bin.to_str().unwrap(),
                 install_path.to_str().unwrap(),
             ])
@@ -1067,11 +1120,11 @@ async fn cmd_update(check_only: bool) -> Result<()> {
             );
             return Ok(());
         }
+    } else {
+        let _ = std::process::Command::new("chmod")
+            .args(["+x", install_path.to_str().unwrap()])
+            .status();
     }
-
-    let _ = std::process::Command::new("chmod")
-        .args(["+x", install_path.to_str().unwrap()])
-        .status();
 
     let _ = std::fs::remove_dir_all(&tmp);
 

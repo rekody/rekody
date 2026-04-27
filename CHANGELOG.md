@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.3] - 2026-04-27
+
+### Fixed
+
+- **`rekody update` now replaces the binary that's actually running** instead of always writing to `/usr/local/bin/rekody`. Previously, Homebrew installs (or any install outside `/usr/local/bin`) silently desynced: the updater reported success while the running binary stayed on the old version. The install target now resolves from `std::env::current_exe()` and follows symlinks.
+- **Atomic replace via `rename(2)`** — staging next to the target and renaming over avoids `ETXTBSY` ("text file busy") when replacing the running binary on Linux, and removes a small race window on all platforms.
+
+### Changed
+
+- **Homebrew-aware updater:** `rekody update` and `rekody update --check` now detect Homebrew installs (paths under `Cellar/` or `homebrew/`) and direct users to `brew upgrade rekody` rather than clobbering the keg and breaking `brew`'s bookkeeping.
+- Sudo fallback now uses `install -m 0755` so permissions are set in one shot.
+
 ## [0.5.2] - 2026-04-23
 
 ### Fixed
