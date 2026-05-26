@@ -43,8 +43,11 @@ struct Cli {
 enum Cmd {
     /// Run first-time setup or reconfigure
     Setup,
-    /// Show or edit current configuration
+    /// Show or edit current configuration (interactive when run in a terminal)
     Config {
+        /// Output redacted JSON instead of rendering — for piping into jq/scripts
+        #[arg(long)]
+        json: bool,
         #[command(subcommand)]
         action: Option<ConfigCmd>,
     },
@@ -92,10 +95,6 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum ConfigCmd {
-    /// Print current configuration (default)
-    Show,
-    /// Open config file in $EDITOR
-    Edit,
     /// Print the path of the config file
     Path,
 }
@@ -160,7 +159,7 @@ async fn main() -> Result<()> {
     match cli.command {
         None => run_dictation(cli.verbose, cli.record_all_audio).await,
         Some(Cmd::Setup) => cmd_setup(),
-        Some(Cmd::Config { action }) => cmd_config(action),
+        Some(Cmd::Config { json, action }) => cmd_config(json, action),
         Some(Cmd::History {
             count,
             search,
@@ -186,36 +185,59 @@ fn cmd_setup() -> Result<()> {
 
 // ── Subcommand: config ───────────────────────────────────────────────────────
 
-fn cmd_config(action: Option<ConfigCmd>) -> Result<()> {
+fn cmd_config(json: bool, action: Option<ConfigCmd>) -> Result<()> {
+    use std::io::IsTerminal;
+
     let config_path = find_config_path();
     let config = load_config_or_default(&config_path);
 
-    match action.unwrap_or(ConfigCmd::Show) {
-        ConfigCmd::Show => print_config(&config, &config_path),
-        ConfigCmd::Path => match &config_path {
+    if let Some(ConfigCmd::Path) = action {
+        match &config_path {
             Some(p) => println!("{}", p),
             None => println!("{}", style("no config file found").yellow()),
-        },
-        ConfigCmd::Edit => {
-            let path = match &config_path {
-                Some(p) => p.clone(),
-                None => {
-                    let default = default_config_path();
-                    println!(
-                        "{} {}",
-                        style("Creating config at").dim(),
-                        style(&default).cyan()
-                    );
-                    default
-                }
-            };
-            let editor = std::env::var("EDITOR")
-                .or_else(|_| std::env::var("VISUAL"))
-                .unwrap_or_else(|_| "nano".to_string());
-            std::process::Command::new(&editor).arg(&path).status()?;
         }
+        return Ok(());
+    }
+
+    if json {
+        let redacted = redact_for_output(config.clone());
+        println!("{}", serde_json::to_string_pretty(&redacted)?);
+        return Ok(());
+    }
+
+    // Bare `rekody config`: TUI when stdout is a terminal, text print when piped.
+    if std::io::stdout().is_terminal() {
+        let path = config_path.unwrap_or_else(default_config_path);
+        rekody_core::config_tui::run(config, path)?;
+    } else {
+        print_config(&config, &config_path);
     }
     Ok(())
+}
+
+/// Strip API keys before serializing for `--json` output.
+fn redact_for_output(mut cfg: RekodyConfig) -> RekodyConfig {
+    for p in &mut cfg.providers {
+        if !p.api_key.is_empty() {
+            p.api_key = "[REDACTED]".into();
+        }
+    }
+    if let Some(k) = &cfg.deepgram_api_key
+        && !k.is_empty()
+    {
+        cfg.deepgram_api_key = Some("[REDACTED]".into());
+    }
+    if let Some(k) = &cfg.groq_api_key
+        && !k.is_empty()
+    {
+        cfg.groq_api_key = Some("[REDACTED]".into());
+    }
+    if let Some(k) = &cfg.cerebras_api_key
+        && !k.is_empty()
+    {
+        cfg.cerebras_api_key = Some("[REDACTED]".into());
+    }
+    cfg
 }
 
 fn print_config(config: &RekodyConfig, path: &Option<String>) {
