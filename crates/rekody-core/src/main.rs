@@ -80,10 +80,10 @@ enum Cmd {
     },
     /// Check STT and LLM provider connectivity
     Doctor,
-    /// Manage API keys stored in the system keychain
+    /// Manage API keys stored in the system keychain (interactive when run in a terminal)
     Key {
         #[command(subcommand)]
-        action: KeyCmd,
+        action: Option<KeyCmd>,
     },
     /// Check for and install the latest version
     Update {
@@ -111,8 +111,6 @@ enum KeyCmd {
         /// Provider name
         provider: String,
     },
-    /// List which providers have keys stored
-    List,
 }
 
 // ── ASCII banner ─────────────────────────────────────────────────────────────
@@ -1146,7 +1144,16 @@ async fn cmd_update(check_only: bool) -> Result<()> {
 
 // ── Subcommand: key ──────────────────────────────────────────────────────────
 
-fn cmd_key(action: KeyCmd) -> Result<()> {
+fn cmd_key(action: Option<KeyCmd>) -> Result<()> {
+    use std::io::IsTerminal;
+
+    let Some(action) = action else {
+        // Bare `rekody key`: TUI when TTY, otherwise list to stdout.
+        if std::io::stdout().is_terminal() {
+            return rekody_core::key_tui::run();
+        }
+        return print_key_list();
+    };
     match action {
         KeyCmd::Set { provider } => {
             use std::io::{self, Write};
@@ -1181,51 +1188,52 @@ fn cmd_key(action: KeyCmd) -> Result<()> {
                 style(&provider).white()
             ),
         },
-        KeyCmd::List => {
-            let rule = "─".repeat(48);
-            println!();
-            println!(
-                "  {BRAND}╭─{RESET}  {BRAND_LIGHT}{BOLD}rekody keys{RESET}  {DIM}keychain status{RESET}"
-            );
-            println!("  {BRAND}│{RESET}");
-            let providers = &[
-                "groq",
-                "deepgram",
-                "anthropic",
-                "openai",
-                "gemini",
-                "cerebras",
-                "together",
-                "openrouter",
-                "fireworks",
-            ];
-            let mut any = false;
-            for p in providers {
-                match get_keychain_key(p) {
-                    Ok(key) if !key.is_empty() => {
-                        println!(
-                            "  {BRAND}│{RESET}   {CREAM}{BOLD}{:<11}{RESET}  {OK}✓ stored{RESET}  {DIM}{}{RESET}",
-                            p,
-                            mask_key(&key)
-                        );
-                        any = true;
-                    }
-                    _ => {
-                        println!("  {BRAND}│{RESET}   {CREAM}{:<11}{RESET}  {DIM}—{RESET}", p);
-                    }
-                }
-            }
-            if !any {
-                println!("  {BRAND}│{RESET}");
+    }
+    Ok(())
+}
+
+/// Pipe-friendly fallback: same content as the old `rekody key list`.
+fn print_key_list() -> Result<()> {
+    let rule = "─".repeat(48);
+    println!();
+    println!(
+        "  {BRAND}╭─{RESET}  {BRAND_LIGHT}{BOLD}rekody keys{RESET}  {DIM}keychain status{RESET}"
+    );
+    println!("  {BRAND}│{RESET}");
+    let providers = &[
+        "groq",
+        "deepgram",
+        "anthropic",
+        "openai",
+        "gemini",
+        "cerebras",
+        "together",
+        "openrouter",
+        "fireworks",
+    ];
+    let mut any = false;
+    for p in providers {
+        match get_keychain_key(p) {
+            Ok(key) if !key.is_empty() => {
                 println!(
-                    "  {BRAND}│{RESET}   {DIM}No keys stored. Run: rekody key set <provider>{RESET}"
+                    "  {BRAND}│{RESET}   {CREAM}{BOLD}{:<11}{RESET}  {OK}✓ stored{RESET}  {DIM}{}{RESET}",
+                    p,
+                    mask_key(&key)
                 );
+                any = true;
             }
-            println!("  {BRAND}│{RESET}");
-            println!("  {BRAND}╰{}{RESET}", rule);
-            println!();
+            _ => {
+                println!("  {BRAND}│{RESET}   {CREAM}{:<11}{RESET}  {DIM}—{RESET}", p);
+            }
         }
     }
+    if !any {
+        println!("  {BRAND}│{RESET}");
+        println!("  {BRAND}│{RESET}   {DIM}No keys stored. Run: rekody key set <provider>{RESET}");
+    }
+    println!("  {BRAND}│{RESET}");
+    println!("  {BRAND}╰{}{RESET}", rule);
+    println!();
     Ok(())
 }
 
