@@ -342,6 +342,21 @@ pub fn run_onboarding() -> Result<()> {
             let expected = expected_checksum_for(whisper_file);
             verify_model_checksum(model_path.to_str().unwrap_or(""), expected);
         }
+
+        // Apple Silicon: fetch the matching Core ML encoder so whisper.cpp can
+        // run the encoder pass on the Neural Engine. No-op on other platforms.
+        if let Err(e) = ensure_coreml_encoder(whisper_size, &model_dir) {
+            println!(
+                "  {}  Core ML encoder not installed: {}",
+                console::style("⚠").yellow().bold(),
+                e
+            );
+            println!(
+                "     {}",
+                console::style("(rekody will still work; you'll just be on Metal-only speed)")
+                    .dim()
+            );
+        }
     } // end if stt_engine == "local"
 
     // --- Step 3: macOS permissions ---------------------------------------
@@ -816,6 +831,108 @@ fn whisper_file_name(size: &str) -> &str {
         "large" => "ggml-large.bin",
         _ => "ggml-small.bin",
     }
+}
+
+// ---------------------------------------------------------------------------
+// Core ML encoder (Apple Silicon)
+// ---------------------------------------------------------------------------
+//
+// whisper.cpp loads `<model>-encoder.mlmodelc` from the same directory as the
+// `.bin` file when the binary is built with WHISPER_COREML=1 (whisper-rs
+// `coreml` feature). The encoder runs on the Neural Engine, typically ~2×
+// faster than Metal-only inference. First use compiles the MIL bytecode into
+// `~/Library/Caches/com.apple.e5rt.e5bundlecache` (30–60 s, one-time).
+
+/// Return `(mlmodelc_dir_name, archive_url)` for the given whisper size,
+/// or `None` if no Core ML encoder is published for it.
+fn coreml_archive_for(size: &str) -> Option<(&'static str, &'static str)> {
+    match size.to_lowercase().as_str() {
+        "tiny" => Some((
+            "ggml-tiny-encoder.mlmodelc",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-encoder.mlmodelc.zip",
+        )),
+        "small" => Some((
+            "ggml-small-encoder.mlmodelc",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-encoder.mlmodelc.zip",
+        )),
+        "medium" => Some((
+            "ggml-medium-encoder.mlmodelc",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-encoder.mlmodelc.zip",
+        )),
+        "turbo" => Some((
+            "ggml-large-v3-turbo-encoder.mlmodelc",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
+        )),
+        "large" => Some((
+            "ggml-large-encoder.mlmodelc",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-encoder.mlmodelc.zip",
+        )),
+        _ => None,
+    }
+}
+
+/// Download + unzip the Core ML encoder archive into `model_dir`. No-op if the
+/// `.mlmodelc` directory already exists. Uses the system `unzip` binary (always
+/// present on macOS) to avoid pulling a zip crate into the build.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn ensure_coreml_encoder(whisper_size: &str, model_dir: &std::path::Path) -> Result<()> {
+    let Some((mlmodelc_name, archive_url)) = coreml_archive_for(whisper_size) else {
+        return Ok(());
+    };
+    let mlmodelc_path = model_dir.join(mlmodelc_name);
+    if mlmodelc_path.exists() {
+        let sp = spinner();
+        sp.start("Checking Core ML encoder...");
+        sp.stop(format!(
+            "Core ML encoder already present at {}",
+            mlmodelc_path.display()
+        ));
+        return Ok(());
+    }
+
+    println!(
+        "  {}  Apple Silicon detected — fetching Core ML encoder for ~2× faster transcription.",
+        console::style("→").cyan().bold()
+    );
+    println!(
+        "     {}",
+        console::style("(first transcription afterwards takes 30–60s while macOS compiles the model; subsequent runs are fast)")
+            .dim()
+    );
+
+    let archive_path = model_dir.join(format!("{mlmodelc_name}.zip"));
+    download_model(archive_url, &archive_path)
+        .context("failed to download Core ML encoder archive")?;
+
+    let sp = spinner();
+    sp.start("Unzipping Core ML encoder...");
+    let status = std::process::Command::new("unzip")
+        .args(["-q", "-o"])
+        .arg(&archive_path)
+        .arg("-d")
+        .arg(model_dir)
+        .status()
+        .context("failed to invoke unzip")?;
+    if !status.success() {
+        sp.stop("Unzip failed");
+        anyhow::bail!(
+            "unzip exited with {}; archive left at {}",
+            status,
+            archive_path.display()
+        );
+    }
+    sp.stop(format!(
+        "Core ML encoder ready at {}",
+        mlmodelc_path.display()
+    ));
+    let _ = std::fs::remove_file(&archive_path);
+    Ok(())
+}
+
+/// No-op on non–Apple-Silicon targets so the call site stays clean.
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+fn ensure_coreml_encoder(_whisper_size: &str, _model_dir: &std::path::Path) -> Result<()> {
+    Ok(())
 }
 
 /// Auto-detect Ollama models and let the user pick one.

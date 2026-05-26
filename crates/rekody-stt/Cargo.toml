@@ -18,5 +18,12 @@ serde_json.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Apple Silicon: enable Core ML so whisper.cpp can run the encoder pass on
+# the Neural Engine (typically ~2× faster than Metal-only). Requires the
+# matching .mlmodelc directory to live next to the .bin model file; rekody
+# downloads it alongside the GGML model during setup.
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+whisper-rs = { version = "0.13", features = ["coreml"] }
+
 [dev-dependencies]
 tokio = { workspace = true }
