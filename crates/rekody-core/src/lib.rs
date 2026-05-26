@@ -11,6 +11,7 @@ pub use rekody_inject::InjectionMethod;
 pub use rekody_stt::WhisperModel;
 
 pub mod command_mode;
+pub mod config_tui;
 pub mod context;
 pub mod corrections;
 pub mod dictionary;
