@@ -1,0 +1,67 @@
+# rekody — project notes for Claude
+
+## Release & rollback surface
+
+A rekody release is **NOT** a single artifact. Pushing tag `vX.Y.Z` to `rekody/rekody` triggers `.github/workflows/release.yml`, which fans out to three places. Any release OR rollback MUST account for all of them — missing one leaves users on a broken or stale version.
+
+### Where a version lives
+
+| # | Location | What it is | How it's set on release |
+|---|---|---|---|
+| 1 | `Cargo.toml` (workspace root, `[workspace.package].version`) | Source of truth for `rekody --version` and the website's displayed version (`website/src/lib/version.ts` reads this file at build time) | Manual bump in a commit on `main` |
+| 2 | Git tag `vX.Y.Z` on `rekody/rekody` | Triggers the release workflow | Manual `git tag` + `git push origin vX.Y.Z` |
+| 3 | GitHub Release at `rekody/rekody/releases/tag/vX.Y.Z` | Hosts the `.tar.gz` binaries + `SHA256SUMS` | Auto-created by `release.yml` `create-release` job |
+| 4 | Homebrew tap formula at `rekody/homebrew-rekody/Formula/rekody.rb` | What `brew install rekody` actually downloads — has `version` field + arm64/x86_64 SHA256s | Auto-updated by `release.yml` `update-homebrew-tap` job (commits to the tap repo using `PAT_HOMEBREW`) |
+| 5 | (downstream) User's local Homebrew install | Cached formula + installed binary | User runs `brew update && brew upgrade rekody` |
+
+### Releasing — full checklist
+
+1. Bump `version` in workspace `Cargo.toml`, commit on `main`.
+2. `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. Watch `release.yml` — it must build both arches, create the GitHub Release, AND update the tap formula. Confirm the tap commit lands at `rekody/homebrew-rekody`.
+4. `brew update && brew info rekody` should show the new version. Test `brew upgrade rekody` end-to-end before declaring done.
+
+### Rolling back — full checklist (THE PART THAT BIT US)
+
+Reverting a bad release means undoing **everything** the release workflow created. There is no inverse automation; each item is manual.
+
+1. **Code on `main`**: revert the offending commit(s) with `git revert` (non-destructive). Bump `Cargo.toml` back if needed and push.
+2. **Local tag**: `git tag -d vX.Y.Z`.
+3. **Remote tag**: `git push origin :refs/tags/vX.Y.Z`.
+4. **GitHub Release**: `gh release delete vX.Y.Z --yes` (the release does NOT disappear when the tag does).
+5. **Homebrew tap formula** ⚠️ EASY TO FORGET: revert the auto-commit in `rekody/homebrew-rekody`. Clone it, `git revert <sha>`, push. Without this, `brew install rekody` still pulls the broken version. Verify with `gh api repos/rekody/homebrew-rekody/contents/Formula/rekody.rb --jq .content | base64 -d`.
+6. **Local install**: `brew update && brew uninstall rekody && brew install rekody`, then `rekody --version` to confirm. The tap is cached locally — `brew update` is required to pick up the formula revert.
+
+### Verify-everywhere command
+
+Before declaring a release OR a rollback complete, run:
+
+```bash
+# Main repo state
+gh release list --repo rekody/rekody --limit 3
+git ls-remote --tags origin | grep vX.Y.Z
+
+# Tap state (this is the one that got missed)
+gh api repos/rekody/homebrew-rekody/contents/Formula/rekody.rb --jq .content | base64 -d | grep -E '^\s+version'
+
+# Local install
+brew info rekody | head -3
+rekody --version
+```
+
+If any of those four don't agree, the release/rollback is incomplete.
+
+### Rollback automation
+
+The forward path is automated (`release.yml`). For the reverse path, run:
+
+```bash
+scripts/rollback.sh <version>   # e.g. scripts/rollback.sh 0.5.5
+```
+
+That covers steps 2–5 of the rollback checklist (tag, GH release, tap, verify). Step 1 (reverting the version-bump commit on `main`) is intentionally left manual — review it with `git revert` so you can see the diff. The script is idempotent: re-run it safely if part of a rollback already happened.
+
+## Other notes
+
+- **`crates/rekody-core/src/history_tui.rs` is the gold-standard UI reference and must not be modified**, even for no-visual-change refactors. Duplicate its palette into other files rather than refactoring it into a shared module.
+- Website lives at `website/`, deploys via Vercel, uses pnpm + Astro 5. (A Bun + Astro 6 migration was attempted and rolled back on 2026-05-26; do not re-attempt without explicit ask.)
