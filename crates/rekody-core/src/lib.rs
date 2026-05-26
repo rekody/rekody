@@ -17,6 +17,7 @@ pub mod corrections;
 pub mod dictionary;
 pub mod history;
 pub mod history_tui;
+pub mod key_tui;
 pub mod onboarding;
 pub mod prompts;
 pub mod snippets;
