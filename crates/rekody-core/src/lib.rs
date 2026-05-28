@@ -10,6 +10,7 @@ pub use rekody_hotkey::{ActivationMode, HotkeyConfig, HotkeyEvent, TriggerKey};
 pub use rekody_inject::InjectionMethod;
 pub use rekody_stt::WhisperModel;
 
+pub mod bench;
 pub mod command_mode;
 pub mod config_tui;
 pub mod context;
