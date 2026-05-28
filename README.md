@@ -15,9 +15,8 @@ Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on
 ## Quick Start
 
 ```bash
-# Install via Homebrew (recommended)
-brew tap rekody/rekody
-brew install rekody
+# Install via Homebrew (recommended) — auto-taps + installs
+brew install rekody/rekody/rekody
 
 # Or one-line installer (no Homebrew needed)
 curl -fsSL https://raw.githubusercontent.com/rekody/rekody/main/install.sh | bash
