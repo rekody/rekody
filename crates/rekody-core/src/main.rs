@@ -91,6 +91,16 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// Benchmark local Whisper transcription latency (A/B Core ML vs Metal)
+    Bench {
+        /// Number of measured runs per sample (default: 5)
+        #[arg(long, default_value = "5")]
+        runs: usize,
+        /// Warmup runs before measurement — first warm-up can absorb Core ML
+        /// MIL compile or cold-cache costs (default: 2)
+        #[arg(long, default_value = "2")]
+        warmup: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -171,6 +181,10 @@ async fn main() -> Result<()> {
         Some(Cmd::Doctor) => cmd_doctor().await,
         Some(Cmd::Key { action }) => cmd_key(action),
         Some(Cmd::Update { check }) => cmd_update(check).await,
+        Some(Cmd::Bench { runs, warmup }) => {
+            let cfg = load_config_or_default(&find_config_path());
+            rekody_core::bench::run(&cfg, runs, warmup).await
+        }
     }
 }
 
