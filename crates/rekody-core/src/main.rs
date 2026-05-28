@@ -676,6 +676,21 @@ async fn cmd_doctor() -> Result<()> {
             println!(
                 "  {BRAND}│{RESET}     {BRAND_LIGHT}○{RESET}  {DIM}Local Whisper (no network check needed){RESET}"
             );
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            {
+                let (label, ok) = coreml_status(&config.whisper_model);
+                if ok {
+                    println!(
+                        "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {DIM}Core ML encoder:{RESET}  {CREAM}{}{RESET}",
+                        label
+                    );
+                } else {
+                    println!(
+                        "  {BRAND}│{RESET}     {WARN}{BOLD}!{RESET}  {DIM}Core ML encoder:{RESET}  {WARN}{}{RESET}",
+                        label
+                    );
+                }
+            }
         }
     }
     println!("  {BRAND}│{RESET}");
@@ -1327,6 +1342,37 @@ fn format_activation_mode(mode: &str) -> &str {
     match mode.to_lowercase().as_str() {
         "toggle" => "toggle — tap ⌥Space to start/stop",
         _ => "push-to-talk — hold ⌥Space",
+    }
+}
+
+/// Detect whether the Core ML encoder is installed for the configured local
+/// model. Returns a human label + an ok flag. Only compiled on Apple Silicon
+/// macOS, where Core ML offers a ~2× speedup over Metal-only inference.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn coreml_status(whisper_model: &str) -> (String, bool) {
+    let mlmodelc_name = match whisper_model.to_lowercase().as_str() {
+        "tiny" => "ggml-tiny-encoder.mlmodelc",
+        "small" => "ggml-small-encoder.mlmodelc",
+        "medium" => "ggml-medium-encoder.mlmodelc",
+        "turbo" => "ggml-large-v3-turbo-encoder.mlmodelc",
+        "large" => "ggml-large-encoder.mlmodelc",
+        other => return (format!("unknown model: {other}"), false),
+    };
+    let model_dir = std::env::var("REKODY_MODEL_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::home_dir()
+                .map(|h| h.join(".local").join("share").join("rekody").join("models"))
+                .unwrap_or_else(|| std::path::PathBuf::from("models"))
+        });
+    let path = model_dir.join(mlmodelc_name);
+    if path.exists() {
+        (format!("loaded ({mlmodelc_name})"), true)
+    } else {
+        (
+            "missing — re-run `rekody setup` to download (~2× speedup)".to_string(),
+            false,
+        )
     }
 }
 
