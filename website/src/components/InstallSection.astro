@@ -5,10 +5,9 @@ const tabs = [
     label: 'brew',
     recommended: true,
     lines: [
-      { tokens: [ {c:'cmd', t:'brew'}, {c:'flag', t:' tap'}, {c:'str', t:' rekody/rekody'} ] },
-      { tokens: [ {c:'cmd', t:'brew'}, {c:'flag', t:' install'}, {c:'str', t:' rekody'} ] },
+      { tokens: [ {c:'cmd', t:'brew'}, {c:'flag', t:' install'}, {c:'str', t:' rekody/rekody/rekody'} ] },
     ],
-    note: '— tap + install. Updates via <code>brew upgrade rekody</code>.',
+    note: '— auto-taps + installs. Updates via <code>brew upgrade rekody</code>.',
   },
   {
     id: 'curl',
@@ -194,7 +193,7 @@ const tabs = [
   const checkIcon = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied`;
 
   const cmds: Record<string, string> = {
-    brew:  'brew tap rekody/rekody\nbrew install rekody',
+    brew:  'brew install rekody/rekody/rekody',
     curl:  'curl -fsSL https://rekody.com/install.sh | bash',
     make:  'git clone https://github.com/rekody/rekody.git\ncd rekody && make install',
     cargo: 'cargo install --git https://github.com/rekody/rekody rekody-core',
