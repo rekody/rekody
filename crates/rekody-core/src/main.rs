@@ -106,12 +106,33 @@ enum Cmd {
         #[command(subcommand)]
         action: Option<SkillCmd>,
     },
+    /// Manage your personal vocabulary (terms the cleanup model should preserve)
+    Dictionary {
+        #[command(subcommand)]
+        action: Option<DictionaryCmd>,
+    },
 }
 
 #[derive(Subcommand)]
 enum ConfigCmd {
     /// Print the path of the config file
     Path,
+}
+
+#[derive(Subcommand)]
+enum DictionaryCmd {
+    /// Add a term (jargon, a name, a product) — multi-word is fine, no quotes needed
+    Add {
+        #[arg(required = true, num_args = 1..)]
+        term: Vec<String>,
+    },
+    /// Remove a term
+    Remove {
+        #[arg(required = true, num_args = 1..)]
+        term: Vec<String>,
+    },
+    /// List all terms (pipe-friendly)
+    List,
 }
 
 #[derive(Subcommand)]
@@ -204,6 +225,7 @@ async fn main() -> Result<()> {
             rekody_core::bench::run(&cfg, runs, warmup).await
         }
         Some(Cmd::Skill { action }) => cmd_skill(action),
+        Some(Cmd::Dictionary { action }) => cmd_dictionary(action),
     }
 }
 
@@ -1393,6 +1415,77 @@ fn print_skill_list() -> Result<()> {
     }
     println!("  {BRAND}│{RESET}");
     println!("  {BRAND}│{RESET}   {DIM}rekody skill use <name>  ·  rekody skill none{RESET}");
+    println!("  {BRAND}│{RESET}");
+    println!("  {BRAND}╰{}{RESET}", rule);
+    println!();
+    Ok(())
+}
+
+// ── Subcommand: dictionary ─────────────────────────────────────────────────
+
+fn cmd_dictionary(action: Option<DictionaryCmd>) -> Result<()> {
+    use rekody_core::dictionary::Dictionary;
+    let path = Dictionary::default_path()?;
+
+    match action {
+        None | Some(DictionaryCmd::List) => print_dictionary()?,
+        Some(DictionaryCmd::Add { term }) => {
+            let term = term.join(" ");
+            let mut dict = Dictionary::load(&path)?;
+            dict.add_term(term.clone());
+            dict.save(&path)?;
+            println!(
+                "  {}  Added {} to your dictionary",
+                style("✓").green().bold(),
+                style(&term).cyan().bold()
+            );
+        }
+        Some(DictionaryCmd::Remove { term }) => {
+            let term = term.join(" ");
+            let mut dict = Dictionary::load(&path)?;
+            if dict.remove_term(&term) {
+                dict.save(&path)?;
+                println!(
+                    "  {}  Removed {}",
+                    style("✓").green().bold(),
+                    style(&term).white()
+                );
+            } else {
+                println!(
+                    "  {}  {} is not in your dictionary",
+                    style("○").dim(),
+                    style(&term).white()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Pipe-friendly dictionary listing (also the bare-command view).
+fn print_dictionary() -> Result<()> {
+    use rekody_core::dictionary::Dictionary;
+    let rule = "─".repeat(48);
+    let terms = Dictionary::load_or_empty();
+    let terms = terms.terms();
+
+    println!();
+    println!(
+        "  {BRAND}╭─{RESET}  {BRAND_LIGHT}{BOLD}rekody dictionary{RESET}  {DIM}custom vocabulary{RESET}"
+    );
+    println!("  {BRAND}│{RESET}");
+    if terms.is_empty() {
+        println!(
+            "  {BRAND}│{RESET}   {DIM}No terms yet — add jargon, names, or products the{RESET}"
+        );
+        println!("  {BRAND}│{RESET}   {DIM}cleanup model should preserve verbatim.{RESET}");
+    } else {
+        for t in terms {
+            println!("  {BRAND}│{RESET}   {CREAM}{BOLD}{}{RESET}", t);
+        }
+    }
+    println!("  {BRAND}│{RESET}");
+    println!("  {BRAND}│{RESET}   {DIM}rekody dictionary add <term>  ·  remove <term>{RESET}");
     println!("  {BRAND}│{RESET}");
     println!("  {BRAND}╰{}{RESET}", rule);
     println!();
