@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **More faithful default cleanup.** The cleanup prompt now (1) treats dictation strictly as text to clean, never an instruction to act on — so "send the email to Sarah" or "write a note that …" gets cleaned, not *composed* into an email/note; (2) honors spoken retractions — "scratch that", "never mind", "I changed my mind about the last statement", "actually, make it …" remove the retracted words (and the retraction phrase) and keep the final intent; and (3) preserves meaning and length, no padding or stylistic rewrites. The on-device Apple helper also now decodes greedily (temperature 0) so it stops embellishing.
+
 ## [0.5.7] - 2026-05-29
 
 ### Added

@@ -68,8 +68,16 @@ let session = LanguageModelSession(
     instructions: system
 )
 
+// Greedy decoding (temperature 0) keeps cleanup faithful — fix grammar/filler,
+// don't embellish or pad. Cap output so a runaway can't balloon latency.
+let options = GenerationOptions(
+    sampling: .greedy,
+    temperature: 0.0,
+    maximumResponseTokens: 1000
+)
+
 do {
-    let response = try await session.respond(to: input)
+    let response = try await session.respond(to: input, options: options)
     // stdout is the cleaned text, verbatim. rekody trims/guards on its side.
     print(response.content)
     exit(0)
