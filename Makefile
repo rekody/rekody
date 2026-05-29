@@ -17,10 +17,27 @@ WHISPER_URL  := https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$(WHIS
 ARCH := $(shell uname -m)
 VERSION := $(shell grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 
-.PHONY: build install uninstall package-macos clean
+HELPER_BIN_DIR := $(HOME)/.local/share/rekody/bin
+
+.PHONY: build install uninstall package-macos clean fm-helper
 
 build:
 	cargo build --release -p rekody-core
+
+# Build + install the Apple Foundation Models helper (macOS 26+, Apple Silicon).
+# rekody discovers it at $(HELPER_BIN_DIR)/rekody-fm and uses it for on-device,
+# zero-download LLM cleanup. Requires the Swift 6 toolchain (Xcode CLT) on a
+# macOS 26 SDK. Safe no-op message on unsupported setups.
+fm-helper:
+	@echo "Building rekody-fm (Apple Foundation Models helper)..."
+	@cd helpers/rekody-fm && swift build -c release
+	@mkdir -p $(HELPER_BIN_DIR)
+	@cp helpers/rekody-fm/.build/release/rekody-fm $(HELPER_BIN_DIR)/rekody-fm
+	@chmod +x $(HELPER_BIN_DIR)/rekody-fm
+	@echo "Installed: $(HELPER_BIN_DIR)/rekody-fm"
+	@$(HELPER_BIN_DIR)/rekody-fm --check && \
+		echo "Apple Foundation Models: available — set LLM provider to 'apple' (rekody setup or config)." || \
+		echo "Helper installed, but Apple Intelligence is not available yet (enable it in System Settings)."
 
 install: build
 	@echo "Installing $(BINARY_NAME) to $(INSTALL_DIR)..."

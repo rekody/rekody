@@ -1093,6 +1093,174 @@ impl LlmProvider for RawTranscriptFallback {
 }
 
 // ---------------------------------------------------------------------------
+// AppleFoundationProvider — on-device cleanup via Apple Foundation Models
+// ---------------------------------------------------------------------------
+
+/// Provider backed by Apple's on-device Foundation Models LLM (macOS 26+),
+/// invoked through the bundled `rekody-fm` Swift helper binary.
+///
+/// Zero-download and fully local: the model ships as an OS asset. This Rust
+/// side is pure (shells out to the helper), so it compiles everywhere — it is
+/// simply unavailable when the helper binary is absent (non-macOS, or the
+/// helper hasn't been built/installed).
+///
+/// Contract with the helper (see `helpers/rekody-fm`): `--check` probes
+/// availability; `--system <prompt>` cleans the stdin transcript and prints the
+/// result. Any non-zero exit (unavailable / guardrail refusal) makes `format`
+/// return `Err`, so the [`ProviderChain`] falls through to the next provider.
+pub struct AppleFoundationProvider {
+    /// Path to the `rekody-fm` helper, if one was found at construction.
+    helper: Option<std::path::PathBuf>,
+}
+
+impl AppleFoundationProvider {
+    pub fn new() -> Self {
+        Self {
+            helper: resolve_fm_helper(),
+        }
+    }
+
+    /// Sync check: is the `rekody-fm` helper binary installed? Does NOT probe
+    /// the model (use [`AppleFoundationProvider::check`] for that). Safe to call
+    /// from synchronous contexts like the onboarding wizard.
+    pub fn helper_installed() -> bool {
+        resolve_fm_helper().is_some()
+    }
+
+    /// Run the helper's `--check` to confirm the on-device model is actually
+    /// usable right now (Apple Intelligence enabled, model downloaded). Returns
+    /// `Ok(())` if available, else an error describing why. For setup/doctor.
+    pub async fn check(&self) -> Result<()> {
+        let Some(helper) = &self.helper else {
+            return Err(LlmError::ProviderUnavailable(
+                "rekody-fm helper not installed (run `make fm-helper`)".into(),
+            )
+            .into());
+        };
+        let output = tokio::process::Command::new(helper)
+            .arg("--check")
+            .output()
+            .await
+            .map_err(|e| LlmError::ProviderUnavailable(format!("helper spawn failed: {e}")))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(LlmError::ProviderUnavailable(if reason.is_empty() {
+                "Apple Foundation Models unavailable".into()
+            } else {
+                reason
+            })
+            .into())
+        }
+    }
+}
+
+impl Default for AppleFoundationProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LlmProvider for AppleFoundationProvider {
+    async fn format(
+        &self,
+        raw_transcript: &str,
+        _context: &AppContext,
+        system_prompt: &str,
+    ) -> Result<FormattedText> {
+        let Some(helper) = &self.helper else {
+            return Err(
+                LlmError::ProviderUnavailable("rekody-fm helper not installed".into()).into(),
+            );
+        };
+
+        let start = Instant::now();
+        let mut child = tokio::process::Command::new(helper)
+            .arg("--system")
+            .arg(system_prompt)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| LlmError::LocalModelError(format!("helper spawn failed: {e}")))?;
+
+        // Feed the transcript on stdin.
+        if let Some(mut stdin) = child.stdin.take() {
+            use tokio::io::AsyncWriteExt;
+            stdin
+                .write_all(raw_transcript.as_bytes())
+                .await
+                .map_err(|e| LlmError::LocalModelError(format!("helper stdin write: {e}")))?;
+            // Drop closes stdin so the helper's readToEnd returns.
+        }
+
+        let output = child
+            .wait_with_output()
+            .await
+            .map_err(|e| LlmError::LocalModelError(format!("helper wait failed: {e}")))?;
+
+        if !output.status.success() {
+            let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(LlmError::LocalModelError(format!(
+                "Apple Foundation Models helper failed: {}",
+                if reason.is_empty() {
+                    "non-zero exit".into()
+                } else {
+                    reason
+                }
+            ))
+            .into());
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            return Err(LlmError::LocalModelError("helper returned empty output".into()).into());
+        }
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+        Ok(FormattedText {
+            text,
+            provider: "apple-foundation-models".to_string(),
+            latency_ms,
+        })
+    }
+
+    async fn is_available(&self) -> bool {
+        // Cheap: presence of the helper. Actual model availability is enforced
+        // in `format` (helper exit code), which lets the chain fall through.
+        self.helper.is_some()
+    }
+}
+
+/// Locate the `rekody-fm` helper: `$REKODY_FM_HELPER`, then
+/// `~/.local/share/rekody/bin/rekody-fm`, then next to the running binary.
+fn resolve_fm_helper() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    if let Ok(p) = std::env::var("REKODY_FM_HELPER") {
+        let p = PathBuf::from(p);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let p = PathBuf::from(home).join(".local/share/rekody/bin/rekody-fm");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let p = dir.join("rekody-fm");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
 // ProviderChain
 // ---------------------------------------------------------------------------
 

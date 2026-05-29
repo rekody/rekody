@@ -309,12 +309,21 @@ fn build_provider_chain(config: &RekodyConfig) -> rekody_llm::ProviderChain {
     for pc in &config.providers {
         tracing::info!(provider = %pc.name, model = %pc.model, "adding LLM provider");
         chain = match pc.name.to_lowercase().as_str() {
+            // On-device Apple Foundation Models (macOS 26+) via the rekody-fm
+            // helper. Pseudo-provider: no api_key/model. Unavailable (helper
+            // absent / not eligible) → chain falls through to the next tier.
+            "apple" | "apple-foundation" | "foundation" => {
+                chain.add(rekody_llm::AppleFoundationProvider::new())
+            }
             "gemini" => chain.add(rekody_llm::presets::gemini(&pc.api_key, &pc.model)),
             "anthropic" => chain.add(rekody_llm::presets::anthropic(&pc.api_key, &pc.model)),
             _ => chain.add(make_provider(pc)),
         };
     }
-    chain
+    // Final tier: never lose the user's words. If every configured provider is
+    // unavailable or errors (e.g. Apple FM on a non-eligible machine), return
+    // the raw transcript rather than nothing.
+    chain.add(rekody_llm::RawTranscriptFallback::new())
 }
 
 /// Returns `true` if LLM post-processing should run for this config.
@@ -807,5 +816,43 @@ mod prompt_composition_tests {
         let base = skill.system_prompt();
         let composed = inject_vocabulary_prompt(&base, &Dictionary::new());
         assert_eq!(composed, base);
+    }
+}
+
+#[cfg(test)]
+mod apple_fm_tests {
+    //! End-to-end check of the Apple Foundation Models provider through the
+    //! `rekody-fm` helper. Ignored by default — requires the helper installed
+    //! (`make fm-helper`) and Apple Intelligence enabled on this machine, so it
+    //! never runs in CI. Run manually: `cargo test -p rekody-core --bin rekody
+    //! apple_fm_end_to_end -- --ignored --nocapture`.
+    use rekody_llm::{AppContext, AppleFoundationProvider, LlmProvider};
+
+    #[tokio::test]
+    #[ignore = "needs rekody-fm helper + Apple Intelligence; manual only"]
+    async fn apple_fm_end_to_end() {
+        let provider = AppleFoundationProvider::new();
+        assert!(
+            provider.is_available().await,
+            "rekody-fm helper not found — run `make fm-helper`"
+        );
+        let ctx = AppContext {
+            app_name: "Test".into(),
+            bundle_id: None,
+        };
+        let out = provider
+            .format(
+                "um so yeah we should uh ship the the rollback script today you know",
+                &ctx,
+                "Rewrite the raw voice transcription as clean text. Remove filler \
+                 words and fix grammar. Respond with ONLY the cleaned text.",
+            )
+            .await
+            .expect("FM format failed");
+        eprintln!("FM provider output: {:?}", out.text);
+        assert!(!out.text.is_empty());
+        assert_eq!(out.provider, "apple-foundation-models");
+        // Filler should be gone.
+        assert!(!out.text.to_lowercase().contains(" um "));
     }
 }

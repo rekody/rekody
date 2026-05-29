@@ -20,7 +20,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: macos-14
+          # aarch64 builds on macos-26 so it also has the macOS 26 SDK
+          # (FoundationModels) to compile the rekody-fm cleanup helper.
+          - runner: macos-26
             arch: aarch64
             target: aarch64-apple-darwin
           - runner: macos-14
@@ -33,6 +35,15 @@ jobs:
       # Toolchain + cross-compile targets come from rust-toolchain.toml so
       # release builds use the same pinned compiler as CI and local dev.
       - run: rustup show
+
+      # Apple Foundation Models helper (Apple Silicon + macOS 26 only). Built
+      # against the macOS 26 SDK present on the macos-26 runner; bundled into
+      # the aarch64 tarball below. Adhoc-signed like the Rust binary — Homebrew
+      # formulae aren't quarantined, and calling the on-device model needs no
+      # entitlement, so no codesign/notarization is required.
+      - name: Build Foundation Models helper
+        if: matrix.arch == 'aarch64'
+        run: swift build -c release --package-path helpers/rekody-fm
 
       - name: Cache cargo registry and target
         uses: actions/cache@v4
@@ -57,6 +68,10 @@ jobs:
           mkdir -p dist
           PKGDIR=$(mktemp -d)
           cp target/${{ matrix.target }}/release/rekody "$PKGDIR/rekody"
+          # Bundle the on-device cleanup helper into the aarch64 tarball when built.
+          if [ -f helpers/rekody-fm/.build/release/rekody-fm ]; then
+            cp helpers/rekody-fm/.build/release/rekody-fm "$PKGDIR/rekody-fm"
+          fi
           tar -czf "dist/rekody-${{ steps.version.outputs.version }}-macos-${{ matrix.arch }}.tar.gz" -C "$PKGDIR" .
           rm -rf "$PKGDIR"
 
