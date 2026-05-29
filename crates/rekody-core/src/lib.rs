@@ -558,6 +558,16 @@ impl Pipeline {
                         HotkeyEvent::CommandMode => {
                             tracing::info!("command mode activated (not yet implemented)");
                         }
+                        HotkeyEvent::CycleSkill => {
+                            // ⌥Space+Tab: advance the sticky skill. The next
+                            // dictation picks it up via the fresh-read in
+                            // process_segment. Surface the new selection.
+                            let now = skill::cycle_active();
+                            tracing::info!(
+                                skill = now.as_deref().unwrap_or("Auto"),
+                                "skill cycled"
+                            );
+                        }
                     }
                 };
             }

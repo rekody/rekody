@@ -6,6 +6,7 @@
 
 - **Skills** — reusable LLM presets that reshape dictation into a specific form (email, notes, spec, commit message, slack, summary, todo, journal). Skills are Markdown files (frontmatter + a prompt body) in `~/.config/rekody/skills/`; a starter pack ships embedded and seeds on first run. Manage with `rekody skill` (interactive sticky picker), `rekody skill use <name>`, `rekody skill none`, and `rekody skill list`. An active skill overrides the built-in per-app prompt; skills may also declare `triggers:` to auto-apply when a matching app is focused. The applied skill is surfaced in the live status line and the startup banner. Requires LLM post-processing to take effect.
 - **Custom vocabulary** — `rekody dictionary add/remove/list` manages a personal term list (`~/.config/rekody/dictionary.toml`) appended to the cleanup prompt so the model preserves jargon, names, and product terms verbatim (e.g. keeps "rekody" instead of "record"). Affects the LLM cleanup step.
+- **Live skill switching** — hold `⌥Space` and tap `Tab` to cycle the active skill (`Auto → … → Auto`) without stopping dictation. The new skill is surfaced in the status line and applies to the next dictation. (Switching already took effect across dictations via the sticky file; this adds a keyboard-native trigger so you never leave your app.)
 
 ### Fixed
 

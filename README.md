@@ -77,6 +77,11 @@ rekody skill use email    # activate a skill by name
 rekody skill none         # clear the active skill (back to per-app auto-detect)
 ```
 
+**Switch skills without leaving your app:** while dictating, hold `⌥Space` and
+tap `Tab` to cycle the active skill (`Auto → email → notes → … → Auto`). The
+new skill is named in the status line and applies to your next dictation — no
+need to stop or restart rekody.
+
 A skill file is frontmatter + a prompt body that becomes the LLM system
 prompt:
 
@@ -118,6 +123,7 @@ LLM cleanup step.
 |------|----------|-----------|
 | **Push-to-talk** (default) | `⌥Space` | Hold to record, release to transcribe |
 | **Toggle** | `⌥Space` | Tap to start, tap again to stop |
+| **Cycle skill** | `⌥Space`+`Tab` | Hold ⌥Space, tap Tab to switch the active skill |
 
 > **macOS:** rekody uses an active `CGEventTap` so `⌥Space` is fully suppressed — it will not insert a non-breaking space into your focused window. Requires **Accessibility** permission (System Settings → Privacy & Security → Accessibility).
 
