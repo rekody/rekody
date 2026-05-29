@@ -2132,6 +2132,15 @@ where
             self.on_error(&err);
         } else if msg.contains("empty transcript") {
             set_idle_style(&self.spinner);
+        } else if msg.contains("skill cycled") {
+            let skill = visitor.fields.get("skill").cloned().unwrap_or_default();
+            let skill = skill.trim_matches('"');
+            // Print above the live spinner so it doesn't clobber the recording
+            // indicator (⌥Space is still held while cycling).
+            self.spinner.println(format!(
+                "  {BRAND_LIGHT}◆ skill → {BOLD}{}{RESET}",
+                if skill.is_empty() { "Auto" } else { skill }
+            ));
         } else if msg.contains("no LLM API keys") {
             // Will show done on injection without LLM step.
         }

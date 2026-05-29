@@ -11,6 +11,7 @@
 //! | Push-to-talk (hold to record, release to stop) | `Option+Space` or `Fn` |
 //! | Toggle (press to start, press to stop) | same keys in toggle mode |
 //! | Command mode (transform selected text) | `Option+Space + Enter` |
+//! | Cycle the active skill | `Option+Space + Tab` |
 
 use anyhow::Result;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -31,6 +32,8 @@ pub enum HotkeyEvent {
     RecordStart,
     RecordStop,
     CommandMode,
+    /// ⌥Space held + Tab — cycle the active dictation skill.
+    CycleSkill,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +134,7 @@ mod platform {
 
     const KC_SPACE: i64 = 49;
     const KC_RETURN: i64 = 36;
+    const KC_TAB: i64 = 48;
     /// Arrow key range — Fn flag is erroneously set on these on some hardware.
     const KC_ARROW_LEFT: i64 = 123;
     const KC_ARROW_DOWN: i64 = 125;
@@ -434,6 +438,15 @@ mod platform {
                             tracing::debug!("command mode (⌥Space+Enter)");
                             drop(state);
                             unsafe { send_event(ctx, HotkeyEvent::CommandMode) };
+                            return std::ptr::null_mut();
+                        }
+
+                        // ⌥Space held + Tab → cycle the active skill. Suppress
+                        // the Tab so it doesn't reach the focused app.
+                        if state.trigger_held && keycode == KC_TAB {
+                            tracing::debug!("cycle skill (⌥Space+Tab)");
+                            drop(state);
+                            unsafe { send_event(ctx, HotkeyEvent::CycleSkill) };
                             return std::ptr::null_mut();
                         }
                     }

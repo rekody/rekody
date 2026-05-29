@@ -381,6 +381,33 @@ fn resolve_in(
         })
 }
 
+/// Advance the sticky active skill to the next one in the rotation
+/// `[Auto, <skills sorted by name>]`, wrapping around, and persist it.
+/// Returns the new selection (`None` = Auto). Used by the ⌥Space+Tab hotkey.
+pub fn cycle_active() -> Option<String> {
+    let skills = list_skills();
+    let next = cycle_next(&skills, active_name().as_deref());
+    let _ = set_active(next.as_deref());
+    next
+}
+
+/// Pure cycle logic (testable): given the available skills and the current
+/// active name, return the next selection. Order: Auto → first → … → last →
+/// Auto. An unknown/missing current is treated as Auto (→ first skill).
+fn cycle_next(skills: &[Skill], current: Option<&str>) -> Option<String> {
+    if skills.is_empty() {
+        return None;
+    }
+    match current {
+        None => Some(skills[0].name.clone()),
+        Some(cur) => match skills.iter().position(|s| s.name.eq_ignore_ascii_case(cur)) {
+            Some(i) if i + 1 < skills.len() => Some(skills[i + 1].name.clone()),
+            Some(_) => None, // was the last skill → wrap to Auto
+            None => Some(skills[0].name.clone()), // unknown current → first
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +516,25 @@ mod tests {
     fn resolve_no_match_returns_none() {
         let skills = fixture_skills();
         assert!(resolve_in(&skills, None, "Terminal", None).is_none());
+    }
+
+    #[test]
+    fn cycle_next_rotates_auto_through_skills_and_back() {
+        let skills = fixture_skills(); // order as built: email, notes, empty
+        // Auto → first
+        assert_eq!(cycle_next(&skills, None).as_deref(), Some("email"));
+        // first → second
+        assert_eq!(cycle_next(&skills, Some("email")).as_deref(), Some("notes"));
+        // second → third
+        assert_eq!(cycle_next(&skills, Some("notes")).as_deref(), Some("empty"));
+        // last → Auto (None)
+        assert_eq!(cycle_next(&skills, Some("empty")), None);
+        // unknown current → first
+        assert_eq!(cycle_next(&skills, Some("ghost")).as_deref(), Some("email"));
+        // case-insensitive match: EMAIL is index 0 → next is notes
+        assert_eq!(cycle_next(&skills, Some("EMAIL")).as_deref(), Some("notes"));
+        // no skills → Auto
+        assert_eq!(cycle_next(&[], Some("email")), None);
     }
 
     #[test]
