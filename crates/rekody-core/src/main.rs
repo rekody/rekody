@@ -1790,16 +1790,8 @@ fn print_banner(config: &RekodyConfig) {
         "  {BRAND}│{RESET}   {DIM}Mode {RESET}  {CREAM}{}{RESET}",
         mode_short
     );
-    // Show the sticky skill so a session-wide prompt override is visible.
-    if let Some(name) = rekody_core::skill::active_name() {
-        let exists = rekody_core::skill::load_skill(&name).is_some();
-        let skill_val = if exists {
-            format!("{CREAM}{BOLD}{name}{RESET}")
-        } else {
-            format!("{WARN}{name} (missing — using Auto){RESET}")
-        };
-        println!("  {BRAND}│{RESET}   {DIM}Skill{RESET}  {}", skill_val);
-    }
+    // (The active skill is shown live in the status line, not here — a
+    // one-time banner can't repaint after ⌥Space+Tab cycling.)
     println!("  {BRAND}│{RESET}");
     // Bottom: corner + rule, closing the card.
     println!("  {BRAND}╰{}{RESET}", rule);
@@ -1893,10 +1885,20 @@ fn set_idle_style(spinner: &ProgressBar) {
     // Each hotkey is a tight key→action pair; pairs are separated by a wider
     // gap with a brand-dim divider so it's obvious ⌥Space and Ctrl+C are
     // independent chords, not one combined sequence.
+    //
+    // The active skill is shown here (not just the startup banner) so it stays
+    // current after ⌥Space+Tab cycling — a one-time banner can't repaint.
+    let skill_seg = match rekody_core::skill::active_name() {
+        Some(name) => format!(
+            "    {sep}    {DIM}skill {RESET}{CREAM}{BOLD}{name}{RESET}",
+            sep = sep()
+        ),
+        None => String::new(),
+    };
     let msg = format!(
         "{BRAND}◯{RESET}  {BRAND_LIGHT}{BOLD}rekody{RESET}    \
          {CREAM}{BOLD}⌥Space{RESET} {DIM}hold to dictate{RESET}    {sep}    \
-         {CREAM}{BOLD}Ctrl+C{RESET} {DIM}quit{RESET}",
+         {CREAM}{BOLD}Ctrl+C{RESET} {DIM}quit{RESET}{skill_seg}",
         sep = sep()
     );
     set_spinner_msg(spinner, msg);
