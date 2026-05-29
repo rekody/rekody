@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Deterministic number formatting.** A final cleanup pass converts spoken quantities to written form that LLMs handle inconsistently and the raw path not at all: compound numbers ("three hundred fifty" → "350", "two thousand twenty six" → "2026"), currency ("fifty dollars" → "$50"), percent ("twenty percent" → "20%"), and a curated set of unambiguous units ("five kilograms" → "5 kg"). Conservative by design — isolated small numbers stay as words ("one idea", "a second"), ambiguous units (pounds/feet) are left alone, and malformed runs like a year said in pairs ("twenty twenty six") are not mis-summed. Closes the main parity gap vs Deepgram's `smart_format`.
+
 ## [0.5.8] - 2026-05-29
 
 ### Changed
