@@ -53,8 +53,9 @@ Commands:
   history  Browse dictation history
   doctor   Test STT and LLM provider connectivity
   key      Manage API keys in the system keychain
-  skill    Pick the active dictation skill (email, notes, commit, ...)
-  update   Update to the latest release
+  skill      Pick the active dictation skill (email, notes, commit, ...)
+  dictionary Manage custom vocabulary the cleanup model should preserve
+  update     Update to the latest release
 
 Options:
   -v, --verbose    Enable debug tracing
@@ -95,6 +96,21 @@ Precedence: an explicitly selected skill wins; otherwise a skill whose
 `triggers` match the focused app applies; otherwise the built-in per-app
 prompt is used. **Skills require LLM post-processing** — if no LLM provider is
 configured (or `llm_enabled = false`), the selected skill has no effect.
+
+### Custom vocabulary
+
+If the cleanup model mangles your jargon, names, or product terms (e.g. writes
+"record" for "rekody"), add them to your personal dictionary. They get appended
+to the cleanup prompt so the model preserves them verbatim.
+
+```bash
+rekody dictionary add rekody       # multi-word is fine, no quotes: add Core ML
+rekody dictionary list
+rekody dictionary remove rekody
+```
+
+Stored at `~/.config/rekody/dictionary.toml`. Like skills, this only affects the
+LLM cleanup step.
 
 ### Hotkey
 

@@ -660,7 +660,7 @@ impl Pipeline {
             let resolved_skill =
                 skill::resolve(&app_context.app_name, app_context.bundle_id.as_deref());
             let skill_name = resolved_skill.as_ref().map(|r| r.name.clone());
-            let system_prompt = match resolved_skill {
+            let base_prompt = match resolved_skill {
                 Some(r) => r.prompt,
                 None => prompts::get_prompt_for_app(
                     &app_context.app_name,
@@ -670,6 +670,11 @@ impl Pipeline {
             if let Some(name) = &skill_name {
                 tracing::debug!(skill = %name, "applying skill prompt");
             }
+            // Append the user's personal-dictionary terms so the model
+            // preserves jargon/proper-nouns (e.g. "rekody" not "record").
+            // Read fresh each dictation; no-op when the dictionary is empty.
+            let dict = dictionary::Dictionary::load_or_empty();
+            let system_prompt = dictionary::inject_vocabulary_prompt(&base_prompt, &dict);
 
             // Send through the LLM provider chain.
             match self
@@ -736,5 +741,61 @@ impl Pipeline {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod prompt_composition_tests {
+    //! End-to-end check that the dictation pipeline's system-prompt assembly
+    //! composes correctly: a skill's prompt (body + output-hygiene tail) with
+    //! the user's personal-dictionary vocabulary appended. Mirrors exactly what
+    //! `process_segment` builds (skill base → `inject_vocabulary_prompt`).
+
+    use crate::dictionary::{Dictionary, inject_vocabulary_prompt};
+    use crate::skill::Skill;
+
+    #[test]
+    fn skill_body_hygiene_and_vocabulary_all_present() {
+        // A skill as parsed from a .md file (REPLACE model, no inherit_base).
+        let skill = Skill {
+            name: "notes".into(),
+            description: "Clean bulleted notes".into(),
+            triggers: vec![],
+            inherit_base: false,
+            body: "Turn the transcription into clean bulleted notes.".into(),
+        };
+        let base = skill.system_prompt();
+
+        let mut dict = Dictionary::new();
+        dict.add_term("rekody");
+        dict.add_term("Kalenjin");
+        let final_prompt = inject_vocabulary_prompt(&base, &dict);
+
+        // Skill body survives.
+        assert!(final_prompt.contains("Turn the transcription into clean bulleted notes."));
+        // Output-hygiene tail (appended by Skill::system_prompt) survives.
+        assert!(final_prompt.contains("OUTPUT RULES"));
+        // Vocabulary section + both terms are appended.
+        assert!(final_prompt.contains("preserve these terms exactly"));
+        assert!(final_prompt.contains("rekody"));
+        assert!(final_prompt.contains("Kalenjin"));
+        // Ordering: skill content comes before the vocabulary block.
+        let body_idx = final_prompt.find("clean bulleted notes").unwrap();
+        let vocab_idx = final_prompt.find("preserve these terms").unwrap();
+        assert!(body_idx < vocab_idx);
+    }
+
+    #[test]
+    fn empty_dictionary_leaves_prompt_unchanged() {
+        let skill = Skill {
+            name: "x".into(),
+            description: String::new(),
+            triggers: vec![],
+            inherit_base: false,
+            body: "BODY".into(),
+        };
+        let base = skill.system_prompt();
+        let composed = inject_vocabulary_prompt(&base, &Dictionary::new());
+        assert_eq!(composed, base);
     }
 }
