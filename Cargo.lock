@@ -2064,7 +2064,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "rekody-audio"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "cpal",
@@ -2076,7 +2076,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-core"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2107,7 +2107,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-hotkey"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "thiserror 2.0.18",
@@ -2117,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-inject"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-llm"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "reqwest",
@@ -2143,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-stt"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "libc",

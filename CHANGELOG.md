@@ -1,16 +1,21 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.6] - 2026-05-29
 
 ### Added
 
 - **Skills** — reusable LLM presets that reshape dictation into a specific form (email, notes, spec, commit message, slack, summary, todo, journal). Skills are Markdown files (frontmatter + a prompt body) in `~/.config/rekody/skills/`; a starter pack ships embedded and seeds on first run. Manage with `rekody skill` (interactive sticky picker), `rekody skill use <name>`, `rekody skill none`, and `rekody skill list`. An active skill overrides the built-in per-app prompt; skills may also declare `triggers:` to auto-apply when a matching app is focused. The applied skill is surfaced in the live status line and the startup banner. Requires LLM post-processing to take effect.
+- **Live skill switching** — hold `⌥Space` and tap `Tab` to cycle the active skill (`Auto → … → Auto`) without stopping dictation. The new skill is surfaced in the status line and applies to the next dictation.
 - **Custom vocabulary** — `rekody dictionary add/remove/list` manages a personal term list (`~/.config/rekody/dictionary.toml`) appended to the cleanup prompt so the model preserves jargon, names, and product terms verbatim (e.g. keeps "rekody" instead of "record"). Affects the LLM cleanup step.
-- **Live skill switching** — hold `⌥Space` and tap `Tab` to cycle the active skill (`Auto → … → Auto`) without stopping dictation. The new skill is surfaced in the status line and applies to the next dictation. (Switching already took effect across dictations via the sticky file; this adds a keyboard-native trigger so you never leave your app.)
+- **`rekody bench`** — benchmark local Whisper transcription latency (mean / p50 / p95 / RTF) against a bundled audio sample. Handy for A/B'ing Core ML vs Metal on Apple Silicon.
 
 ### Fixed
 
 - **`todo` skill no longer copies its own examples into output.** The example wording in the prompt (e.g. "Email Sarah the deck", "by Friday") could leak into results when the input mentioned a matching name; examples are now abstract and the prompt forbids reproducing them.
+
+### Changed
+
+- **`brew install` is now a one-liner** in all docs: `brew install rekody/rekody/rekody` (auto-taps), avoiding the missed-`brew tap` step.
 
 ## [0.5.3] - 2026-04-27
 
