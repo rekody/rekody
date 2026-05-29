@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Skills** — reusable LLM presets that reshape dictation into a specific form (email, notes, spec, commit message, slack, summary, todo, journal). Skills are Markdown files (frontmatter + a prompt body) in `~/.config/rekody/skills/`; a starter pack ships embedded and seeds on first run. Manage with `rekody skill` (interactive sticky picker), `rekody skill use <name>`, `rekody skill none`, and `rekody skill list`. An active skill overrides the built-in per-app prompt; skills may also declare `triggers:` to auto-apply when a matching app is focused. The applied skill is surfaced in the live status line and the startup banner. Requires LLM post-processing to take effect.
+
 ## [0.5.3] - 2026-04-27
 
 ### Fixed

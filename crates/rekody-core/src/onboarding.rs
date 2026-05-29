@@ -567,7 +567,8 @@ injection_method = "clipboard"
         "Setup complete! Run 'rekody' to start dictating.\n\
          \n  LLM:     {provider}/{model}\
          \n  STT:     {stt}\
-         \n  Config:  {config}",
+         \n  Config:  {config}\
+         \n\nTip: run 'rekody skill' to reshape dictation into email, notes, commit messages, and more.",
         provider = provider_name,
         model = model,
         stt = stt_display,

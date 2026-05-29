@@ -21,6 +21,8 @@ pub mod history_tui;
 pub mod key_tui;
 pub mod onboarding;
 pub mod prompts;
+pub mod skill;
+pub mod skill_tui;
 pub mod snippets;
 pub mod stats;
 pub mod status;
@@ -650,11 +652,24 @@ impl Pipeline {
             );
             app_name = app_context.app_name.clone();
 
-            // Get the context-specific system prompt.
-            let system_prompt = prompts::get_prompt_for_app(
-                &app_context.app_name,
-                app_context.bundle_id.as_deref(),
-            );
+            // Resolve the system prompt. A user-selected skill (or an
+            // app-triggered skill) overrides the built-in per-app prompt;
+            // otherwise fall back to the context-specific prompt. Read fresh
+            // each dictation so `rekody skill use …` takes effect without a
+            // daemon restart.
+            let resolved_skill =
+                skill::resolve(&app_context.app_name, app_context.bundle_id.as_deref());
+            let skill_name = resolved_skill.as_ref().map(|r| r.name.clone());
+            let system_prompt = match resolved_skill {
+                Some(r) => r.prompt,
+                None => prompts::get_prompt_for_app(
+                    &app_context.app_name,
+                    app_context.bundle_id.as_deref(),
+                ),
+            };
+            if let Some(name) = &skill_name {
+                tracing::debug!(skill = %name, "applying skill prompt");
+            }
 
             // Send through the LLM provider chain.
             match self
@@ -663,9 +678,12 @@ impl Pipeline {
                 .await
             {
                 Ok(formatted) => {
+                    // `skill` field lets the UI surface which skill shaped this
+                    // dictation (empty when no skill applied).
                     tracing::info!(
                         provider = %formatted.provider,
                         latency_ms = formatted.latency_ms,
+                        skill = skill_name.as_deref().unwrap_or(""),
                         "LLM formatting complete"
                     );
                     llm_latency_ms = Some(formatted.latency_ms);

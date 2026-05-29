@@ -53,6 +53,7 @@ Commands:
   history  Browse dictation history
   doctor   Test STT and LLM provider connectivity
   key      Manage API keys in the system keychain
+  skill    Pick the active dictation skill (email, notes, commit, ...)
   update   Update to the latest release
 
 Options:
@@ -60,6 +61,40 @@ Options:
   -h, --help       Print help
   -V, --version    Print version
 ```
+
+### Skills
+
+A **skill** reshapes your dictation via the LLM into a specific form — a
+professional email, bulleted notes, a commit message, a spec, and more.
+Skills are Markdown files in `~/.config/rekody/skills/`; rekody ships a
+starter pack and you can add your own.
+
+```
+rekody skill              # interactive picker (sticky — stays until changed)
+rekody skill list         # list available skills
+rekody skill use email    # activate a skill by name
+rekody skill none         # clear the active skill (back to per-app auto-detect)
+```
+
+A skill file is frontmatter + a prompt body that becomes the LLM system
+prompt:
+
+```markdown
+---
+name: email
+description: Professional email — greeting, body, sign-off
+triggers: Mail, Spark, Superhuman    # optional: auto-apply when these apps are focused
+inherit_base: false                  # optional: prepend the strict cleanup rules
+---
+You turn a raw voice transcription into a professional email.
+- Open with a greeting only if a recipient was named.
+- Organize the body into clear paragraphs.
+```
+
+Precedence: an explicitly selected skill wins; otherwise a skill whose
+`triggers` match the focused app applies; otherwise the built-in per-app
+prompt is used. **Skills require LLM post-processing** — if no LLM provider is
+configured (or `llm_enabled = false`), the selected skill has no effect.
 
 ### Hotkey
 

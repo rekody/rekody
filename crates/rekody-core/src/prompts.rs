@@ -4,7 +4,9 @@
 //! speech-to-text output based on the application the user is dictating into.
 
 /// Base system prompt shared by all contexts.
-const BASE_PROMPT: &str = "\
+///
+/// Public so the skills module can optionally prepend it (`inherit_base: true`).
+pub const BASE_PROMPT: &str = "\
 You are a strict voice dictation cleanup tool. You receive raw speech-to-text output and clean it up.
 
 CRITICAL RULES:
