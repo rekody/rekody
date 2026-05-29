@@ -4,7 +4,7 @@
 
 ### Added
 
-- **On-device cleanup via Apple Foundation Models** (macOS 26+) — a new `apple` LLM provider that cleans up / reshapes dictation using Apple Intelligence's built-in on-device model: zero download, no API key, fully private, ~0.5s per cleanup. Runs through a small bundled Swift helper (`rekody-fm`); build + install it with `make fm-helper`, then choose "Apple on-device" in `rekody setup` (or add a `name = "apple"` provider in config). `rekody doctor` reports availability. Falls through to other providers / raw transcript when unavailable, so it never breaks dictation. (Not yet bundled in the Homebrew release — GitHub CI runners lack the macOS 26 SDK — so build the helper locally for now.)
+- **On-device cleanup via Apple Foundation Models** (macOS 26+) — a new `apple` LLM provider that cleans up / reshapes dictation using Apple Intelligence's built-in on-device model: zero download, no API key, fully private, ~0.5s per cleanup. Runs through a small Swift helper (`rekody-fm`) that ships **bundled in the Apple Silicon Homebrew release** (built on the `macos-26` CI runner; adhoc-signed like the main binary — no notarization needed for a Homebrew formula). Choose "Apple on-device" in `rekody setup` (or add a `name = "apple"` provider in config); `rekody doctor` reports availability. Building from source? Install the helper with `make fm-helper`. Falls through to other providers / raw transcript when unavailable, so it never breaks dictation.
 - A **`RawTranscriptFallback`** final tier in the provider chain so dictation always returns text even if every configured LLM provider is unavailable.
 
 ## [0.5.6] - 2026-05-29
