@@ -1,11 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.7] - 2026-05-29
 
 ### Added
 
 - **On-device cleanup via Apple Foundation Models** (macOS 26+) — a new `apple` LLM provider that cleans up / reshapes dictation using Apple Intelligence's built-in on-device model: zero download, no API key, fully private, ~0.5s per cleanup. Runs through a small Swift helper (`rekody-fm`) that ships **bundled in the Apple Silicon Homebrew release** (built on the `macos-26` CI runner; adhoc-signed like the main binary — no notarization needed for a Homebrew formula). Choose "Apple on-device" in `rekody setup` (or add a `name = "apple"` provider in config); `rekody doctor` reports availability. Building from source? Install the helper with `make fm-helper`. Falls through to other providers / raw transcript when unavailable, so it never breaks dictation.
 - A **`RawTranscriptFallback`** final tier in the provider chain so dictation always returns text even if every configured LLM provider is unavailable.
+
+### Fixed
+
+- **Active skill now shows in the live status line.** After `⌥Space+Tab` cycling, the one-time startup banner couldn't repaint, so its "Skill" row went stale. The active skill is now shown in the idle status line (which re-renders) and stays current.
 
 ## [0.5.6] - 2026-05-29
 
