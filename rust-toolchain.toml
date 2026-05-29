@@ -1,0 +1,10 @@
+# Single source of truth for the Rust toolchain — used by BOTH local dev and
+# CI so `cargo clippy`/`fmt` run the exact same ruleset everywhere. Bump this
+# deliberately (and run `rustup update` locally) rather than letting `stable`
+# drift, which is how a clippy lint can pass locally but fail CI.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+# Release builds (release.yml) cross-compile both macOS arches; pinning the
+# targets here means rustup installs them for the pinned channel automatically.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

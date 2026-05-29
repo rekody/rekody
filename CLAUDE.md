@@ -65,3 +65,4 @@ That covers steps 2–5 of the rollback checklist (tag, GH release, tap, verify)
 
 - **`crates/rekody-core/src/history_tui.rs` is the gold-standard UI reference and must not be modified**, even for no-visual-change refactors. Duplicate its palette into other files rather than refactoring it into a shared module.
 - Website lives at `website/`, deploys via Vercel, uses pnpm + Astro 5. (A Bun + Astro 6 migration was attempted and rolled back on 2026-05-26; do not re-attempt without explicit ask.)
+- **Rust toolchain is pinned in `rust-toolchain.toml`** (channel + clippy/rustfmt + cross-compile targets). CI and `release.yml` use `rustup show` to honor it, NOT `dtolnay/rust-toolchain@stable` — that floated and caused local clippy to pass while CI failed on a newer lint. To bump Rust: edit the channel in `rust-toolchain.toml` AND run `rustup update` locally so both move together. Don't reintroduce `@stable`.

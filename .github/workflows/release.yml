@@ -30,9 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      # Toolchain + cross-compile targets come from rust-toolchain.toml so
+      # release builds use the same pinned compiler as CI and local dev.
+      - run: rustup show
 
       - name: Cache cargo registry and target
         uses: actions/cache@v4
