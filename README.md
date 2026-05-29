@@ -231,6 +231,7 @@ LLM post-processing cleans filler words, fixes grammar, and adapts formatting to
 
 | Provider | Type | Default model |
 |----------|------|---------------|
+| `apple` | **On-device** | Apple Intelligence (macOS 26+) — zero download, no key |
 | `groq` | Cloud | `openai/gpt-oss-20b` |
 | `cerebras` | Cloud | `llama3.1-8b` |
 | `together` | Cloud | `meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo` |
@@ -245,6 +246,26 @@ LLM post-processing cleans filler words, fixes grammar, and adapts formatting to
 | `custom` | Any | user's choice |
 
 Multiple providers fall back automatically: first success wins.
+
+### On-device cleanup (Apple Foundation Models)
+
+On **macOS 26+** with Apple Intelligence enabled, rekody can clean up dictation
+using Apple's built-in on-device LLM — **no download, no API key, fully private,
+~0.5s** per cleanup. It's a great default that needs no cloud account.
+
+It runs through a small Swift helper (`rekody-fm`) that ships separately from
+the Rust binary. Build + install it once:
+
+```bash
+make fm-helper          # builds the helper, installs to ~/.local/share/rekody/bin
+rekody setup            # choose "Apple on-device" as the LLM provider
+rekody doctor           # confirms "Apple on-device — Foundation Models ready"
+```
+
+If the helper is missing or Apple Intelligence is off, rekody falls through to
+your other configured providers (or the raw transcript) — it never breaks
+dictation. (The helper isn't yet bundled in the Homebrew release because GitHub
+CI runners don't ship the macOS 26 SDK; build it locally for now.)
 
 ---
 

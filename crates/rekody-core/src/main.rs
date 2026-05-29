@@ -777,6 +777,18 @@ async fn cmd_doctor() -> Result<()> {
                         );
                     }
                 }
+                "apple" | "apple-foundation" | "foundation" => {
+                    let provider = rekody_llm::AppleFoundationProvider::new();
+                    match provider.check().await {
+                        Ok(()) => println!(
+                            "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Apple on-device{RESET}  {DIM}Foundation Models ready{RESET}"
+                        ),
+                        Err(e) => println!(
+                            "  {BRAND}│{RESET}     {WARN}{BOLD}!{RESET}  {CREAM}Apple on-device{RESET}  {WARN}{}{RESET}",
+                            e
+                        ),
+                    }
+                }
                 "gemini" => {
                     let url = "https://generativelanguage.googleapis.com/v1beta/openai/models";
                     check_openai_compat_provider_keyed(
