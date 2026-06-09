@@ -30,6 +30,12 @@ ratatui = "0.29"
 crossterm = "0.28"
 hound = "3.5"
 
+[features]
+# Nemotron cache-aware streaming STT (English). On by default; build with
+# `--no-default-features` to drop the ONNX Runtime dependency.
+default = ["nemotron"]
+nemotron = ["rekody-stt/nemotron"]
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

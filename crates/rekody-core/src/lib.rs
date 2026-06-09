@@ -26,6 +26,8 @@ pub mod skill;
 pub mod skill_tui;
 pub mod snippets;
 pub mod stats;
+#[cfg(feature = "nemotron")]
+pub mod streaming;
 
 /// Configuration for a single LLM provider.
 #[derive(Clone, Serialize, Deserialize)]
@@ -368,6 +370,13 @@ enum SttBackend {
     Groq(rekody_stt::GroqWhisperEngine),
     Deepgram(rekody_stt::DeepgramEngine),
     Cohere(rekody_stt::CohereLocalEngine),
+    /// Nemotron cache-aware streaming (English). The engine itself lives on a
+    /// dedicated thread spawned in `run_streaming`; this variant only carries
+    /// the model directory and routes `run()` to the streaming event loop.
+    #[cfg(feature = "nemotron")]
+    NemotronStreaming {
+        model_dir: std::path::PathBuf,
+    },
 }
 
 impl SttBackend {
@@ -378,6 +387,10 @@ impl SttBackend {
             SttBackend::Groq(e) => e.transcribe(samples).await,
             SttBackend::Deepgram(e) => e.transcribe(samples).await,
             SttBackend::Cohere(e) => e.transcribe(samples).await,
+            #[cfg(feature = "nemotron")]
+            SttBackend::NemotronStreaming { .. } => {
+                anyhow::bail!("nemotron is a streaming engine; batch transcribe is not supported")
+            }
         }
     }
 }
@@ -414,6 +427,33 @@ impl Pipeline {
             "cohere" => {
                 tracing::info!(port = config.cohere_stt_port, "using Cohere local STT");
                 SttBackend::Cohere(rekody_stt::CohereLocalEngine::new(config.cohere_stt_port))
+            }
+            "nemotron" => {
+                #[cfg(feature = "nemotron")]
+                {
+                    let model_dir = resolve_model_dir().join("nemotron-en-int8");
+                    for file in ["encoder.onnx", "decoder_joint.onnx", "tokenizer.model"] {
+                        let path = model_dir.join(file);
+                        if !path.exists() {
+                            anyhow::bail!(
+                                "Nemotron model file missing: {}\n\
+                                 Run `rekody setup` and pick the Nemotron streaming engine \
+                                 to download it (~881MB).",
+                                path.display()
+                            );
+                        }
+                    }
+                    tracing::info!(
+                        dir = %model_dir.display(),
+                        "using Nemotron streaming STT (English, on-device)"
+                    );
+                    SttBackend::NemotronStreaming { model_dir }
+                }
+                #[cfg(not(feature = "nemotron"))]
+                anyhow::bail!(
+                    "this rekody build does not include the Nemotron streaming engine \
+                     (compiled without the `nemotron` feature)"
+                )
             }
             _ => {
                 // Default: local Whisper.
@@ -464,6 +504,15 @@ impl Pipeline {
     ///
     /// hotkey → audio capture → VAD → STT → (LLM) → text injection
     pub async fn run(&self) -> Result<()> {
+        #[cfg(feature = "nemotron")]
+        if let SttBackend::NemotronStreaming { model_dir } = &self.stt {
+            return self.run_streaming(model_dir.clone()).await;
+        }
+        self.run_batch().await
+    }
+
+    /// Batch event loop: VAD-segmented audio → STT at key release.
+    async fn run_batch(&self) -> Result<()> {
         tracing::info!("rekody pipeline starting");
 
         // 1. Parse hotkey config and start listener.
@@ -555,6 +604,151 @@ impl Pipeline {
         Ok(())
     }
 
+    /// Streaming event loop (Nemotron): decode WHILE the key is held via the
+    /// live audio tap, show partials on the status line, inject the final
+    /// transcript once at key release (~100ms flush vs 1–3s batch).
+    ///
+    /// Partials are never typed into the target app — backspace-revision
+    /// breaks in terminals, vim, and secure input fields. Display-only.
+    #[cfg(feature = "nemotron")]
+    async fn run_streaming(&self, model_dir: std::path::PathBuf) -> Result<()> {
+        tracing::info!("rekody pipeline starting (streaming mode)");
+
+        // 1. Hotkey listener — same setup as batch.
+        let trigger_key = match self.config.trigger_key.to_lowercase().as_str() {
+            "fn_key" | "fn" => TriggerKey::FnKey,
+            _ => TriggerKey::OptionSpace,
+        };
+        let hotkey_config = HotkeyConfig {
+            activation_mode: parse_activation_mode(&self.config.activation_mode),
+            trigger_key,
+            max_recording_secs: self.config.max_recording_secs,
+        };
+        let mut hotkey_rx = rekody_hotkey::start_listener(hotkey_config)?;
+        tracing::info!("hotkey listener started");
+
+        // 2. Audio capture with the live tap subscribed BEFORE open(), so the
+        //    processing thread picks up the sender. The VAD/segment channel
+        //    still exists but its segments are ignored in this mode.
+        let audio_config = AudioConfig {
+            vad_threshold: self.config.vad_threshold,
+            record_all_audio: self.config.record_all_audio,
+        };
+        let audio_capture = rekody_audio::AudioCapture::new(audio_config.clone());
+        let mut live_rx = audio_capture.live_chunks();
+        let mut segment_rx = audio_capture.open(audio_config)?;
+        tracing::info!("audio capture initialized (live tap active)");
+
+        // 3. Engine thread (model loads there, ~3.4s; samples queue meanwhile).
+        let (stream_tx, mut stream_rx) = streaming::spawn(model_dir);
+
+        let llm_enabled = has_llm_providers(&self.config);
+        if llm_enabled {
+            tracing::info!("LLM post-processing enabled");
+        } else {
+            tracing::info!("no LLM API keys configured; raw STT output will be used");
+        }
+
+        // Gate for forwarding tap chunks: a callback in flight at RecordStop
+        // can land a chunk in live_rx AFTER we drain+flush — without this it
+        // would leak into the next utterance's buffer.
+        let mut recording = false;
+
+        loop {
+            tokio::select! {
+                hotkey_event = hotkey_rx.recv() => {
+                    match hotkey_event {
+                        Some(HotkeyEvent::RecordStart) => {
+                            tracing::info!(source = "hotkey", "recording started");
+                            recording = true;
+                            audio_capture.start_recording();
+                        }
+                        Some(HotkeyEvent::RecordStop) => {
+                            tracing::info!(source = "hotkey", "recording stopped");
+                            audio_capture.stop_recording();
+                            // Forward whatever the tap already queued, then
+                            // flush the utterance.
+                            while let Ok(chunk) = live_rx.try_recv() {
+                                let _ = stream_tx.send(streaming::StreamMsg::Samples(chunk));
+                            }
+                            recording = false;
+                            if stream_tx.send(streaming::StreamMsg::Flush).is_err() {
+                                anyhow::bail!("nemotron engine thread died");
+                            }
+                        }
+                        Some(HotkeyEvent::CommandMode) => {
+                            tracing::info!("command mode activated (not yet implemented)");
+                        }
+                        Some(HotkeyEvent::CycleSkill) => {
+                            let now = skill::cycle_active();
+                            tracing::info!(
+                                skill = now.as_deref().unwrap_or("Auto"),
+                                "skill cycled"
+                            );
+                        }
+                        None => {
+                            tracing::warn!("hotkey channel closed, shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                chunk = live_rx.recv() => {
+                    match chunk {
+                        // Drop stragglers that arrive after flush (see gate above).
+                        Some(samples) if recording => {
+                            if stream_tx.send(streaming::StreamMsg::Samples(samples)).is_err() {
+                                anyhow::bail!("nemotron engine thread died");
+                            }
+                        }
+                        Some(_) => {}
+                        None => {
+                            tracing::warn!("live audio channel closed, shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                event = stream_rx.recv() => {
+                    match event {
+                        Some(streaming::StreamEvent::Partial(text)) => {
+                            // Picked up by the UI layer for the status line.
+                            tracing::info!(text = %text, "partial transcript");
+                        }
+                        Some(streaming::StreamEvent::Final { text, latency_ms }) => {
+                            if text.is_empty() {
+                                tracing::debug!("empty transcript, skipping injection");
+                            } else if let Err(e) =
+                                self.process_transcript(&text, latency_ms, llm_enabled).await
+                            {
+                                tracing::error!(error = %e, "failed to process transcript");
+                            }
+                        }
+                        Some(streaming::StreamEvent::Error(msg)) => {
+                            tracing::error!(error = %msg, "nemotron streaming error");
+                        }
+                        None => {
+                            tracing::error!("nemotron engine thread died, shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                // Drain VAD segments so the channel doesn't back up; the
+                // streaming path replaces them entirely.
+                segment = segment_rx.recv() => {
+                    if segment.is_none() {
+                        tracing::warn!("audio segment channel closed, shutting down");
+                        break;
+                    }
+                }
+            }
+        }
+
+        tracing::info!("rekody pipeline stopped");
+        Ok(())
+    }
+
     /// Process a single audio segment through the STT → LLM → injection
     /// stages of the pipeline.
     async fn process_segment(
@@ -570,9 +764,21 @@ impl Pipeline {
             return Ok(());
         }
 
+        self.process_transcript(&transcript.text, transcript.latency_ms, llm_enabled)
+            .await
+    }
+
+    /// Post-STT stages shared by batch and streaming paths: LLM cleanup →
+    /// number normalization → injection → history.
+    async fn process_transcript(
+        &self,
+        raw_text: &str,
+        stt_latency_ms: u64,
+        llm_enabled: bool,
+    ) -> Result<()> {
         tracing::info!(
-            text = %transcript.text,
-            latency_ms = transcript.latency_ms,
+            text = %raw_text,
+            latency_ms = stt_latency_ms,
             "transcription complete"
         );
 
@@ -618,7 +824,7 @@ impl Pipeline {
             // Send through the LLM provider chain.
             match self
                 .provider_chain
-                .format(&transcript.text, &app_context, &system_prompt)
+                .format(raw_text, &app_context, &system_prompt)
                 .await
             {
                 Ok(formatted) => {
@@ -635,7 +841,7 @@ impl Pipeline {
                     // Guard: if LLM returns empty, use raw transcript
                     if formatted.text.trim().is_empty() {
                         tracing::warn!("LLM returned empty text, using raw transcript");
-                        transcript.text.clone()
+                        raw_text.to_string()
                     } else {
                         formatted.text
                     }
@@ -645,12 +851,12 @@ impl Pipeline {
                         error = %e,
                         "LLM formatting failed, falling back to raw transcript"
                     );
-                    transcript.text.clone()
+                    raw_text.to_string()
                 }
             }
         } else {
             // No LLM configured — use raw STT output directly.
-            transcript.text.clone()
+            raw_text.to_string()
         };
 
         // Deterministic number/currency/percent/unit normalization — a final
@@ -670,8 +876,8 @@ impl Pipeline {
         // --- Save to history ---
         let entry = history::History::new_entry(
             final_text,
-            transcript.text.clone(),
-            transcript.latency_ms,
+            raw_text.to_string(),
+            stt_latency_ms,
             llm_latency_ms,
             llm_provider,
             app_name,

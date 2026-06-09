@@ -190,7 +190,8 @@ pub fn run_onboarding() -> Result<()> {
     };
 
     // --- Step 2: Speech-to-text engine ------------------------------------
-    let stt_engine: &str = select("Choose your speech-to-text engine")
+    #[allow(unused_mut)]
+    let mut stt_select = select("Choose your speech-to-text engine")
         .item(
             "local",
             "Local Whisper",
@@ -205,9 +206,16 @@ pub fn run_onboarding() -> Result<()> {
             "deepgram",
             "Deepgram Nova-3",
             "most accurate — audio sent to Deepgram (needs separate API key)",
-        )
-        .interact()
-        .map_err(|e| anyhow::anyhow!(e))?;
+        );
+    #[cfg(feature = "nemotron")]
+    {
+        stt_select = stt_select.item(
+            "nemotron",
+            "Nemotron Streaming (English)",
+            "private + instant — transcribes WHILE you talk (881 MB download, English only)",
+        );
+    }
+    let stt_engine: &str = stt_select.interact().map_err(|e| anyhow::anyhow!(e))?;
 
     // Deepgram needs its own API key — check Keychain first
     let deepgram_api_key: Option<String> = if stt_engine == "deepgram" {
@@ -368,6 +376,26 @@ pub fn run_onboarding() -> Result<()> {
             );
         }
     } // end if stt_engine == "local"
+
+    // --- Download Nemotron streaming model (3 files, ~881 MB total) -------
+    #[cfg(feature = "nemotron")]
+    if stt_engine == "nemotron" {
+        const NEMOTRON_REPO: &str =
+            "https://huggingface.co/lokkju/nemotron-speech-streaming-en-0.6b-int8/resolve/main";
+        let model_dir = resolve_model_dir().join("nemotron-en-int8");
+        std::fs::create_dir_all(&model_dir).context("failed to create model directory")?;
+        for file in ["encoder.onnx", "decoder_joint.onnx", "tokenizer.model"] {
+            let dest = model_dir.join(file);
+            if dest.exists() {
+                let sp = spinner();
+                sp.start(format!("Checking {file}..."));
+                sp.stop(format!("{file} already downloaded"));
+            } else {
+                download_model(&format!("{NEMOTRON_REPO}/{file}"), &dest)
+                    .with_context(|| format!("failed to download Nemotron {file}"))?;
+            }
+        }
+    }
 
     // --- Step 3: macOS permissions ---------------------------------------
     #[cfg(target_os = "macos")]
@@ -580,6 +608,7 @@ injection_method = "clipboard"
     let stt_display = match stt_engine {
         "groq" => "Groq Cloud Whisper Large v3".to_string(),
         "deepgram" => "Deepgram Nova-3".to_string(),
+        "nemotron" => "Nemotron streaming (English)".to_string(),
         _ => format!("Local Whisper ({whisper_size})"),
     };
 

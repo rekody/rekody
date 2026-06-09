@@ -727,6 +727,25 @@ async fn cmd_doctor() -> Result<()> {
             )
             .await;
         }
+        "nemotron" => {
+            let model_dir = rekody_models_dir().join("nemotron-en-int8");
+            let missing: Vec<&str> = ["encoder.onnx", "decoder_joint.onnx", "tokenizer.model"]
+                .into_iter()
+                .filter(|f| !model_dir.join(f).exists())
+                .collect();
+            if missing.is_empty() {
+                println!(
+                    "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {DIM}model files present{RESET}",
+                    stt_name
+                );
+            } else {
+                println!(
+                    "  {BRAND}│{RESET}     {SLOW}{BOLD}✗{RESET}  {CREAM}{}{RESET}  {WARN}missing {} — re-run: rekody setup{RESET}",
+                    stt_name,
+                    missing.join(", ")
+                );
+            }
+        }
         _ => {
             println!(
                 "  {BRAND}│{RESET}     {BRAND_LIGHT}○{RESET}  {DIM}Local Whisper (no network check needed){RESET}"
@@ -1581,11 +1600,23 @@ fn load_config_or_default(path: &Option<String>) -> RekodyConfig {
         .unwrap_or_default()
 }
 
+/// Model directory: `$REKODY_MODEL_DIR` or `~/.local/share/rekody/models`.
+fn rekody_models_dir() -> std::path::PathBuf {
+    std::env::var("REKODY_MODEL_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::home_dir()
+                .map(|h| h.join(".local").join("share").join("rekody").join("models"))
+                .unwrap_or_else(|| std::path::PathBuf::from("models"))
+        })
+}
+
 fn stt_display_name(config: &RekodyConfig) -> String {
     match config.stt_engine.to_lowercase().as_str() {
         "groq" => "Groq Cloud Whisper Large v3".to_string(),
         "deepgram" => "Deepgram Nova-3".to_string(),
         "cohere" => format!("Cohere local (port {})", config.cohere_stt_port),
+        "nemotron" => "Nemotron streaming (English)".to_string(),
         _ => format!("Local Whisper ({})", config.whisper_model),
     }
 }
@@ -1931,6 +1962,27 @@ fn set_recording_style(spinner: &ProgressBar, elapsed_secs: Option<f64>) {
     set_spinner_msg(spinner, msg);
 }
 
+/// Live partial transcript while recording (streaming STT). Shows the tail of
+/// the text so the most recent words are always visible. Display-only — the
+/// final transcript is injected separately at key release.
+fn set_partial_style(spinner: &ProgressBar, text: &str) {
+    const TAIL: usize = 60;
+    let chars: Vec<char> = text.chars().collect();
+    let display = if chars.len() > TAIL {
+        format!(
+            "…{}",
+            chars[chars.len() - TAIL..].iter().collect::<String>()
+        )
+    } else {
+        text.to_string()
+    };
+    let msg = format!(
+        "{SLOW}{BOLD}●{RESET}  {CREAM}{display}{RESET}  {sep}  {DIM}release {RESET}{CREAM}{BOLD}⌥Space{RESET}{DIM} to insert{RESET}",
+        sep = sep()
+    );
+    set_spinner_msg(spinner, msg);
+}
+
 fn set_processing_style(spinner: &ProgressBar, detail: &str) {
     let msg = format!("{BRAND_LIGHT}{BOLD}◐{RESET}  {BRAND_LIGHT}{BOLD}{detail}{RESET}",);
     set_spinner_msg(spinner, msg);
@@ -2115,6 +2167,9 @@ where
             self.on_recording_stopped();
         } else if msg.contains("received audio segment") {
             set_processing_style(&self.spinner, "transcribing…");
+        } else if msg.contains("partial transcript") {
+            let text = visitor.fields.get("text").cloned().unwrap_or_default();
+            set_partial_style(&self.spinner, &text);
         } else if msg.contains("transcription complete") {
             let text = visitor.fields.get("text").cloned().unwrap_or_default();
             let latency = visitor
