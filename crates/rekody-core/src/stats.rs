@@ -108,7 +108,7 @@ impl UsageStats {
         *self = Self::default();
     }
 
-    /// Serialize the stats to a JSON string for the Tauri frontend.
+    /// Serialize the stats to a pretty-printed JSON string.
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
     }

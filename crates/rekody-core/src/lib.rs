@@ -26,7 +26,6 @@ pub mod skill;
 pub mod skill_tui;
 pub mod snippets;
 pub mod stats;
-pub mod status;
 
 /// Configuration for a single LLM provider.
 #[derive(Clone, Serialize, Deserialize)]
@@ -390,18 +389,6 @@ pub struct Pipeline {
     injection_method: InjectionMethod,
     stt: SttBackend,
     history: std::sync::Mutex<history::History>,
-    /// Optional status manager for UI feedback (Tauri or other frontends).
-    status_manager: Option<status::StatusManager>,
-    /// Optional external event receiver (e.g. from Tauri UI toggle button).
-    external_rx: Option<
-        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<rekody_hotkey::HotkeyEvent>>,
-    >,
-}
-
-/// Handle for sending events to the pipeline from external sources (e.g. UI).
-#[derive(Clone)]
-pub struct PipelineControl {
-    tx: tokio::sync::mpsc::UnboundedSender<rekody_hotkey::HotkeyEvent>,
 }
 
 impl Pipeline {
@@ -465,46 +452,11 @@ impl Pipeline {
             injection_method,
             stt,
             history,
-            status_manager: None,
-            external_rx: None,
         })
-    }
-
-    /// Attach a [`StatusManager`] so the pipeline reports state transitions.
-    pub fn with_status_manager(mut self, manager: status::StatusManager) -> Self {
-        self.status_manager = Some(manager);
-        self
-    }
-
-    /// Create a [`PipelineControl`] handle that can send events into the pipeline
-    /// from external sources (e.g. a UI toggle button).
-    pub fn create_control(&mut self) -> PipelineControl {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        self.external_rx = Some(tokio::sync::Mutex::new(rx));
-        PipelineControl { tx }
-    }
-}
-
-impl PipelineControl {
-    /// Send a start recording event.
-    pub fn start_recording(&self) {
-        let _ = self.tx.send(rekody_hotkey::HotkeyEvent::RecordStart);
-    }
-
-    /// Send a stop recording event.
-    pub fn stop_recording(&self) {
-        let _ = self.tx.send(rekody_hotkey::HotkeyEvent::RecordStop);
     }
 }
 
 impl Pipeline {
-    /// Update the status manager (if attached).
-    fn set_status(&self, status: status::PipelineStatus) {
-        if let Some(ref mgr) = self.status_manager {
-            mgr.set_status(status);
-        }
-    }
-
     /// Start the dictation pipeline.
     ///
     /// This method runs indefinitely, listening for hotkey events and
@@ -543,32 +495,24 @@ impl Pipeline {
             tracing::info!("no LLM API keys configured; raw STT output will be used");
         }
 
-        // 3. Main event loop — listen for hotkey events, external UI events,
-        //    and audio segments concurrently using tokio::select!.
-        let mut external_rx_guard = if let Some(ref ext) = self.external_rx {
-            Some(ext.lock().await)
-        } else {
-            None
-        };
-
+        // 3. Main event loop — listen for hotkey events and audio segments
+        //    concurrently using tokio::select!.
         loop {
-            // Helper: handle a hotkey/UI event
-            macro_rules! handle_event {
-                ($event:expr, $source:expr) => {
-                    match $event {
-                        HotkeyEvent::RecordStart => {
-                            tracing::info!(source = $source, "recording started");
-                            self.set_status(status::PipelineStatus::Recording);
+            tokio::select! {
+                hotkey_event = hotkey_rx.recv() => {
+                    match hotkey_event {
+                        Some(HotkeyEvent::RecordStart) => {
+                            tracing::info!(source = "hotkey", "recording started");
                             audio_capture.start_recording();
                         }
-                        HotkeyEvent::RecordStop => {
-                            tracing::info!(source = $source, "recording stopped");
+                        Some(HotkeyEvent::RecordStop) => {
+                            tracing::info!(source = "hotkey", "recording stopped");
                             audio_capture.stop_recording();
                         }
-                        HotkeyEvent::CommandMode => {
+                        Some(HotkeyEvent::CommandMode) => {
                             tracing::info!("command mode activated (not yet implemented)");
                         }
-                        HotkeyEvent::CycleSkill => {
+                        Some(HotkeyEvent::CycleSkill) => {
                             // ⌥Space+Tab: advance the sticky skill. The next
                             // dictation picks it up via the fresh-read in
                             // process_segment. Surface the new selection.
@@ -578,32 +522,9 @@ impl Pipeline {
                                 "skill cycled"
                             );
                         }
-                    }
-                };
-            }
-
-            tokio::select! {
-                hotkey_event = hotkey_rx.recv() => {
-                    match hotkey_event {
-                        Some(evt) => handle_event!(evt, "hotkey"),
                         None => {
                             tracing::warn!("hotkey channel closed, shutting down");
                             break;
-                        }
-                    }
-                }
-
-                // Listen for events from the UI (toggle button).
-                ext_event = async {
-                    match external_rx_guard.as_mut() {
-                        Some(rx) => rx.recv().await,
-                        None => std::future::pending().await,
-                    }
-                } => {
-                    match ext_event {
-                        Some(evt) => handle_event!(evt, "ui"),
-                        None => {
-                            tracing::debug!("external event channel closed");
                         }
                     }
                 }
@@ -616,11 +537,9 @@ impl Pipeline {
                                 samples = audio_segment.samples.len(),
                                 "received audio segment, processing"
                             );
-                            self.set_status(status::PipelineStatus::Processing);
 
                             if let Err(e) = self.process_segment(&audio_segment, llm_enabled).await {
                                 tracing::error!(error = %e, "failed to process audio segment");
-                                self.set_status(status::PipelineStatus::Error(e.to_string()));
                             }
                         }
                         None => {
@@ -740,7 +659,6 @@ impl Pipeline {
         let final_text = numbers::normalize(&final_text);
 
         // --- Text injection ---
-        self.set_status(status::PipelineStatus::Injecting);
         tracing::debug!(
             method = ?self.injection_method,
             text_len = final_text.len(),
@@ -748,7 +666,6 @@ impl Pipeline {
         );
         rekody_inject::inject_text(&final_text, self.injection_method)?;
         tracing::info!("text injected successfully");
-        self.set_status(status::PipelineStatus::Idle);
 
         // --- Save to history ---
         let entry = history::History::new_entry(
