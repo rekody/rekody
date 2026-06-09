@@ -1,0 +1,114 @@
+<!doctype html>
+<!-- OG/social card template — rendered to public/og.png by generate.mjs.
+     Mirrors the site's design tokens (global.css): cream, ink, teal, Fraunces. -->
+<html>
+<head>
+<meta charset="utf-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=Source+Serif+4:opsz,wght@8..60,300..500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --cream: #FBFAF4;
+    --ink: #0F1717;
+    --ink-mute: #4A5757;
+    --ink-faint: #8A9696;
+    --teal: #20808D;
+    --hairline: rgba(15, 23, 23, 0.10);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1200px;
+    height: 630px;
+    background: var(--cream);
+    font-family: "Source Serif 4", Georgia, serif;
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 72px 84px 60px;
+    position: relative;
+    overflow: hidden;
+  }
+  .eyebrow {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 17px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--teal);
+  }
+  .wordmark {
+    font-family: "Fraunces", Georgia, serif;
+    font-variation-settings: 'SOFT' 30;
+    font-weight: 900;
+    font-size: 170px;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    margin-top: 10px;
+  }
+  .wordmark .dot { color: var(--teal); margin-left: -0.04em; }
+  .tagline {
+    font-size: 34px;
+    font-weight: 300;
+    color: var(--ink-mute);
+    margin-top: 26px;
+    max-width: 860px;
+    line-height: 1.35;
+  }
+  .bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--hairline);
+    padding-top: 28px;
+  }
+  .keys {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 21px;
+    color: var(--ink-mute);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .key {
+    display: inline-block;
+    border: 1px solid var(--hairline);
+    border-bottom-width: 2px;
+    border-radius: 8px;
+    padding: 5px 14px;
+    background: #fff;
+    color: var(--ink);
+    font-size: 20px;
+    /* System font first: JetBrains Mono lacks ⌥ (U+2325) */
+    font-family: -apple-system, "Helvetica Neue", "JetBrains Mono", monospace;
+  }
+  .sep { color: var(--ink-faint); }
+  .meta {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 19px;
+    color: var(--ink-faint);
+    display: flex;
+    gap: 26px;
+  }
+  .meta .mit { color: var(--teal); }
+</style>
+</head>
+<body>
+  <div>
+    <div class="eyebrow">— open-source voice dictation for macOS</div>
+    <div class="wordmark">rekody<span class="dot">.</span></div>
+    <div class="tagline">Hold a key, speak, release. Your words land at the cursor — in any app, in 100+ languages. Fully on-device.</div>
+  </div>
+  <div class="bottom">
+    <div class="keys">
+      <span class="key">⌥</span><span class="key">Space</span>
+      <span class="sep">·</span> speak
+      <span class="sep">·</span> release
+    </div>
+    <div class="meta">
+      <span class="mit">MIT</span>
+      <span>github.com/rekody/rekody</span>
+    </div>
+  </div>
+</body>
+</html>
