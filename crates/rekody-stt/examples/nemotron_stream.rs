@@ -1,10 +1,8 @@
-//! Nemotron streaming spike — measures real cache-aware streaming performance
-//! on this machine before any pipeline integration.
-//!
-//! Feeds a 16kHz mono WAV through `parakeet_rs::Nemotron` in 560ms chunks
-//! (8,960 samples), printing the incremental transcript and per-chunk compute
-//! time. The key number is mean chunk compute vs the 560ms budget: anything
-//! comfortably under means real-time streaming works on this hardware.
+//! Nemotron streaming engine validation — exercises the real
+//! `NemotronStreamingEngine` (feed/finish/reset) the way the pipeline will:
+//! variable-length sample runs (like the live audio tap delivers), a flush at
+//! "key release", and a SECOND utterance to verify state reset between
+//! dictations.
 //!
 //! Run:
 //!   cargo run --release -p rekody-stt --features nemotron \
@@ -12,9 +10,7 @@
 
 use std::time::Instant;
 
-use parakeet_rs::Nemotron;
-
-const CHUNK_SIZE: usize = 8960; // 560ms at 16kHz
+use rekody_stt::nemotron::NemotronStreamingEngine;
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -39,57 +35,49 @@ fn main() -> anyhow::Result<()> {
     };
     let audio_secs = audio.len() as f64 / 16_000.0;
 
-    eprintln!("loading model from {model_dir}…");
+    eprintln!("loading engine from {model_dir}…");
     let t_load = Instant::now();
-    let mut model = Nemotron::from_pretrained(&model_dir, None)?;
-    eprintln!(
-        "model loaded in {:.2}s (mode: {:?})",
-        t_load.elapsed().as_secs_f64(),
-        model.mode()
-    );
+    let mut engine = NemotronStreamingEngine::new(&model_dir)?;
+    eprintln!("engine loaded in {:.2}s", t_load.elapsed().as_secs_f64());
 
-    let mut chunk_ms: Vec<f64> = Vec::new();
-    let mut transcript = String::new();
-
-    for chunk in audio.chunks(CHUNK_SIZE) {
-        // Pad the final short chunk to full size with silence.
-        let owned;
-        let chunk = if chunk.len() == CHUNK_SIZE {
-            chunk
-        } else {
-            let mut v = chunk.to_vec();
-            v.resize(CHUNK_SIZE, 0.0);
-            owned = v;
-            &owned
-        };
-
-        let t = Instant::now();
-        let text = model.transcribe_chunk(chunk)?;
-        let ms = t.elapsed().as_secs_f64() * 1000.0;
-        chunk_ms.push(ms);
-        if !text.is_empty() {
-            transcript.push_str(&text);
-            eprintln!("[{:6.1}ms] {}", ms, text);
-        } else {
-            eprintln!("[{:6.1}ms]", ms);
+    // Two utterances of the same audio — the second verifies reset() works
+    // (no context bleed, same transcript).
+    for utterance in 1..=2 {
+        eprintln!("\n=== utterance {utterance} (live-tap simulation) ===");
+        let mut feed_ms: Vec<f64> = Vec::new();
+        // Feed in variable-length runs like the resampler tap produces
+        // (cpal callback cadence ≈ 10–50ms of audio per run).
+        let mut i = 0;
+        let run_sizes = [512usize, 1024, 731, 2048, 1600, 333];
+        let mut k = 0;
+        while i < audio.len() {
+            let n = run_sizes[k % run_sizes.len()].min(audio.len() - i);
+            k += 1;
+            let t = Instant::now();
+            let emitted = engine.feed(&audio[i..i + n])?;
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            if ms > 1.0 {
+                feed_ms.push(ms); // only count runs that actually decoded a chunk
+            }
+            if !emitted.is_empty() {
+                eprintln!("[{ms:6.1}ms] {emitted}");
+            }
+            i += n;
         }
+        let t = Instant::now();
+        let final_text = engine.finish()?;
+        let flush_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        let mean = feed_ms.iter().sum::<f64>() / feed_ms.len().max(1) as f64;
+        let max = feed_ms.iter().cloned().fold(0.0, f64::max);
+        println!("\nutterance {utterance} transcript: {final_text}");
+        println!(
+            "audio {audio_secs:.2}s · chunk decode mean {mean:.1}ms / max {max:.1}ms · final flush {flush_ms:.1}ms"
+        );
+        assert!(
+            engine.transcript().is_empty(),
+            "state must be clear after finish()"
+        );
     }
-
-    let total_compute_ms: f64 = chunk_ms.iter().sum();
-    let mean = total_compute_ms / chunk_ms.len() as f64;
-    let max = chunk_ms.iter().cloned().fold(0.0, f64::max);
-
-    println!("\n--- transcript ---\n{}", transcript.trim());
-    println!("\n--- stats ---");
-    println!(
-        "audio: {audio_secs:.2}s in {} chunks of 560ms",
-        chunk_ms.len()
-    );
-    println!("chunk compute: mean {mean:.1}ms / max {max:.1}ms (budget 560ms)");
-    println!(
-        "realtime factor: {:.1}x (total compute {:.2}s)",
-        audio_secs / (total_compute_ms / 1000.0),
-        total_compute_ms / 1000.0
-    );
     Ok(())
 }
