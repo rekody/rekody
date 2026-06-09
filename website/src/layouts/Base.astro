@@ -12,7 +12,7 @@ export interface Props {
 const {
   title = 'rekody — Voice Dictation for Everyone',
   description = 'Open-source macOS voice dictation. Hold ⌥Space, speak, release. Text injected at your cursor in any app. Push-to-talk, 100+ languages, powered by Deepgram Nova-3 (~200ms).',
-  ogImage = '/og-image.png',
+  ogImage = '/og.png',
   faqSchema,
 } = Astro.props;
 
@@ -58,10 +58,10 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
     <meta name="twitter:image:alt" content="rekody — Voice dictation for everyone. Speak. Release. Done." />
 
     <!-- Favicons -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=3" />
-    <link rel="icon" type="image/png" href="/icon.png?v=3" sizes="1024x1024" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/icon.png?v=3" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
+    <link rel="icon" type="image/png" href="/icon.png?v=4" sizes="1024x1024" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon.png?v=4" />
 
     <!-- JSON-LD: SoftwareApplication -->
     <script type="application/ld+json" set:html={JSON.stringify({
