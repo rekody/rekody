@@ -16,6 +16,5 @@ package-lock.json
 # macOS
 .DS_Store
 
-# Tauri build artifacts
-src-tauri/target/
-src-tauri/icons/*.ico
+# Swift helper (rekody-fm) build artifacts
+helpers/**/.build/

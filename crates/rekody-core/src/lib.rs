@@ -10,6 +10,7 @@ pub use rekody_hotkey::{ActivationMode, HotkeyConfig, HotkeyEvent, TriggerKey};
 pub use rekody_inject::InjectionMethod;
 pub use rekody_stt::WhisperModel;
 
+pub mod bench;
 pub mod command_mode;
 pub mod config_tui;
 pub mod context;
@@ -20,9 +21,10 @@ pub mod history_tui;
 pub mod key_tui;
 pub mod onboarding;
 pub mod prompts;
+pub mod skill;
+pub mod skill_tui;
 pub mod snippets;
 pub mod stats;
-pub mod status;
 
 /// Configuration for a single LLM provider.
 #[derive(Clone, Serialize, Deserialize)]
@@ -306,12 +308,21 @@ fn build_provider_chain(config: &RekodyConfig) -> rekody_llm::ProviderChain {
     for pc in &config.providers {
         tracing::info!(provider = %pc.name, model = %pc.model, "adding LLM provider");
         chain = match pc.name.to_lowercase().as_str() {
+            // On-device Apple Foundation Models (macOS 26+) via the rekody-fm
+            // helper. Pseudo-provider: no api_key/model. Unavailable (helper
+            // absent / not eligible) → chain falls through to the next tier.
+            "apple" | "apple-foundation" | "foundation" => {
+                chain.add(rekody_llm::AppleFoundationProvider::new())
+            }
             "gemini" => chain.add(rekody_llm::presets::gemini(&pc.api_key, &pc.model)),
             "anthropic" => chain.add(rekody_llm::presets::anthropic(&pc.api_key, &pc.model)),
             _ => chain.add(make_provider(pc)),
         };
     }
-    chain
+    // Final tier: never lose the user's words. If every configured provider is
+    // unavailable or errors (e.g. Apple FM on a non-eligible machine), return
+    // the raw transcript rather than nothing.
+    chain.add(rekody_llm::RawTranscriptFallback::new())
 }
 
 /// Returns `true` if LLM post-processing should run for this config.
@@ -377,18 +388,6 @@ pub struct Pipeline {
     injection_method: InjectionMethod,
     stt: SttBackend,
     history: std::sync::Mutex<history::History>,
-    /// Optional status manager for UI feedback (Tauri or other frontends).
-    status_manager: Option<status::StatusManager>,
-    /// Optional external event receiver (e.g. from Tauri UI toggle button).
-    external_rx: Option<
-        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<rekody_hotkey::HotkeyEvent>>,
-    >,
-}
-
-/// Handle for sending events to the pipeline from external sources (e.g. UI).
-#[derive(Clone)]
-pub struct PipelineControl {
-    tx: tokio::sync::mpsc::UnboundedSender<rekody_hotkey::HotkeyEvent>,
 }
 
 impl Pipeline {
@@ -452,46 +451,11 @@ impl Pipeline {
             injection_method,
             stt,
             history,
-            status_manager: None,
-            external_rx: None,
         })
-    }
-
-    /// Attach a [`StatusManager`] so the pipeline reports state transitions.
-    pub fn with_status_manager(mut self, manager: status::StatusManager) -> Self {
-        self.status_manager = Some(manager);
-        self
-    }
-
-    /// Create a [`PipelineControl`] handle that can send events into the pipeline
-    /// from external sources (e.g. a UI toggle button).
-    pub fn create_control(&mut self) -> PipelineControl {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        self.external_rx = Some(tokio::sync::Mutex::new(rx));
-        PipelineControl { tx }
-    }
-}
-
-impl PipelineControl {
-    /// Send a start recording event.
-    pub fn start_recording(&self) {
-        let _ = self.tx.send(rekody_hotkey::HotkeyEvent::RecordStart);
-    }
-
-    /// Send a stop recording event.
-    pub fn stop_recording(&self) {
-        let _ = self.tx.send(rekody_hotkey::HotkeyEvent::RecordStop);
     }
 }
 
 impl Pipeline {
-    /// Update the status manager (if attached).
-    fn set_status(&self, status: status::PipelineStatus) {
-        if let Some(ref mgr) = self.status_manager {
-            mgr.set_status(status);
-        }
-    }
-
     /// Start the dictation pipeline.
     ///
     /// This method runs indefinitely, listening for hotkey events and
@@ -530,57 +494,36 @@ impl Pipeline {
             tracing::info!("no LLM API keys configured; raw STT output will be used");
         }
 
-        // 3. Main event loop — listen for hotkey events, external UI events,
-        //    and audio segments concurrently using tokio::select!.
-        let mut external_rx_guard = if let Some(ref ext) = self.external_rx {
-            Some(ext.lock().await)
-        } else {
-            None
-        };
-
+        // 3. Main event loop — listen for hotkey events and audio segments
+        //    concurrently using tokio::select!.
         loop {
-            // Helper: handle a hotkey/UI event
-            macro_rules! handle_event {
-                ($event:expr, $source:expr) => {
-                    match $event {
-                        HotkeyEvent::RecordStart => {
-                            tracing::info!(source = $source, "recording started");
-                            self.set_status(status::PipelineStatus::Recording);
-                            audio_capture.start_recording();
-                        }
-                        HotkeyEvent::RecordStop => {
-                            tracing::info!(source = $source, "recording stopped");
-                            audio_capture.stop_recording();
-                        }
-                        HotkeyEvent::CommandMode => {
-                            tracing::info!("command mode activated (not yet implemented)");
-                        }
-                    }
-                };
-            }
-
             tokio::select! {
                 hotkey_event = hotkey_rx.recv() => {
                     match hotkey_event {
-                        Some(evt) => handle_event!(evt, "hotkey"),
+                        Some(HotkeyEvent::RecordStart) => {
+                            tracing::info!(source = "hotkey", "recording started");
+                            audio_capture.start_recording();
+                        }
+                        Some(HotkeyEvent::RecordStop) => {
+                            tracing::info!(source = "hotkey", "recording stopped");
+                            audio_capture.stop_recording();
+                        }
+                        Some(HotkeyEvent::CommandMode) => {
+                            tracing::info!("command mode activated (not yet implemented)");
+                        }
+                        Some(HotkeyEvent::CycleSkill) => {
+                            // ⌥Space+Tab: advance the sticky skill. The next
+                            // dictation picks it up via the fresh-read in
+                            // process_segment. Surface the new selection.
+                            let now = skill::cycle_active();
+                            tracing::info!(
+                                skill = now.as_deref().unwrap_or("Auto"),
+                                "skill cycled"
+                            );
+                        }
                         None => {
                             tracing::warn!("hotkey channel closed, shutting down");
                             break;
-                        }
-                    }
-                }
-
-                // Listen for events from the UI (toggle button).
-                ext_event = async {
-                    match external_rx_guard.as_mut() {
-                        Some(rx) => rx.recv().await,
-                        None => std::future::pending().await,
-                    }
-                } => {
-                    match ext_event {
-                        Some(evt) => handle_event!(evt, "ui"),
-                        None => {
-                            tracing::debug!("external event channel closed");
                         }
                     }
                 }
@@ -593,11 +536,9 @@ impl Pipeline {
                                 samples = audio_segment.samples.len(),
                                 "received audio segment, processing"
                             );
-                            self.set_status(status::PipelineStatus::Processing);
 
                             if let Err(e) = self.process_segment(&audio_segment, llm_enabled).await {
                                 tracing::error!(error = %e, "failed to process audio segment");
-                                self.set_status(status::PipelineStatus::Error(e.to_string()));
                             }
                         }
                         None => {
@@ -649,11 +590,29 @@ impl Pipeline {
             );
             app_name = app_context.app_name.clone();
 
-            // Get the context-specific system prompt.
-            let system_prompt = prompts::get_prompt_for_app(
-                &app_context.app_name,
-                app_context.bundle_id.as_deref(),
-            );
+            // Resolve the system prompt. A user-selected skill (or an
+            // app-triggered skill) overrides the built-in per-app prompt;
+            // otherwise fall back to the context-specific prompt. Read fresh
+            // each dictation so `rekody skill use …` takes effect without a
+            // daemon restart.
+            let resolved_skill =
+                skill::resolve(&app_context.app_name, app_context.bundle_id.as_deref());
+            let skill_name = resolved_skill.as_ref().map(|r| r.name.clone());
+            let base_prompt = match resolved_skill {
+                Some(r) => r.prompt,
+                None => prompts::get_prompt_for_app(
+                    &app_context.app_name,
+                    app_context.bundle_id.as_deref(),
+                ),
+            };
+            if let Some(name) = &skill_name {
+                tracing::debug!(skill = %name, "applying skill prompt");
+            }
+            // Append the user's personal-dictionary terms so the model
+            // preserves jargon/proper-nouns (e.g. "rekody" not "record").
+            // Read fresh each dictation; no-op when the dictionary is empty.
+            let dict = dictionary::Dictionary::load_or_empty();
+            let system_prompt = dictionary::inject_vocabulary_prompt(&base_prompt, &dict);
 
             // Send through the LLM provider chain.
             match self
@@ -662,9 +621,12 @@ impl Pipeline {
                 .await
             {
                 Ok(formatted) => {
+                    // `skill` field lets the UI surface which skill shaped this
+                    // dictation (empty when no skill applied).
                     tracing::info!(
                         provider = %formatted.provider,
                         latency_ms = formatted.latency_ms,
+                        skill = skill_name.as_deref().unwrap_or(""),
                         "LLM formatting complete"
                     );
                     llm_latency_ms = Some(formatted.latency_ms);
@@ -691,7 +653,6 @@ impl Pipeline {
         };
 
         // --- Text injection ---
-        self.set_status(status::PipelineStatus::Injecting);
         tracing::debug!(
             method = ?self.injection_method,
             text_len = final_text.len(),
@@ -699,7 +660,6 @@ impl Pipeline {
         );
         rekody_inject::inject_text(&final_text, self.injection_method)?;
         tracing::info!("text injected successfully");
-        self.set_status(status::PipelineStatus::Idle);
 
         // --- Save to history ---
         let entry = history::History::new_entry(
@@ -717,5 +677,99 @@ impl Pipeline {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod prompt_composition_tests {
+    //! End-to-end check that the dictation pipeline's system-prompt assembly
+    //! composes correctly: a skill's prompt (body + output-hygiene tail) with
+    //! the user's personal-dictionary vocabulary appended. Mirrors exactly what
+    //! `process_segment` builds (skill base → `inject_vocabulary_prompt`).
+
+    use crate::dictionary::{Dictionary, inject_vocabulary_prompt};
+    use crate::skill::Skill;
+
+    #[test]
+    fn skill_body_hygiene_and_vocabulary_all_present() {
+        // A skill as parsed from a .md file (REPLACE model, no inherit_base).
+        let skill = Skill {
+            name: "notes".into(),
+            description: "Clean bulleted notes".into(),
+            triggers: vec![],
+            inherit_base: false,
+            body: "Turn the transcription into clean bulleted notes.".into(),
+        };
+        let base = skill.system_prompt();
+
+        let mut dict = Dictionary::new();
+        dict.add_term("rekody");
+        dict.add_term("Kalenjin");
+        let final_prompt = inject_vocabulary_prompt(&base, &dict);
+
+        // Skill body survives.
+        assert!(final_prompt.contains("Turn the transcription into clean bulleted notes."));
+        // Output-hygiene tail (appended by Skill::system_prompt) survives.
+        assert!(final_prompt.contains("OUTPUT RULES"));
+        // Vocabulary section + both terms are appended.
+        assert!(final_prompt.contains("preserve these terms exactly"));
+        assert!(final_prompt.contains("rekody"));
+        assert!(final_prompt.contains("Kalenjin"));
+        // Ordering: skill content comes before the vocabulary block.
+        let body_idx = final_prompt.find("clean bulleted notes").unwrap();
+        let vocab_idx = final_prompt.find("preserve these terms").unwrap();
+        assert!(body_idx < vocab_idx);
+    }
+
+    #[test]
+    fn empty_dictionary_leaves_prompt_unchanged() {
+        let skill = Skill {
+            name: "x".into(),
+            description: String::new(),
+            triggers: vec![],
+            inherit_base: false,
+            body: "BODY".into(),
+        };
+        let base = skill.system_prompt();
+        let composed = inject_vocabulary_prompt(&base, &Dictionary::new());
+        assert_eq!(composed, base);
+    }
+}
+
+#[cfg(test)]
+mod apple_fm_tests {
+    //! End-to-end check of the Apple Foundation Models provider through the
+    //! `rekody-fm` helper. Ignored by default — requires the helper installed
+    //! (`make fm-helper`) and Apple Intelligence enabled on this machine, so it
+    //! never runs in CI. Run manually: `cargo test -p rekody-core --bin rekody
+    //! apple_fm_end_to_end -- --ignored --nocapture`.
+    use rekody_llm::{AppContext, AppleFoundationProvider, LlmProvider};
+
+    #[tokio::test]
+    #[ignore = "needs rekody-fm helper + Apple Intelligence; manual only"]
+    async fn apple_fm_end_to_end() {
+        let provider = AppleFoundationProvider::new();
+        assert!(
+            provider.is_available().await,
+            "rekody-fm helper not found — run `make fm-helper`"
+        );
+        let ctx = AppContext {
+            app_name: "Test".into(),
+            bundle_id: None,
+        };
+        let out = provider
+            .format(
+                "um so yeah we should uh ship the the rollback script today you know",
+                &ctx,
+                "Rewrite the raw voice transcription as clean text. Remove filler \
+                 words and fix grammar. Respond with ONLY the cleaned text.",
+            )
+            .await
+            .expect("FM format failed");
+        eprintln!("FM provider output: {:?}", out.text);
+        assert!(!out.text.is_empty());
+        assert_eq!(out.provider, "apple-foundation-models");
+        // Filler should be gone.
+        assert!(!out.text.to_lowercase().contains(" um "));
     }
 }

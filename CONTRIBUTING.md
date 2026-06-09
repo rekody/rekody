@@ -6,50 +6,50 @@ Thanks for your interest in contributing! This guide covers everything you need 
 
 ### Prerequisites
 
-- **Rust** stable toolchain (edition 2024) -- install via [rustup](https://rustup.rs/)
-- **Node.js** >= 18 and npm
-- **Tauri CLI** -- `cargo install tauri-cli`
-- A downloaded Whisper GGML model (see the [README](README.md#quick-start))
+- **Rust** — the toolchain is pinned in `rust-toolchain.toml`; [rustup](https://rustup.rs/) picks it up automatically
+- A downloaded Whisper GGML model (see the [README](README.md#quick-start), or run `rekody setup`)
 
 ### Platform-specific requirements
 
-- **macOS**: Xcode Command Line Tools (`xcode-select --install`). Accessibility permissions are required for hotkey listening and text injection.
-- **Linux**: `xdotool`, `xclip`, and standard ALSA/PulseAudio development headers.
-- **Windows**: Visual Studio Build Tools with the C++ workload.
+- **macOS** (primary platform): Xcode Command Line Tools (`xcode-select --install`). Accessibility permission is required for hotkey listening and text injection; Microphone permission is granted to your terminal (see the README).
+- Optional, macOS 26+ on Apple Silicon: build the on-device cleanup helper with `make fm-helper`.
 
 ### Getting started
 
 ```bash
 git clone https://github.com/rekody/rekody.git
 cd rekody
-npm install
-cargo tauri dev
+cargo build -p rekody-core
+cargo run --bin rekody          # first run launches the setup wizard
 ```
 
 ## Project Structure
 
 ```
 rekody/
-  Cargo.toml              # Workspace root
+  Cargo.toml               # Workspace root (version pinned here)
+  rust-toolchain.toml      # Pinned Rust toolchain — local == CI
   config/
     default.toml           # Default configuration template
   crates/
-    rekody-core/           # Pipeline orchestration, config, context, prompts
+    rekody-core/           # Pipeline orchestration, config, CLI, TUIs, skills, prompts
     rekody-audio/          # Mic capture, resampling, VAD
-    rekody-stt/            # Speech-to-text (local Whisper)
-    rekody-llm/            # LLM providers (Cerebras, Groq, local stub)
+    rekody-stt/            # Speech-to-text (local Whisper + cloud engines)
+    rekody-llm/            # LLM cleanup providers (cloud + Apple on-device)
     rekody-inject/         # Text injection (clipboard, native)
-    rekody-hotkey/         # Global hotkey listener
-  src-tauri/               # Tauri app shell and commands
-  src/                     # React + TypeScript frontend
+    rekody-hotkey/         # Global hotkey listener (CGEventTap)
+  helpers/
+    rekody-fm/             # Swift helper for Apple Foundation Models (macOS 26+)
+  website/                 # rekody.com (Astro, deployed on Vercel)
+  scripts/                 # Release/rollback tooling
   models/                  # Local model files (not committed)
 ```
 
 ## Running and Testing
 
 ```bash
-# Run in development mode (hot-reloads frontend)
-cargo tauri dev
+# Run the CLI in development
+cargo run --bin rekody
 
 # Run all workspace tests
 cargo test --workspace
@@ -57,24 +57,24 @@ cargo test --workspace
 # Run tests for a specific crate
 cargo test -p rekody-audio
 
-# Build a production release
-cargo tauri build
+# Build a release binary
+cargo build --release -p rekody-core
 ```
 
 ## Code Style
 
 - Run `cargo fmt` before committing. The project uses default rustfmt settings.
-- Run `cargo clippy --workspace` and fix any warnings. Clippy lints are treated as errors in CI.
+- Run `cargo clippy --workspace -- -D warnings` and fix any warnings. Clippy lints are treated as errors in CI (the toolchain pin keeps your local clippy in sync with CI).
 - Follow standard Rust naming conventions (`snake_case` for functions/variables, `CamelCase` for types).
 - Add doc comments (`///`) to all public items.
-- Keep crate boundaries clean -- each crate should have a focused responsibility.
+- Keep crate boundaries clean — each crate should have a focused responsibility.
 
 ## Pull Request Process
 
 1. **Fork** the repository and create a feature branch from `main`.
 2. Make your changes in small, focused commits.
 3. Add or update tests for any changed behavior.
-4. Ensure `cargo fmt`, `cargo clippy --workspace`, and `cargo test --workspace` all pass.
+4. Ensure `cargo fmt`, `cargo clippy --workspace -- -D warnings`, and `cargo test --workspace` all pass.
 5. Open a pull request against `main` with a clear description of what and why.
 6. A maintainer will review your PR. Address any feedback, then it will be merged.
 
@@ -88,15 +88,13 @@ cargo tauri build
 | `help wanted` | Extra attention needed |
 | `documentation` | Docs improvements |
 | `platform:macos` | macOS-specific |
-| `platform:linux` | Linux-specific |
-| `platform:windows` | Windows-specific |
 
 ## Reporting Issues
 
 When filing a bug report, please include:
 
-- Your OS and version
-- Rust toolchain version (`rustc --version`)
+- Your macOS version and Mac model
+- rekody version (`rekody --version`) and install method (Homebrew, installer script, source)
 - Steps to reproduce
 - Expected vs. actual behavior
-- Any relevant log output (run with `RUST_LOG=debug cargo tauri dev` for verbose logs)
+- Any relevant log output (run with `rekody -v` for verbose logs)

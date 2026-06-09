@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.5.8] - 2026-05-29
+
+### Changed
+
+- **More faithful default cleanup.** The cleanup prompt now (1) treats dictation strictly as text to clean, never an instruction to act on — so "send the email to Sarah" or "write a note that …" gets cleaned, not *composed* into an email/note; (2) honors spoken retractions — "scratch that", "never mind", "I changed my mind about the last statement", "actually, make it …" remove the retracted words (and the retraction phrase) and keep the final intent; and (3) preserves meaning and length, no padding or stylistic rewrites. The on-device Apple helper also now decodes greedily (temperature 0) so it stops embellishing.
+
+## [0.5.7] - 2026-05-29
+
+### Added
+
+- **On-device cleanup via Apple Foundation Models** (macOS 26+) — a new `apple` LLM provider that cleans up / reshapes dictation using Apple Intelligence's built-in on-device model: zero download, no API key, fully private, ~0.5s per cleanup. Runs through a small Swift helper (`rekody-fm`) that ships **bundled in the Apple Silicon Homebrew release** (built on the `macos-26` CI runner; adhoc-signed like the main binary — no notarization needed for a Homebrew formula). Choose "Apple on-device" in `rekody setup` (or add a `name = "apple"` provider in config); `rekody doctor` reports availability. Building from source? Install the helper with `make fm-helper`. Falls through to other providers / raw transcript when unavailable, so it never breaks dictation.
+- A **`RawTranscriptFallback`** final tier in the provider chain so dictation always returns text even if every configured LLM provider is unavailable.
+
+### Fixed
+
+- **Active skill now shows in the live status line.** After `⌥Space+Tab` cycling, the one-time startup banner couldn't repaint, so its "Skill" row went stale. The active skill is now shown in the idle status line (which re-renders) and stays current.
+
+## [0.5.6] - 2026-05-29
+
+### Added
+
+- **Skills** — reusable LLM presets that reshape dictation into a specific form (email, notes, spec, commit message, slack, summary, todo, journal). Skills are Markdown files (frontmatter + a prompt body) in `~/.config/rekody/skills/`; a starter pack ships embedded and seeds on first run. Manage with `rekody skill` (interactive sticky picker), `rekody skill use <name>`, `rekody skill none`, and `rekody skill list`. An active skill overrides the built-in per-app prompt; skills may also declare `triggers:` to auto-apply when a matching app is focused. The applied skill is surfaced in the live status line and the startup banner. Requires LLM post-processing to take effect.
+- **Live skill switching** — hold `⌥Space` and tap `Tab` to cycle the active skill (`Auto → … → Auto`) without stopping dictation. The new skill is surfaced in the status line and applies to the next dictation.
+- **Custom vocabulary** — `rekody dictionary add/remove/list` manages a personal term list (`~/.config/rekody/dictionary.toml`) appended to the cleanup prompt so the model preserves jargon, names, and product terms verbatim (e.g. keeps "rekody" instead of "record"). Affects the LLM cleanup step.
+- **`rekody bench`** — benchmark local Whisper transcription latency (mean / p50 / p95 / RTF) against a bundled audio sample. Handy for A/B'ing Core ML vs Metal on Apple Silicon.
+
+### Fixed
+
+- **`todo` skill no longer copies its own examples into output.** The example wording in the prompt (e.g. "Email Sarah the deck", "by Friday") could leak into results when the input mentioned a matching name; examples are now abstract and the prompt forbids reproducing them.
+
+### Changed
+
+- **`brew install` is now a one-liner** in all docs: `brew install rekody/rekody/rekody` (auto-taps), avoiding the missed-`brew tap` step.
+
 ## [0.5.3] - 2026-04-27
 
 ### Fixed

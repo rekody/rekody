@@ -55,6 +55,20 @@ impl Dictionary {
         Ok(dict)
     }
 
+    /// Load the dictionary from the default path for read-only use on the
+    /// dictation hot path. Returns an empty dictionary if the file is missing
+    /// or unreadable, and never creates a file (unlike [`Dictionary::load`]).
+    /// Infallible — safe to call per dictation.
+    pub fn load_or_empty() -> Self {
+        let Ok(path) = Self::default_path() else {
+            return Self::new();
+        };
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|c| toml::from_str(&c).ok())
+            .unwrap_or_default()
+    }
+
     /// Save the dictionary to a TOML file.
     ///
     /// Parent directories are created automatically if they do not exist.

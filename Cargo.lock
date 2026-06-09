@@ -950,6 +950,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hound"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
+
+[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1785,9 +1791,9 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "openssl"
-version = "0.10.79"
+version = "0.10.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf0b434746ee2832f4f0baf10137e1cabb18cbe6912c69e2e33263c45250f542"
+checksum = "a45fa2aa886c42762255da344f0a0d313e254066c46aad76f300c3d3da62d967"
 dependencies = [
  "bitflags 2.11.1",
  "cfg-if",
@@ -1816,9 +1822,9 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.115"
+version = "0.9.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "158fe5b292746440aa6e7a7e690e55aeb72d41505e2804c23c6973ad0e9c9781"
+checksum = "f28a22dc7140cda5f096e5e7724a6962ca81a7f8bfd2979f9b18c11af56318c4"
 dependencies = [
  "cc",
  "libc",
@@ -2058,7 +2064,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "rekody-audio"
-version = "0.5.4"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "cpal",
@@ -2070,7 +2076,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-core"
-version = "0.5.4"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2079,6 +2085,7 @@ dependencies = [
  "console 0.15.11",
  "crossterm",
  "dirs",
+ "hound",
  "indicatif 0.17.11",
  "keyring",
  "libc",
@@ -2100,7 +2107,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-hotkey"
-version = "0.5.4"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "thiserror 2.0.18",
@@ -2110,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-inject"
-version = "0.5.4"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2123,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-llm"
-version = "0.5.4"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "reqwest",
@@ -2136,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "rekody-stt"
-version = "0.5.4"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "libc",

@@ -58,6 +58,11 @@ pub fn run_onboarding() -> Result<()> {
             "None — skip LLM cleanup",
             "use raw STT output (Deepgram/Parakeet already include punctuation)",
         )
+        .item(
+            "apple",
+            "Apple on-device",
+            "private + free, no API key — macOS 26+ (Apple Intelligence)",
+        )
         .item("groq", "Groq", "recommended — free tier, ultra-fast")
         .item("cerebras", "Cerebras", "wafer-scale inference")
         .item("together", "Together AI", "wide model selection")
@@ -73,6 +78,7 @@ pub fn run_onboarding() -> Result<()> {
     let provider_name = provider;
 
     let default_model = match provider_name {
+        "apple" => "on-device",
         "groq" => "openai/gpt-oss-20b",
         "cerebras" => "llama3.1-8b",
         "together" => "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
@@ -85,7 +91,8 @@ pub fn run_onboarding() -> Result<()> {
         _ => "my-model",
     };
 
-    let needs_key = provider_name != "ollama" && provider_name != "none";
+    let needs_key =
+        provider_name != "ollama" && provider_name != "none" && provider_name != "apple";
 
     // --- API key — check Keychain first ----------------------------------
     let api_key: String = if needs_key {
@@ -158,6 +165,9 @@ pub fn run_onboarding() -> Result<()> {
     // --- Model name ------------------------------------------------------
     let model: String = if provider_name == "none" {
         String::new()
+    } else if provider_name == "apple" {
+        // On-device Apple model is fixed; nothing to choose.
+        default_model.to_string()
     } else if provider_name == "ollama" {
         pick_ollama_model(default_model)?
     } else {
@@ -556,6 +566,16 @@ injection_method = "clipboard"
 
     sp.stop(format!("Config written to {}", config_path.display()));
 
+    // On-device Apple cleanup needs the rekody-fm helper. If it isn't installed
+    // yet, tell the user how (it degrades to raw transcript until then).
+    if provider_name == "apple" && !rekody_llm::AppleFoundationProvider::helper_installed() {
+        println!(
+            "\n  {}  Apple on-device cleanup needs a one-time helper build:\n     {}\n     (Until then, dictation still works — it just skips cleanup.)",
+            console::style("→").cyan().bold(),
+            console::style("make fm-helper").cyan()
+        );
+    }
+
     // --- Summary & Done --------------------------------------------------
     let stt_display = match stt_engine {
         "groq" => "Groq Cloud Whisper Large v3".to_string(),
@@ -567,7 +587,8 @@ injection_method = "clipboard"
         "Setup complete! Run 'rekody' to start dictating.\n\
          \n  LLM:     {provider}/{model}\
          \n  STT:     {stt}\
-         \n  Config:  {config}",
+         \n  Config:  {config}\
+         \n\nTip: run 'rekody skill' to reshape dictation into email, notes, commit messages, and more.",
         provider = provider_name,
         model = model,
         stt = stt_display,

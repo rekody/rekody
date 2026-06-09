@@ -91,12 +91,61 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// Benchmark local Whisper transcription latency (A/B Core ML vs Metal)
+    Bench {
+        /// Number of measured runs per sample (default: 5)
+        #[arg(long, default_value = "5")]
+        runs: usize,
+        /// Warmup runs before measurement — first warm-up can absorb Core ML
+        /// MIL compile or cold-cache costs (default: 2)
+        #[arg(long, default_value = "2")]
+        warmup: usize,
+    },
+    /// Pick the active skill that reshapes dictation (interactive when run in a terminal)
+    Skill {
+        #[command(subcommand)]
+        action: Option<SkillCmd>,
+    },
+    /// Manage your personal vocabulary (terms the cleanup model should preserve)
+    Dictionary {
+        #[command(subcommand)]
+        action: Option<DictionaryCmd>,
+    },
 }
 
 #[derive(Subcommand)]
 enum ConfigCmd {
     /// Print the path of the config file
     Path,
+}
+
+#[derive(Subcommand)]
+enum DictionaryCmd {
+    /// Add a term (jargon, a name, a product) — multi-word is fine, no quotes needed
+    Add {
+        #[arg(required = true, num_args = 1..)]
+        term: Vec<String>,
+    },
+    /// Remove a term
+    Remove {
+        #[arg(required = true, num_args = 1..)]
+        term: Vec<String>,
+    },
+    /// List all terms (pipe-friendly)
+    List,
+}
+
+#[derive(Subcommand)]
+enum SkillCmd {
+    /// Set the active skill by name
+    Use {
+        /// Skill name (see `rekody skill list`)
+        name: String,
+    },
+    /// Clear the active skill (back to built-in app detection)
+    None,
+    /// List available skills (pipe-friendly)
+    List,
 }
 
 #[derive(Subcommand)]
@@ -171,6 +220,12 @@ async fn main() -> Result<()> {
         Some(Cmd::Doctor) => cmd_doctor().await,
         Some(Cmd::Key { action }) => cmd_key(action),
         Some(Cmd::Update { check }) => cmd_update(check).await,
+        Some(Cmd::Bench { runs, warmup }) => {
+            let cfg = load_config_or_default(&find_config_path());
+            rekody_core::bench::run(&cfg, runs, warmup).await
+        }
+        Some(Cmd::Skill { action }) => cmd_skill(action),
+        Some(Cmd::Dictionary { action }) => cmd_dictionary(action),
     }
 }
 
@@ -722,6 +777,18 @@ async fn cmd_doctor() -> Result<()> {
                         );
                     }
                 }
+                "apple" | "apple-foundation" | "foundation" => {
+                    let provider = rekody_llm::AppleFoundationProvider::new();
+                    match provider.check().await {
+                        Ok(()) => println!(
+                            "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Apple on-device{RESET}  {DIM}Foundation Models ready{RESET}"
+                        ),
+                        Err(e) => println!(
+                            "  {BRAND}│{RESET}     {WARN}{BOLD}!{RESET}  {CREAM}Apple on-device{RESET}  {WARN}{}{RESET}",
+                            e
+                        ),
+                    }
+                }
                 "gemini" => {
                     let url = "https://generativelanguage.googleapis.com/v1beta/openai/models";
                     check_openai_compat_provider_keyed(
@@ -1252,6 +1319,191 @@ fn print_key_list() -> Result<()> {
     Ok(())
 }
 
+// ── Subcommand: skill ──────────────────────────────────────────────────────
+
+fn cmd_skill(action: Option<SkillCmd>) -> Result<()> {
+    use std::io::IsTerminal;
+
+    // Make sure the starter pack exists for any skill interaction.
+    rekody_core::skill::ensure_starter_pack().ok();
+
+    // Whether LLM post-processing is actually on — skills are a no-op without
+    // it, so we warn rather than silently affirm "Active".
+    let llm_active = rekody_core::has_llm_providers(&load_config_or_default(&find_config_path()));
+
+    let Some(action) = action else {
+        // Bare `rekody skill`: TUI when TTY, otherwise print the list.
+        if std::io::stdout().is_terminal() {
+            return rekody_core::skill_tui::run(llm_active);
+        }
+        return print_skill_list();
+    };
+
+    match action {
+        SkillCmd::Use { name } => {
+            // Validate the skill exists before activating it.
+            match rekody_core::skill::load_skill(&name) {
+                Some(skill) => {
+                    rekody_core::skill::set_active(Some(&skill.name))?;
+                    println!(
+                        "  {}  Active skill set to {}",
+                        style("✓").green().bold(),
+                        style(&skill.name).cyan().bold()
+                    );
+                    if !skill.description.is_empty() {
+                        println!("     {}", style(&skill.description).dim());
+                    }
+                    if !llm_active {
+                        println!(
+                            "     {}",
+                            style(
+                                "Note: LLM post-processing is off, so this skill won't take \
+                                 effect until you enable a provider — see `rekody config`."
+                            )
+                            .yellow()
+                        );
+                    }
+                }
+                None => {
+                    println!(
+                        "  {}  No skill named {}.",
+                        style("✗").red().bold(),
+                        style(&name).white()
+                    );
+                    println!("     {}", style("Run: rekody skill list").dim());
+                }
+            }
+        }
+        SkillCmd::None => {
+            rekody_core::skill::set_active(None)?;
+            println!(
+                "  {}  Active skill cleared — using built-in app detection.",
+                style("✓").green().bold()
+            );
+        }
+        SkillCmd::List => print_skill_list()?,
+    }
+    Ok(())
+}
+
+/// Pipe-friendly skill list (also the bare-command fallback when not a TTY).
+fn print_skill_list() -> Result<()> {
+    let rule = "─".repeat(48);
+    let active = rekody_core::skill::active_name();
+    let skills = rekody_core::skill::list_skills();
+
+    println!();
+    println!(
+        "  {BRAND}╭─{RESET}  {BRAND_LIGHT}{BOLD}rekody skills{RESET}  {DIM}dictation presets{RESET}"
+    );
+    println!("  {BRAND}│{RESET}");
+    // Cross-check the active name against the loaded skills so a deleted skill
+    // reads as "missing" rather than falsely active.
+    let active_row = match &active {
+        None => format!("{OK}{BOLD}Auto (built-in app detection){RESET}"),
+        Some(name) if skills.iter().any(|s| &s.name == name) => {
+            format!("{OK}{BOLD}{name}{RESET}")
+        }
+        Some(name) => format!("{WARN}{BOLD}{name} (missing — using Auto){RESET}"),
+    };
+    println!("  {BRAND}│{RESET}   {DIM}active{RESET}  {}", active_row);
+    println!("  {BRAND}│{RESET}");
+
+    if skills.is_empty() {
+        println!("  {BRAND}│{RESET}   {DIM}No skills found in ~/.config/rekody/skills/{RESET}");
+    } else {
+        for s in &skills {
+            let is_active = active.as_deref() == Some(s.name.as_str());
+            let marker = if is_active {
+                format!("{OK}●{RESET}")
+            } else {
+                format!("{DIM}○{RESET}")
+            };
+            println!(
+                "  {BRAND}│{RESET}   {marker}  {CREAM}{BOLD}{:<12}{RESET}  {DIM}{}{RESET}",
+                s.name, s.description
+            );
+        }
+    }
+    println!("  {BRAND}│{RESET}");
+    println!("  {BRAND}│{RESET}   {DIM}rekody skill use <name>  ·  rekody skill none{RESET}");
+    println!("  {BRAND}│{RESET}");
+    println!("  {BRAND}╰{}{RESET}", rule);
+    println!();
+    Ok(())
+}
+
+// ── Subcommand: dictionary ─────────────────────────────────────────────────
+
+fn cmd_dictionary(action: Option<DictionaryCmd>) -> Result<()> {
+    use rekody_core::dictionary::Dictionary;
+    let path = Dictionary::default_path()?;
+
+    match action {
+        None | Some(DictionaryCmd::List) => print_dictionary()?,
+        Some(DictionaryCmd::Add { term }) => {
+            let term = term.join(" ");
+            let mut dict = Dictionary::load(&path)?;
+            dict.add_term(term.clone());
+            dict.save(&path)?;
+            println!(
+                "  {}  Added {} to your dictionary",
+                style("✓").green().bold(),
+                style(&term).cyan().bold()
+            );
+        }
+        Some(DictionaryCmd::Remove { term }) => {
+            let term = term.join(" ");
+            let mut dict = Dictionary::load(&path)?;
+            if dict.remove_term(&term) {
+                dict.save(&path)?;
+                println!(
+                    "  {}  Removed {}",
+                    style("✓").green().bold(),
+                    style(&term).white()
+                );
+            } else {
+                println!(
+                    "  {}  {} is not in your dictionary",
+                    style("○").dim(),
+                    style(&term).white()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Pipe-friendly dictionary listing (also the bare-command view).
+fn print_dictionary() -> Result<()> {
+    use rekody_core::dictionary::Dictionary;
+    let rule = "─".repeat(48);
+    let terms = Dictionary::load_or_empty();
+    let terms = terms.terms();
+
+    println!();
+    println!(
+        "  {BRAND}╭─{RESET}  {BRAND_LIGHT}{BOLD}rekody dictionary{RESET}  {DIM}custom vocabulary{RESET}"
+    );
+    println!("  {BRAND}│{RESET}");
+    if terms.is_empty() {
+        println!(
+            "  {BRAND}│{RESET}   {DIM}No terms yet — add jargon, names, or products the{RESET}"
+        );
+        println!("  {BRAND}│{RESET}   {DIM}cleanup model should preserve verbatim.{RESET}");
+    } else {
+        for t in terms {
+            println!("  {BRAND}│{RESET}   {CREAM}{BOLD}{}{RESET}", t);
+        }
+    }
+    println!("  {BRAND}│{RESET}");
+    println!("  {BRAND}│{RESET}   {DIM}rekody dictionary add <term>  ·  remove <term>{RESET}");
+    println!("  {BRAND}│{RESET}");
+    println!("  {BRAND}╰{}{RESET}", rule);
+    println!();
+    Ok(())
+}
+
 fn rpassword_read_password(_provider: &str) -> Result<String> {
     // Simple stdin read (terminal should handle echo=off via stty if needed)
     // Use rpassword-style approach: disable echo
@@ -1386,6 +1638,10 @@ async fn run_dictation(verbose: bool, record_all_audio_flag: bool) -> Result<()>
 
     let config_path = find_config_path();
     let mut config = load_config_or_default(&config_path);
+
+    // Seed the starter skill pack so app-triggered skills work out of the box,
+    // even for users who never open `rekody skill`. Idempotent + infallible.
+    rekody_core::skill::ensure_starter_pack().ok();
 
     // Pull missing API keys from the keychain into config at runtime.
     inject_keychain_keys(&mut config);
@@ -1546,6 +1802,8 @@ fn print_banner(config: &RekodyConfig) {
         "  {BRAND}│{RESET}   {DIM}Mode {RESET}  {CREAM}{}{RESET}",
         mode_short
     );
+    // (The active skill is shown live in the status line, not here — a
+    // one-time banner can't repaint after ⌥Space+Tab cycling.)
     println!("  {BRAND}│{RESET}");
     // Bottom: corner + rule, closing the card.
     println!("  {BRAND}╰{}{RESET}", rule);
@@ -1639,10 +1897,20 @@ fn set_idle_style(spinner: &ProgressBar) {
     // Each hotkey is a tight key→action pair; pairs are separated by a wider
     // gap with a brand-dim divider so it's obvious ⌥Space and Ctrl+C are
     // independent chords, not one combined sequence.
+    //
+    // The active skill is shown here (not just the startup banner) so it stays
+    // current after ⌥Space+Tab cycling — a one-time banner can't repaint.
+    let skill_seg = match rekody_core::skill::active_name() {
+        Some(name) => format!(
+            "    {sep}    {DIM}skill {RESET}{CREAM}{BOLD}{name}{RESET}",
+            sep = sep()
+        ),
+        None => String::new(),
+    };
     let msg = format!(
         "{BRAND}◯{RESET}  {BRAND_LIGHT}{BOLD}rekody{RESET}    \
          {CREAM}{BOLD}⌥Space{RESET} {DIM}hold to dictate{RESET}    {sep}    \
-         {CREAM}{BOLD}Ctrl+C{RESET} {DIM}quit{RESET}",
+         {CREAM}{BOLD}Ctrl+C{RESET} {DIM}quit{RESET}{skill_seg}",
         sep = sep()
     );
     set_spinner_msg(spinner, msg);
@@ -1668,7 +1936,13 @@ fn set_processing_style(spinner: &ProgressBar, detail: &str) {
     set_spinner_msg(spinner, msg);
 }
 
-fn set_done_style(spinner: &ProgressBar, text: &str, stt_ms: &str, llm_ms: Option<&str>) {
+fn set_done_style(
+    spinner: &ProgressBar,
+    text: &str,
+    stt_ms: &str,
+    llm_ms: Option<&str>,
+    skill: Option<&str>,
+) {
     let display = if text.len() > 60 {
         format!("{}…", &text[..59])
     } else {
@@ -1682,10 +1956,19 @@ fn set_done_style(spinner: &ProgressBar, text: &str, stt_ms: &str, llm_ms: Optio
         Some(l) => format!("{stt_ms}ms STT {sep} {l}ms LLM", sep = sep()),
         None => format!("{stt_ms}ms STT"),
     };
+    // When a skill shaped this dictation, name it so a silent prompt swap
+    // reads as a feature rather than a transcription bug.
+    let skill_tag = match skill {
+        Some(s) if !s.is_empty() => {
+            format!("  {sep}  {BRAND_LIGHT}◆ {s}{RESET}", sep = sep())
+        }
+        _ => String::new(),
+    };
     let msg = format!(
-        "{OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {sep}  {dot_color}●{RESET} {DIM}{}{RESET}",
+        "{OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {sep}  {dot_color}●{RESET} {DIM}{}{RESET}{}",
         display,
         lat,
+        skill_tag,
         sep = sep()
     );
     set_spinner_msg(spinner, msg);
@@ -1755,7 +2038,7 @@ impl UiLayer {
         set_processing_style(&self.spinner, "formatting with LLM…");
     }
 
-    fn on_llm_complete(&self, llm_ms: &str) {
+    fn on_llm_complete(&self, llm_ms: &str, skill: Option<&str>) {
         let stt = self.stt_result.lock().ok().and_then(|mut g| {
             if let Some(ref mut r) = *g {
                 r.done_shown = true;
@@ -1763,7 +2046,13 @@ impl UiLayer {
             g.clone()
         });
         if let Some(stt) = stt {
-            set_done_style(&self.spinner, &stt.text, &stt.latency_ms, Some(llm_ms));
+            set_done_style(
+                &self.spinner,
+                &stt.text,
+                &stt.latency_ms,
+                Some(llm_ms),
+                skill,
+            );
             self.record_and_show_stats();
         }
     }
@@ -1773,7 +2062,8 @@ impl UiLayer {
         if let Some(ref stt) = stt
             && !stt.done_shown
         {
-            set_done_style(&self.spinner, &stt.text, &stt.latency_ms, None);
+            // No-LLM path: no skill applies here.
+            set_done_style(&self.spinner, &stt.text, &stt.latency_ms, None, None);
             self.record_and_show_stats();
         }
         self.schedule_idle_reset();
@@ -1839,7 +2129,12 @@ where
                 .get("latency_ms")
                 .cloned()
                 .unwrap_or_default();
-            self.on_llm_complete(&latency);
+            let skill = visitor
+                .fields
+                .get("skill")
+                .map(|s| s.trim_matches('"').to_string())
+                .filter(|s| !s.is_empty());
+            self.on_llm_complete(&latency, skill.as_deref());
         } else if msg.contains("text injected successfully") {
             self.on_injected();
         } else if msg.contains("LLM formatting failed") || msg.contains("failed to process audio") {
@@ -1851,6 +2146,15 @@ where
             self.on_error(&err);
         } else if msg.contains("empty transcript") {
             set_idle_style(&self.spinner);
+        } else if msg.contains("skill cycled") {
+            let skill = visitor.fields.get("skill").cloned().unwrap_or_default();
+            let skill = skill.trim_matches('"');
+            // Print above the live spinner so it doesn't clobber the recording
+            // indicator (⌥Space is still held while cycling).
+            self.spinner.println(format!(
+                "  {BRAND_LIGHT}◆ skill → {BOLD}{}{RESET}",
+                if skill.is_empty() { "Auto" } else { skill }
+            ));
         } else if msg.contains("no LLM API keys") {
             // Will show done on injection without LLM step.
         }

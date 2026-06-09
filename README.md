@@ -15,9 +15,8 @@ Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on
 ## Quick Start
 
 ```bash
-# Install via Homebrew (recommended)
-brew tap rekody/rekody
-brew install rekody
+# Install via Homebrew (recommended) — auto-taps + installs
+brew install rekody/rekody/rekody
 
 # Or one-line installer (no Homebrew needed)
 curl -fsSL https://raw.githubusercontent.com/rekody/rekody/main/install.sh | bash
@@ -54,7 +53,9 @@ Commands:
   history  Browse dictation history
   doctor   Test STT and LLM provider connectivity
   key      Manage API keys in the system keychain
-  update   Update to the latest release
+  skill      Pick the active dictation skill (email, notes, commit, ...)
+  dictionary Manage custom vocabulary the cleanup model should preserve
+  update     Update to the latest release
 
 Options:
   -v, --verbose    Enable debug tracing
@@ -62,12 +63,67 @@ Options:
   -V, --version    Print version
 ```
 
+### Skills
+
+A **skill** reshapes your dictation via the LLM into a specific form — a
+professional email, bulleted notes, a commit message, a spec, and more.
+Skills are Markdown files in `~/.config/rekody/skills/`; rekody ships a
+starter pack and you can add your own.
+
+```
+rekody skill              # interactive picker (sticky — stays until changed)
+rekody skill list         # list available skills
+rekody skill use email    # activate a skill by name
+rekody skill none         # clear the active skill (back to per-app auto-detect)
+```
+
+**Switch skills without leaving your app:** while dictating, hold `⌥Space` and
+tap `Tab` to cycle the active skill (`Auto → email → notes → … → Auto`). The
+new skill is named in the status line and applies to your next dictation — no
+need to stop or restart rekody.
+
+A skill file is frontmatter + a prompt body that becomes the LLM system
+prompt:
+
+```markdown
+---
+name: email
+description: Professional email — greeting, body, sign-off
+triggers: Mail, Spark, Superhuman    # optional: auto-apply when these apps are focused
+inherit_base: false                  # optional: prepend the strict cleanup rules
+---
+You turn a raw voice transcription into a professional email.
+- Open with a greeting only if a recipient was named.
+- Organize the body into clear paragraphs.
+```
+
+Precedence: an explicitly selected skill wins; otherwise a skill whose
+`triggers` match the focused app applies; otherwise the built-in per-app
+prompt is used. **Skills require LLM post-processing** — if no LLM provider is
+configured (or `llm_enabled = false`), the selected skill has no effect.
+
+### Custom vocabulary
+
+If the cleanup model mangles your jargon, names, or product terms (e.g. writes
+"record" for "rekody"), add them to your personal dictionary. They get appended
+to the cleanup prompt so the model preserves them verbatim.
+
+```bash
+rekody dictionary add rekody       # multi-word is fine, no quotes: add Core ML
+rekody dictionary list
+rekody dictionary remove rekody
+```
+
+Stored at `~/.config/rekody/dictionary.toml`. Like skills, this only affects the
+LLM cleanup step.
+
 ### Hotkey
 
 | Mode | Shortcut | Behaviour |
 |------|----------|-----------|
 | **Push-to-talk** (default) | `⌥Space` | Hold to record, release to transcribe |
 | **Toggle** | `⌥Space` | Tap to start, tap again to stop |
+| **Cycle skill** | `⌥Space`+`Tab` | Hold ⌥Space, tap Tab to switch the active skill |
 
 > **macOS:** rekody uses an active `CGEventTap` so `⌥Space` is fully suppressed — it will not insert a non-breaking space into your focused window. Requires **Accessibility** permission (System Settings → Privacy & Security → Accessibility).
 
@@ -175,6 +231,7 @@ LLM post-processing cleans filler words, fixes grammar, and adapts formatting to
 
 | Provider | Type | Default model |
 |----------|------|---------------|
+| `apple` | **On-device** | Apple Intelligence (macOS 26+) — zero download, no key |
 | `groq` | Cloud | `openai/gpt-oss-20b` |
 | `cerebras` | Cloud | `llama3.1-8b` |
 | `together` | Cloud | `meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo` |
@@ -189,6 +246,28 @@ LLM post-processing cleans filler words, fixes grammar, and adapts formatting to
 | `custom` | Any | user's choice |
 
 Multiple providers fall back automatically: first success wins.
+
+### On-device cleanup (Apple Foundation Models)
+
+On **macOS 26+** with Apple Intelligence enabled, rekody can clean up dictation
+using Apple's built-in on-device LLM — **no download, no API key, fully private,
+~0.5s** per cleanup. It's a great default that needs no cloud account.
+
+It runs through a small Swift helper (`rekody-fm`). On Apple Silicon it ships
+**bundled in the Homebrew release** (installed alongside `rekody`), so most
+users just:
+
+```bash
+rekody setup            # choose "Apple on-device" as the LLM provider
+rekody doctor           # confirms "Apple on-device — Foundation Models ready"
+```
+
+Building from source instead? Install the helper once with `make fm-helper`
+(builds it to `~/.local/share/rekody/bin`).
+
+If the helper is missing or Apple Intelligence is off, rekody falls through to
+your other configured providers (or the raw transcript) — it never breaks
+dictation.
 
 ---
 
