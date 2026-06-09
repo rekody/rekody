@@ -1,24 +1,17 @@
 ---
 import Base from '../layouts/Base.astro';
-import Navbar from '../components/Navbar.astro';
-import Hero from '../components/Hero.astro';
-import Demo from '../components/Demo.astro';
-import Features from '../components/Features.astro';
-import Engines from '../components/Engines.astro';
-import InstallSection from '../components/InstallSection.astro';
-import WordOrigin from '../components/WordOrigin.astro';
 import Footer from '../components/Footer.astro';
+import HeroCinematic from '../components/cinematic/HeroCinematic';
+import AboutCinematic from '../components/cinematic/AboutCinematic';
+import FeaturesCinematic from '../components/cinematic/FeaturesCinematic';
+import { version } from '../lib/version';
 ---
 
 <Base>
-  <Navbar />
-  <main>
-    <Hero />
-    <Demo />
-    <Features />
-    <Engines />
-    <InstallSection />
-    <WordOrigin />
+  <main class="bg-black">
+    <HeroCinematic client:load version={version} />
+    <AboutCinematic client:visible />
+    <FeaturesCinematic client:visible />
   </main>
   <Footer />
 </Base>

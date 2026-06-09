@@ -95,8 +95,9 @@ test.describe('SEO', () => {
 
   test('h2 section headings present', async ({ page }) => {
     await page.goto(BASE);
+    // Cinematic landing has two content sections (About, Features).
     const h2s = await page.locator('h2').all();
-    expect(h2s.length).toBeGreaterThanOrEqual(4);
+    expect(h2s.length).toBeGreaterThanOrEqual(2);
   });
 
   test('SoftwareApplication JSON-LD', async ({ page }) => {
