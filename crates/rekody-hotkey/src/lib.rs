@@ -1,8 +1,7 @@
 //! Global hotkey listener for rekody voice dictation.
 //!
 //! Uses macOS `CGEventTap` directly for global keyboard monitoring.
-//! This avoids the `rdev` crash on non-main-dispatch-queue threads
-//! and works correctly inside Tauri processes.
+//! This avoids the `rdev` crash on non-main-dispatch-queue threads.
 //!
 //! ## Hotkey bindings
 //!
