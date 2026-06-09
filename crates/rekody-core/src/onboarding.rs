@@ -9,7 +9,55 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use cliclack::{confirm, input, intro, outro, select, spinner};
+use cliclack::{Theme, ThemeState, confirm, input, intro, outro, select, spinner};
+use console::Style;
+
+// ---------------------------------------------------------------------------
+// Brand theme (Studio CLI)
+// ---------------------------------------------------------------------------
+//
+// cliclack's default theme is cyan/green; this maps it onto the rekody
+// palette using the closest xterm-256 colors (console::Style has no
+// truecolor): 30 ≈ brand teal #20808D, 80 ≈ light teal #4FB8C5,
+// 230 ≈ cream #FBFAF4.
+
+struct RekodyTheme;
+
+impl Theme for RekodyTheme {
+    fn bar_color(&self, state: &ThemeState) -> Style {
+        match state {
+            ThemeState::Active => Style::new().color256(30),
+            ThemeState::Cancel => Style::new().red(),
+            ThemeState::Submit => Style::new().color256(238),
+            ThemeState::Error(_) => Style::new().yellow(),
+        }
+    }
+
+    fn state_symbol_color(&self, state: &ThemeState) -> Style {
+        match state {
+            ThemeState::Submit => Style::new().color256(80),
+            _ => self.bar_color(state),
+        }
+    }
+
+    fn radio_symbol(&self, state: &ThemeState, selected: bool) -> String {
+        match state {
+            ThemeState::Active if selected => {
+                Style::new().color256(80).bold().apply_to("❯").to_string()
+            }
+            ThemeState::Active => " ".to_string(),
+            _ => String::new(),
+        }
+    }
+
+    fn input_style(&self, _state: &ThemeState) -> Style {
+        Style::new().color256(230).bold()
+    }
+
+    fn placeholder_style(&self, _state: &ThemeState) -> Style {
+        Style::new().color256(243)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -49,6 +97,7 @@ pub fn needs_onboarding() -> bool {
 /// download, macOS permission guidance, and config file creation.
 pub fn run_onboarding() -> Result<()> {
     // --- Header -----------------------------------------------------------
+    cliclack::set_theme(RekodyTheme);
     intro(format!("rekody v{}", env!("CARGO_PKG_VERSION"))).map_err(|e| anyhow::anyhow!(e))?;
 
     // --- Step 1: LLM provider --------------------------------------------
