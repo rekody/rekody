@@ -19,6 +19,7 @@ pub mod dictionary;
 pub mod history;
 pub mod history_tui;
 pub mod key_tui;
+pub mod numbers;
 pub mod onboarding;
 pub mod prompts;
 pub mod skill;
@@ -651,6 +652,11 @@ impl Pipeline {
             // No LLM configured — use raw STT output directly.
             transcript.text.clone()
         };
+
+        // Deterministic number/currency/percent/unit normalization — a final
+        // pass that the LLM does inconsistently and the raw path not at all
+        // (e.g. "fifty dollars" → "$50", "twenty percent" → "20%").
+        let final_text = numbers::normalize(&final_text);
 
         // --- Text injection ---
         tracing::debug!(
