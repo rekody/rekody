@@ -192,6 +192,10 @@ pub struct AudioCapture {
     /// the processing thread on every VAD frame; read by UI threads to
     /// render a live audio level meter.
     latest_rms_bits: Arc<AtomicU32>,
+    /// Optional live tap: 16kHz mono samples forwarded as they are produced
+    /// while recording, for streaming STT engines. Set via
+    /// [`live_chunks`](Self::live_chunks) BEFORE [`open`](Self::open).
+    live_tx: std::sync::Mutex<Option<mpsc::UnboundedSender<Vec<f32>>>>,
 }
 
 impl AudioCapture {
@@ -203,7 +207,21 @@ impl AudioCapture {
             shutdown: Arc::new(AtomicBool::new(false)),
             flush: Arc::new(AtomicBool::new(false)),
             latest_rms_bits: Arc::new(AtomicU32::new(0)),
+            live_tx: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Subscribe to the live 16kHz mono sample stream.
+    ///
+    /// Returns a receiver that yields raw resampled sample runs (variable
+    /// length, in capture order) while recording is active. Intended for
+    /// streaming STT engines that decode during the recording instead of
+    /// waiting for the final [`AudioSegment`]. Call BEFORE [`open`](Self::open);
+    /// the existing VAD/segment path is unaffected.
+    pub fn live_chunks(&self) -> mpsc::UnboundedReceiver<Vec<f32>> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        *self.live_tx.lock().unwrap() = Some(tx);
+        rx
     }
 
     /// Open the default input device and start the capture thread.
@@ -222,6 +240,7 @@ impl AudioCapture {
         let shutdown = Arc::clone(&self.shutdown);
         let flush = Arc::clone(&self.flush);
         let latest_rms_bits = Arc::clone(&self.latest_rms_bits);
+        let live_tx = self.live_tx.lock().unwrap().clone();
 
         // Use a oneshot channel so the audio thread can report init errors
         // back to the caller synchronously.
@@ -435,7 +454,11 @@ impl AudioCapture {
                         }
                     }
 
-                    // Resample (or pass through).
+                    // Resample (or pass through). New 16kHz mono samples are
+                    // also forwarded to the live tap (streaming STT) while
+                    // recording — the VAD/segment path below is unaffected.
+                    let live_recording =
+                        live_tx.is_some() && recording.load(Ordering::Relaxed);
                     if let Some(ref mut rs) = resampler {
                         let input_frames_needed = rs.input_frames_next();
                         while mono_buf.len() >= input_frames_needed {
@@ -445,6 +468,10 @@ impl AudioCapture {
                             match rs.process(&input_ref, None) {
                                 Ok(output) => {
                                     if let Some(ch) = output.first() {
+                                        if live_recording
+                                            && let Some(ref tx) = live_tx {
+                                                let _ = tx.send(ch.clone());
+                                            }
                                         resampled_buf.extend_from_slice(ch);
                                     }
                                 }
@@ -454,6 +481,10 @@ impl AudioCapture {
                             }
                         }
                     } else {
+                        if live_recording && !mono_buf.is_empty()
+                            && let Some(ref tx) = live_tx {
+                                let _ = tx.send(mono_buf.clone());
+                            }
                         resampled_buf.append(&mut mono_buf);
                     }
 
