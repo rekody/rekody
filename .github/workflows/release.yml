@@ -25,9 +25,14 @@ jobs:
           - runner: macos-26
             arch: aarch64
             target: aarch64-apple-darwin
+            cargo_flags: ""
+          # ort (ONNX Runtime) publishes no prebuilt x86_64-apple-darwin
+          # binaries, so the Intel build drops the `nemotron` default feature.
+          # Intel users selecting stt_engine = "nemotron" get a clear error.
           - runner: macos-14
             arch: x86_64
             target: x86_64-apple-darwin
+            cargo_flags: "--no-default-features"
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +62,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.arch }}-cargo-release-
 
       - name: Build CLI binary
-        run: cargo build --release -p rekody-core --target ${{ matrix.target }}
+        run: cargo build --release -p rekody-core ${{ matrix.cargo_flags }} --target ${{ matrix.target }}
 
       - name: Get version from tag
         id: version
