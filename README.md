@@ -10,6 +10,14 @@
 
 Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on your desktop.
 
+<p align="center">
+  <a href="docs/assets/demo.mp4">
+    <img src="docs/assets/demo.gif" alt="rekody demo — hold ⌥Space, speak, release; the transcript lands at your cursor" width="760" />
+  </a>
+</p>
+
+<p align="center"><a href="docs/assets/demo.mp4"><strong>▶ Watch the 1-minute demo with audio</strong></a></p>
+
 ---
 
 ## Quick Start
