@@ -14,6 +14,13 @@ anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Nemotron cache-aware streaming ASR (ONNX via ort). Feature-gated while the
+# streaming engine is being built out; CPU EP (CoreML EP is unstable for this
+# model per upstream).
+parakeet-rs = { version = "0.3.6", optional = true }
+
+[features]
+nemotron = ["dep:parakeet-rs"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -27,3 +34,8 @@ whisper-rs = { version = "0.13", features = ["coreml"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
+hound = "3.5"
+
+[[example]]
+name = "nemotron_stream"
+required-features = ["nemotron"]

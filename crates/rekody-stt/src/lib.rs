@@ -7,6 +7,10 @@
 use std::path::Path;
 use std::time::Instant;
 
+/// Nemotron cache-aware streaming engine (feature `nemotron`).
+#[cfg(feature = "nemotron")]
+pub mod nemotron;
+
 use anyhow::Result;
 use serde::Deserialize;
 use thiserror::Error;
