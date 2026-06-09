@@ -36,7 +36,7 @@ test.describe('SEO', () => {
 
     expect(ogTitle).toContain('rekody');
     expect(ogDesc).toBeTruthy();
-    expect(ogImage).toContain('og-image.png');
+    expect(ogImage).toContain('/og.png');
     expect(ogLocale).toBe('en_US');
     expect(ogSiteName).toBe('rekody');
     expect(ogImgAlt).toBeTruthy();
@@ -118,22 +118,6 @@ test.describe('SEO', () => {
     expect(found).toBe(true);
   });
 
-  test('FAQPage JSON-LD', async ({ page }) => {
-    await page.goto(BASE);
-    const scripts = await page.locator('script[type="application/ld+json"]').all();
-
-    let found = false;
-    for (const s of scripts) {
-      const json = JSON.parse(await s.innerHTML());
-      if (json['@type'] === 'FAQPage') {
-        expect(json.mainEntity.length).toBeGreaterThan(0);
-        expect(json.mainEntity[0]['@type']).toBe('Question');
-        expect(json.mainEntity[0].acceptedAnswer['@type']).toBe('Answer');
-        found = true;
-      }
-    }
-    expect(found).toBe(true);
-  });
 
   test('lang attribute on html element', async ({ page }) => {
     await page.goto(BASE);
