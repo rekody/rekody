@@ -5,6 +5,12 @@
   "outputDirectory": "dist",
   "cleanUrls": true,
   "trailingSlash": false,
+  "redirects": [
+    { "source": "/terms", "destination": "/privacy", "permanent": true },
+    { "source": "/data-controls", "destination": "/privacy", "permanent": true },
+    { "source": "/subprocessors", "destination": "/privacy", "permanent": true },
+    { "source": "/security", "destination": "https://github.com/rekody/rekody/blob/main/SECURITY.md", "permanent": true }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",

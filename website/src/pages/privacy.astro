@@ -3,231 +3,72 @@ import Base from '../layouts/Base.astro';
 import LegalPage from '../components/LegalPage.astro';
 
 const toc = [
-  { id: 'overview',     label: 'Overview' },
-  { id: 'two-products', label: 'CLI vs Pro' },
-  { id: 'collect',      label: 'Information we collect' },
-  { id: 'use',          label: 'How we use it' },
-  { id: 'never',        label: 'What we never do' },
-  { id: 'processors',   label: 'Sub-processors' },
-  { id: 'retention',    label: 'Data retention' },
-  { id: 'rights',       label: 'Your rights' },
-  { id: 'cookies',      label: 'Cookies & analytics' },
-  { id: 'children',     label: 'Children' },
-  { id: 'transfers',    label: 'International transfers' },
-  { id: 'security',     label: 'Security' },
-  { id: 'changes',      label: 'Changes' },
-  { id: 'contact',      label: 'Contact' },
+  { id: 'short-version', label: 'The short version' },
+  { id: 'on-your-mac',   label: 'Everything runs on your Mac' },
+  { id: 'cloud-engines', label: 'If you opt into cloud engines' },
+  { id: 'website',       label: 'This website' },
+  { id: 'contact',       label: 'Questions' },
 ];
 
 const title = 'Privacy — rekody';
-const description = 'How rekody handles your data. The CLI runs locally; rekody Pro adds a cloud proxy with zero retention of audio and transcripts.';
+const description = 'rekody is an open-source CLI that runs entirely on your Mac. No accounts, no servers, no telemetry.';
 ---
 
 <Base title={title} description={description}>
   <LegalPage
-    eyebrow="Privacy Policy"
+    eyebrow="Privacy"
     title="Your voice. Your words. Your machine."
-    updated="April 22, 2026"
-    summary="We built rekody privacy-first. The open-source CLI sends nothing to our servers. rekody Pro adds a cloud proxy for premium engines — we transcribe your audio and immediately discard it. We never store your transcripts, and we never train models on anything you dictate."
+    updated="May 30, 2026"
+    summary="rekody is open-source software that runs entirely on your Mac. There are no accounts, no rekody servers, and no telemetry. We can't see your data because it never reaches us."
     toc={toc}
   >
-    <section id="overview">
-      <h2>Overview</h2>
+    <section id="short-version">
+      <h2>The short version</h2>
       <p>
-        This policy explains what data rekody collects, how we use it, and the choices you have. It applies to <strong>rekody</strong> (the open-source CLI at <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>), <strong>rekody Pro</strong> (the paid desktop app), our website at <a href="https://rekody.com">rekody.com</a>, and any services we operate under the rekody brand (collectively, "rekody").
-      </p>
-      <p>
-        rekody is operated by Tony Kipkemboi, an individual sole proprietor based in the United States. If we incorporate an entity in the future, we will update this policy with the new controller of your data.
-      </p>
-    </section>
-
-    <section id="two-products">
-      <h2>Two products, two data paths</h2>
-      <p>
-        rekody ships in two forms. The data we receive depends on which one you use.
-      </p>
-
-      <h3>rekody CLI (free, open source)</h3>
-      <p>
-        The CLI is MIT-licensed software that runs entirely on your Mac. Audio capture, voice activity detection, transcription (via local Whisper or a cloud provider you configure with your own API key), cleanup, and text injection all happen on your device. <strong>We do not operate any server that the CLI talks to.</strong> If you install from Homebrew or download a release, the only data we see is standard download logs from those platforms — not from us.
-      </p>
-      <p>
-        If you configure a third-party speech-to-text or LLM provider with your own API key, your audio and text are sent directly from your Mac to that provider under their terms. We are not in the middle.
-      </p>
-
-      <h3>rekody Pro (paid)</h3>
-      <p>
-        Pro adds features that require a server: account management, licensing, a managed cloud proxy for premium engines, and usage metering. When you use Pro, audio and text pass through our infrastructure on their way to the AI provider. The details of what we store — and what we don't — are below.
+        rekody is a free, MIT-licensed CLI (<a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>).
+        It has no sign-up, no license server, and no analytics inside the app. Every line of code that touches
+        your audio is open for inspection.
       </p>
     </section>
 
-    <section id="collect">
-      <h2>Information we collect</h2>
-
-      <h3>Account information</h3>
+    <section id="on-your-mac">
+      <h2>Everything runs on your Mac</h2>
       <p>
-        When you sign up for rekody Pro, we collect your email address, a hashed password (or an OAuth identifier if you sign in with Google or Apple), and a display name if you provide one. This is the minimum needed to operate your account.
+        Audio capture, voice detection, transcription, cleanup, and typing the text at your cursor all happen
+        on your device. With the default local Whisper engine — or the on-device Apple Intelligence cleanup —
+        <strong>nothing leaves your machine at all</strong>.
       </p>
-
-      <h3>Billing information</h3>
-      <p>
-        Payments are handled by our payment processor. <strong>We do not receive or store your full card number, CVV, or bank account details.</strong> We receive a processor-issued customer ID, the last four digits of your card, card brand, billing country, and subscription state (trial, active, canceled).
-      </p>
-
-      <h3>Audio and transcripts</h3>
-      <p>
-        When you dictate with Pro using the managed proxy, your audio is streamed to our servers, immediately forwarded to the AI provider, and the returned transcript is streamed back to your Mac. <strong>Audio is held in memory only for the duration of the request and is never written to disk on our servers.</strong> Transcripts are likewise not persisted — they are injected at your cursor on your device and then discarded by us.
-      </p>
-      <p>
-        If the AI provider experiences a transient failure, we may log the timestamp and an opaque error identifier — never the audio itself or the text.
-      </p>
-
-      <h3>Usage data</h3>
-      <p>
-        For billing and fair-use enforcement, we record metered usage per account: the number of dictation sessions per day, the total audio minutes processed, and which engine was used (e.g. <code>deepgram-nova-3</code>, <code>whisper-large-v3</code>). These counters do not include any content from your dictations.
-      </p>
-
-      <h3>Device and diagnostic information</h3>
-      <p>
-        The Pro app reports anonymized diagnostics to help us debug crashes and measure reliability: your macOS version (e.g. <code>14.4</code>), CPU architecture (Apple Silicon or Intel), rekody version, a randomly generated install ID (no persistent fingerprint), and anonymized error traces. <strong>This is opt-out</strong> — toggle it off in <em>Settings → Privacy</em>, and the app stops sending diagnostics entirely.
-      </p>
-
-      <h3>Website and support</h3>
-      <p>
-        Our website uses privacy-friendly analytics (Vercel Analytics) which does not set tracking cookies or collect personal data. If you email us for support, we receive your email address and whatever you choose to include in the message.
-      </p>
-    </section>
-
-    <section id="use">
-      <h2>How we use information</h2>
-      <p>We use the data we collect only for these purposes:</p>
       <ul>
-        <li><strong>Operate the service.</strong> Authenticate your license, route your dictation through the right engine, meter usage against your plan, and deliver transcripts back to your Mac.</li>
-        <li><strong>Bill and support.</strong> Process payments, send receipts, handle subscription changes, and respond when you email us.</li>
-        <li><strong>Improve quality.</strong> Fix bugs from anonymized crash reports, measure feature reliability, and decide what to build next.</li>
-        <li><strong>Protect the service.</strong> Detect abuse (e.g. a single license used across thousands of machines), prevent fraud, and comply with legal obligations.</li>
-      </ul>
-      <p>
-        We do not use your data for any other purpose without asking you first.
-      </p>
-    </section>
-
-    <section id="never">
-      <h2>What we never do</h2>
-      <ul>
-        <li><strong>We do not train AI models</strong> on your audio, transcripts, or any content you dictate. Not ours, not anyone else's.</li>
-        <li><strong>We do not sell your data.</strong> To advertisers, to data brokers, to anyone.</li>
-        <li><strong>We do not profile you</strong> for advertising or run ad networks on our properties.</li>
-        <li><strong>We do not retain your dictation content.</strong> Audio is discarded immediately after transcription; transcripts are never stored server-side.</li>
-        <li><strong>We do not share your content with the AI providers beyond what's needed to transcribe it,</strong> and we choose providers that contractually agree not to train on our traffic.</li>
+        <li>Your dictation history is a local file: <code>~/.config/rekody/history.json</code>. Delete it whenever you like.</li>
+        <li>API keys you add are stored in the macOS Keychain, never in plaintext on disk.</li>
+        <li>The only network calls the app makes by itself are checking GitHub for new releases when you run <code>rekody update</code>.</li>
       </ul>
     </section>
 
-    <section id="processors">
-      <h2>Sub-processors</h2>
+    <section id="cloud-engines">
+      <h2>If you opt into cloud engines</h2>
       <p>
-        We use a small number of third-party services to run rekody Pro. Each one is bound by a data-processing agreement that limits what they can do with your data. This list is current as of the "Last updated" date above — we revise it when we add or remove a vendor.
-      </p>
-      <table>
-        <thead>
-          <tr><th>Vendor</th><th>Purpose</th><th>Data processed</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Cloud hosting provider</td><td>Application servers, database</td><td>Account info, usage counters</td></tr>
-          <tr><td>Payment processor</td><td>Subscriptions, invoicing</td><td>Billing details (we never see the card)</td></tr>
-          <tr><td>Authentication provider</td><td>Login, password reset, OAuth</td><td>Email, hashed password or OAuth ID</td></tr>
-          <tr><td>Speech-to-text providers</td><td>Premium transcription engines</td><td>Audio stream (not persisted by us)</td></tr>
-          <tr><td>LLM providers</td><td>Cleanup / post-processing</td><td>Raw transcript (not persisted by us)</td></tr>
-          <tr><td>Email delivery</td><td>Transactional email (receipts, alerts)</td><td>Your email, message content</td></tr>
-          <tr><td>Error monitoring</td><td>Crash reports, diagnostics</td><td>Anonymized stack traces, device info</td></tr>
-          <tr><td>Website hosting + analytics</td><td>rekody.com</td><td>IP-anonymized traffic data</td></tr>
-        </tbody>
-      </table>
-      <p>
-        Our current vendor selections for each category, along with their data-processing addenda, are published at <a href="/subprocessors">rekody.com/subprocessors</a> and updated when anything changes.
+        You can optionally configure cloud speech-to-text or LLM providers (Deepgram, Groq, OpenAI, Anthropic, and others)
+        using <strong>your own API keys</strong>. When you do, your audio or text goes directly from your Mac to that
+        provider under their terms — there is no rekody server in the middle, because we don't run any.
+        Prefer to stay fully local? Use local Whisper plus Apple's on-device model or Ollama, and nothing is sent anywhere.
       </p>
     </section>
 
-    <section id="retention">
-      <h2>Data retention</h2>
-      <ul>
-        <li><strong>Audio:</strong> Held in memory only. Never written to disk. Lifetime measured in seconds.</li>
-        <li><strong>Transcripts:</strong> Same — never persisted server-side.</li>
-        <li><strong>Usage counters:</strong> 13 months, then deleted.</li>
-        <li><strong>Account records:</strong> For as long as your account is active, plus 30 days after deletion (to allow recovery), then purged.</li>
-        <li><strong>Billing records:</strong> 7 years, as required for tax and accounting.</li>
-        <li><strong>Support emails:</strong> 2 years after the last response.</li>
-        <li><strong>Diagnostic/crash data:</strong> 90 days.</li>
-      </ul>
-    </section>
-
-    <section id="rights">
-      <h2>Your rights and choices</h2>
+    <section id="website">
+      <h2>This website</h2>
       <p>
-        No matter where you live, you have the following rights with respect to your data held by rekody:
-      </p>
-      <ul>
-        <li><strong>Access</strong> — Request a copy of the data we hold about you.</li>
-        <li><strong>Correct</strong> — Ask us to fix anything inaccurate.</li>
-        <li><strong>Delete</strong> — Close your account and purge your records. You can do this from the Pro app (<em>Settings → Account → Delete account</em>) or by emailing us.</li>
-        <li><strong>Export</strong> — Download your account data in a portable format.</li>
-        <li><strong>Object</strong> — Turn off diagnostics, opt out of marketing email, or ask us to stop a specific processing activity.</li>
-      </ul>
-      <p>
-        If you're in the EU, UK, Switzerland, or a US state with a comprehensive privacy law (California, Colorado, Connecticut, Virginia, Utah, and others), you have the same rights under your local law. We honor requests regardless of where you are. To exercise any of them, email <a href="mailto:support@rekody.com">support@rekody.com</a> — we respond within 30 days.
-      </p>
-      <p>
-        California residents specifically: we do not sell or share personal information as those terms are defined by the CCPA/CPRA.
-      </p>
-    </section>
-
-    <section id="cookies">
-      <h2>Cookies and analytics</h2>
-      <p>
-        Our marketing website uses one strictly necessary session cookie and privacy-friendly analytics (Vercel Analytics) that does not set any tracking cookies. The Pro app does not use web cookies at all.
-      </p>
-      <p>
-        We do not use third-party advertising cookies, remarketing pixels, or cross-site tracking. We do not have a Google Analytics or Meta Pixel.
-      </p>
-    </section>
-
-    <section id="children">
-      <h2>Children</h2>
-      <p>
-        rekody is not directed at children under 13, and we do not knowingly collect personal data from anyone under 13. If you believe a child has provided us data, email <a href="mailto:support@rekody.com">support@rekody.com</a> and we will delete it.
-      </p>
-    </section>
-
-    <section id="transfers">
-      <h2>International transfers</h2>
-      <p>
-        Our servers are hosted in the United States. If you use rekody from outside the US, your data will be transferred to and processed in the US. For transfers from the EEA, UK, and Switzerland, we rely on the European Commission's Standard Contractual Clauses with our sub-processors.
-      </p>
-    </section>
-
-    <section id="security">
-      <h2>Security</h2>
-      <p>
-        Our security practices are documented on the dedicated <a href="/security">security page</a>. The short version: encrypted in transit (TLS 1.3), encrypted at rest (AES-256), zero retention for audio and transcripts, signed and notarized app binaries, and a vulnerability disclosure program at <a href="mailto:security@rekody.com">security@rekody.com</a>.
-      </p>
-    </section>
-
-    <section id="changes">
-      <h2>Changes to this policy</h2>
-      <p>
-        If we make material changes, we'll update the "Last updated" date at the top and — for material changes that affect you — notify you by email at least 30 days before the change takes effect. Historical versions are available on request.
+        rekody.com is a static site. It uses privacy-friendly, cookie-less analytics (Vercel Analytics) for
+        anonymous page-view counts. No tracking cookies, no ad pixels, no fingerprinting.
       </p>
     </section>
 
     <section id="contact">
-      <h2>Contact</h2>
+      <h2>Questions</h2>
       <p>
-        Privacy questions: <a href="mailto:support@rekody.com">support@rekody.com</a><br/>
-        Security disclosures: <a href="mailto:security@rekody.com">security@rekody.com</a><br/>
-        General support: <a href="mailto:hi@rekody.com">hi@rekody.com</a>
-      </p>
-      <p>
-        Postal: Tony Kipkemboi (d/b/a rekody), United States. Full mailing address available on request.
+        Open an issue or discussion on <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">GitHub</a>.
+        For security reports, please use a <a href="https://github.com/rekody/rekody/security/advisories/new" target="_blank" rel="noopener noreferrer">private security advisory</a> —
+        details in <a href="https://github.com/rekody/rekody/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">SECURITY.md</a>.
       </p>
     </section>
   </LegalPage>
