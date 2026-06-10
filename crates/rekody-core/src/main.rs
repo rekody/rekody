@@ -10,7 +10,7 @@ use std::time::Instant;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use console::style;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -111,6 +111,9 @@ enum Cmd {
         #[command(subcommand)]
         action: Option<DictionaryCmd>,
     },
+    /// Drive the live status region through fake states (UI development aid)
+    #[command(hide = true)]
+    UiDemo,
 }
 
 #[derive(Subcommand)]
@@ -226,6 +229,66 @@ async fn main() -> Result<()> {
         }
         Some(Cmd::Skill { action }) => cmd_skill(action),
         Some(Cmd::Dictionary { action }) => cmd_dictionary(action),
+        Some(Cmd::UiDemo) => cmd_ui_demo(),
+    }
+}
+
+/// Hidden dev aid: loop the live status region through idle → recording
+/// (waveform + growing partials) → done with synthetic data, so UI changes
+/// can be eyeballed and screenshotted without a mic or hotkey.
+fn cmd_ui_demo() -> Result<()> {
+    let config = load_config_or_default(&find_config_path());
+    let ui = Arc::new(Ui::new(&config));
+    let words = [
+        "Fixed",
+        "the",
+        "race",
+        "in",
+        "the",
+        "audio",
+        "tap",
+        "and",
+        "pushed",
+        "the",
+        "branch",
+        "for",
+        "review,",
+        "then",
+        "started",
+        "drafting",
+        "the",
+        "release",
+        "notes",
+        "for",
+        "the",
+        "streaming",
+        "engine.",
+    ];
+    let sleep = |ms: u64| std::thread::sleep(std::time::Duration::from_millis(ms));
+    loop {
+        ui.idle();
+        sleep(4000);
+        ui.start_recording();
+        let mut partial = String::new();
+        for (i, word) in words.iter().enumerate() {
+            // Synthetic speech-shaped mic levels.
+            let rms = 0.018 + 0.16 * ((i as f32 * 0.9).sin().abs());
+            ui.on_mic_level(rms);
+            ui.on_mic_level(rms * 0.6);
+            partial.push_str(word);
+            partial.push(' ');
+            ui.on_partial(partial.trim_end());
+            sleep(420);
+        }
+        sleep(2500);
+        ui.stop_recording("inserting…");
+        sleep(900);
+        ui.done_line(format!(
+            "  {OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {OK}●{RESET} {DIM}52ms stt{RESET}",
+            words.join(" ")
+        ));
+        ui.idle();
+        sleep(5000);
     }
 }
 
@@ -1815,10 +1878,10 @@ struct UiState {
 }
 
 struct Ui {
-    mp: MultiProgress,
-    header: ProgressBar,
-    hero: ProgressBar,
-    status: ProgressBar,
+    /// One spinner whose multi-line message IS the whole live region —
+    /// indicatif redraws embedded newlines correctly, and `println` inserts
+    /// completed dictations above it into scrollback.
+    bar: ProgressBar,
     state: Mutex<UiState>,
     /// Config summary for the header chips (engine, cleanup, trigger).
     chips: Vec<(bool, String)>,
@@ -1827,17 +1890,8 @@ struct Ui {
 
 impl Ui {
     fn new(config: &RekodyConfig) -> Self {
-        let mp = MultiProgress::new();
-        let line = || {
-            let bar = mp.add(ProgressBar::new_spinner());
-            bar.set_style(ProgressStyle::with_template("  {msg}").unwrap());
-            bar
-        };
-        let header = line();
-        let _gap_a = line();
-        let hero = line();
-        let _gap_b = line();
-        let status = line();
+        let bar = ProgressBar::new_spinner();
+        bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
 
         // Header chips: (accented, label).
         let engine = match config.stt_engine.to_lowercase().as_str() {
@@ -1863,23 +1917,18 @@ impl Ui {
         let chips = vec![(true, engine), (false, cleanup), (false, trigger)];
 
         let streaming = config.stt_engine.to_lowercase() == "nemotron";
-        let ui = Self {
-            mp,
-            header,
-            hero,
-            status,
+        Self {
+            bar,
             state: Mutex::new(UiState {
                 streaming,
                 ..UiState::default()
             }),
             chips,
             ticker_running: std::sync::atomic::AtomicBool::new(false),
-        };
-        ui.render_header();
-        ui
+        }
     }
 
-    fn render_header(&self) {
+    fn header_line(&self) -> String {
         let mut chips = String::new();
         for (accent, label) in &self.chips {
             let (bg, fg) = if *accent {
@@ -1893,106 +1942,22 @@ impl Ui {
         if let Some(name) = rekody_core::skill::active_name() {
             chips.push_str(&format!("{CHIP_TEAL_BG}{CHIP_TEAL_FG} ◆ {name} {RESET}"));
         }
-        let msg = format!(
-            "{CREAM}{BOLD}rekody{RESET}{BRAND}{BOLD}.{RESET} {DIM}v{}{RESET}   {chips}",
+        format!(
+            "  {CREAM}{BOLD}rekody{RESET}{BRAND}{BOLD}.{RESET} {DIM}v{}{RESET}   {chips}",
             env!("CARGO_PKG_VERSION"),
-        );
-        self.header.set_message(msg);
-        self.header.tick();
+        )
     }
 
-    fn idle(&self) {
-        if let Ok(mut s) = self.state.lock() {
-            s.recording = false;
-            s.busy = None;
-            s.partial.clear();
-            s.wave.clear();
+    fn hero_line(&self, s: &UiState) -> String {
+        if !s.recording && s.busy.is_none() && s.partial.is_empty() {
+            return format!("  {DIM}ready — hold ⌥space to dictate{RESET}");
         }
-        self.hero
-            .set_message(format!("{DIM}ready — hold ⌥space to dictate{RESET}"));
-        self.hero.tick();
-        self.status.set_message(format!(
-            "{SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
-            sep = sep()
-        ));
-        self.status.tick();
-    }
-
-    fn start_recording(self: &Arc<Self>) {
-        if let Ok(mut s) = self.state.lock() {
-            s.recording = true;
-            s.busy = None;
-            s.recording_start = Some(Instant::now());
-            s.partial.clear();
-            s.wave.clear();
-        }
-        self.hero.set_message(format!("{BRAND_LIGHT}▌{RESET}"));
-        self.hero.tick();
-        self.render_status();
-
-        // Timer ticker — keeps 0:0N counting even when no mic-level or
-        // partial events arrive (e.g. batch engines, silence).
-        if !self
-            .ticker_running
-            .swap(true, std::sync::atomic::Ordering::Relaxed)
-        {
-            let ui = Arc::clone(self);
-            std::thread::spawn(move || {
-                loop {
-                    std::thread::sleep(std::time::Duration::from_millis(120));
-                    let recording = ui.state.lock().map(|s| s.recording).unwrap_or(false);
-                    if !recording {
-                        break;
-                    }
-                    ui.render_status();
-                }
-                ui.ticker_running
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
-            });
-        }
-    }
-
-    fn stop_recording(&self, busy: &'static str) {
-        if let Ok(mut s) = self.state.lock() {
-            s.recording = false;
-            s.busy = Some(busy);
-        }
-        self.render_status();
-    }
-
-    /// New mic RMS level from the live tap (streaming engines).
-    fn on_mic_level(&self, rms: f32) {
-        if let Ok(mut s) = self.state.lock() {
-            if !s.recording {
-                return;
-            }
-            s.wave.push_back(rms);
-            while s.wave.len() > WAVE_BARS {
-                s.wave.pop_front();
-            }
-        }
-    }
-
-    /// Streaming partial: dim head, bright tail, block cursor.
-    fn on_partial(&self, text: &str) {
-        if let Ok(mut s) = self.state.lock() {
-            s.partial = text.to_string();
-        }
-        self.render_hero();
-    }
-
-    fn render_hero(&self) {
-        let partial = self
-            .state
-            .lock()
-            .map(|s| s.partial.clone())
-            .unwrap_or_default();
-        if partial.is_empty() {
-            return;
+        if s.partial.is_empty() {
+            return format!("  {BRAND_LIGHT}▌{RESET}");
         }
         let cols = console::Term::stdout().size().1 as usize;
         let avail = cols.saturating_sub(6).max(20);
-        let chars: Vec<char> = partial.chars().collect();
+        let chars: Vec<char> = s.partial.chars().collect();
         let (head_ellipsis, visible) = if chars.len() > avail {
             ("…", &chars[chars.len() - (avail - 1)..])
         } else {
@@ -2006,15 +1971,16 @@ impl Ui {
             .map(|(i, _)| i + 1)
             .unwrap_or(0);
         let (dim_part, bright_part) = visible.split_at(split);
-        self.hero.set_message(format!(
-            "{DIM}{head_ellipsis}{dim_part}{RESET}{CREAM}{bright_part}{RESET}{BRAND_LIGHT}▌{RESET}"
-        ));
-        self.hero.tick();
+        let cursor = if s.recording {
+            format!("{BRAND_LIGHT}▌{RESET}")
+        } else {
+            String::new()
+        };
+        format!("  {DIM}{head_ellipsis}{dim_part}{RESET}{CREAM}{bright_part}{RESET}{cursor}")
     }
 
-    fn render_status(&self) {
-        let Ok(s) = self.state.lock() else { return };
-        let msg = if s.recording {
+    fn status_line(&self, s: &UiState) -> String {
+        if s.recording {
             let elapsed = s
                 .recording_start
                 .map(|t| t.elapsed().as_secs())
@@ -2038,31 +2004,118 @@ impl Ui {
                 format!("{BRAND_LIGHT}{wave}{RESET}  ")
             };
             format!(
-                "{SLOW}{BOLD}●{RESET} {SLOW}{timer}{RESET}  {wave_seg}{SUBTLE}release ⌥space to insert{RESET}"
+                "  {SLOW}{BOLD}●{RESET} {SLOW}{timer}{RESET}  {wave_seg}{SUBTLE}release ⌥space to insert{RESET}"
             )
         } else if let Some(busy) = s.busy {
-            format!("{BRAND_LIGHT}{BOLD}◐{RESET}  {BRAND_LIGHT}{busy}{RESET}")
+            format!("  {BRAND_LIGHT}{BOLD}◐{RESET}  {BRAND_LIGHT}{busy}{RESET}")
         } else {
-            return; // idle() owns the footer
-        };
+            format!(
+                "  {SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+                sep = sep()
+            )
+        }
+    }
+
+    /// Repaint the whole live region from current state.
+    fn render(&self) {
+        let Ok(s) = self.state.lock() else { return };
+        let msg = format!(
+            "{}\n\n{}\n\n{}",
+            self.header_line(),
+            self.hero_line(&s),
+            self.status_line(&s)
+        );
         drop(s);
-        self.status.set_message(msg);
-        self.status.tick();
+        self.bar.set_message(msg);
+        self.bar.tick();
+    }
+
+    fn idle(&self) {
+        if let Ok(mut s) = self.state.lock() {
+            s.recording = false;
+            s.busy = None;
+            s.partial.clear();
+            s.wave.clear();
+        }
+        self.render();
+    }
+
+    fn start_recording(self: &Arc<Self>) {
+        if let Ok(mut s) = self.state.lock() {
+            s.recording = true;
+            s.busy = None;
+            s.recording_start = Some(Instant::now());
+            s.partial.clear();
+            s.wave.clear();
+        }
+        self.render();
+
+        // Timer ticker — keeps 0:0N counting even when no mic-level or
+        // partial events arrive (e.g. batch engines, silence).
+        if !self
+            .ticker_running
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            let ui = Arc::clone(self);
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(120));
+                    let recording = ui.state.lock().map(|s| s.recording).unwrap_or(false);
+                    if !recording {
+                        break;
+                    }
+                    ui.render();
+                }
+                ui.ticker_running
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+            });
+        }
+    }
+
+    fn stop_recording(&self, busy: &'static str) {
+        if let Ok(mut s) = self.state.lock() {
+            s.recording = false;
+            s.busy = Some(busy);
+        }
+        self.render();
+    }
+
+    /// New mic RMS level from the live tap (streaming engines).
+    fn on_mic_level(&self, rms: f32) {
+        if let Ok(mut s) = self.state.lock() {
+            if !s.recording {
+                return;
+            }
+            s.wave.push_back(rms);
+            while s.wave.len() > WAVE_BARS {
+                s.wave.pop_front();
+            }
+        }
+        self.render();
+    }
+
+    /// Streaming partial: dim head, bright tail, block cursor.
+    fn on_partial(&self, text: &str) {
+        if let Ok(mut s) = self.state.lock() {
+            s.partial = text.to_string();
+        }
+        self.render();
+    }
+
+    /// Repaint the header (e.g. after skill cycling).
+    fn render_header(&self) {
+        self.render();
     }
 
     /// Print a completed dictation into scrollback and reset to idle.
     fn done_line(&self, line: String) {
-        let _ = self.mp.println(line);
+        self.bar.println(line);
     }
 
     fn finish(&self) {
-        self.header.finish_and_clear();
-        self.hero.finish_and_clear();
-        self.status.finish_and_clear();
-        self.mp.clear().ok();
+        self.bar.finish_and_clear();
     }
 }
-
 // ── Session statistics ───────────────────────────────────────────────────────
 
 struct SessionStats {
