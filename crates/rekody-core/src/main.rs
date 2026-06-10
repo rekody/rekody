@@ -1878,13 +1878,13 @@ struct UiState {
 }
 
 struct Ui {
-    /// One spinner whose multi-line message IS the whole live region —
-    /// indicatif redraws embedded newlines correctly, and `println` inserts
-    /// completed dictations above it into scrollback.
+    /// One spinner whose multi-line message IS the live region (transcript +
+    /// status) — indicatif redraws embedded newlines correctly, and `println`
+    /// inserts completed dictations above it into scrollback. The wordmark +
+    /// chips header is printed ONCE at startup so dictations always flow
+    /// BELOW it, never on top.
     bar: ProgressBar,
     state: Mutex<UiState>,
-    /// Config summary for the header chips (engine, cleanup, trigger).
-    chips: Vec<(bool, String)>,
     ticker_running: std::sync::atomic::AtomicBool,
 }
 
@@ -1914,7 +1914,24 @@ impl Ui {
             "fn_key" | "fn" => "🌐 fn".to_string(),
             _ => "⌥space".to_string(),
         };
-        let chips = vec![(true, engine), (false, cleanup), (false, trigger)];
+        let chip_list = [(true, engine), (false, cleanup), (false, trigger)];
+
+        // Print the mast once into scrollback — dictations stack below it.
+        let mut chips = String::new();
+        for (accent, label) in &chip_list {
+            let (bg, fg) = if *accent {
+                (CHIP_TEAL_BG, CHIP_TEAL_FG)
+            } else {
+                (CHIP_BG, CHIP_FG)
+            };
+            chips.push_str(&format!("{bg}{fg} {label} {RESET}  "));
+        }
+        println!();
+        println!(
+            "  {CREAM}{BOLD}rekody{RESET}{BRAND}{BOLD}.{RESET} {DIM}v{}{RESET}   {chips}",
+            env!("CARGO_PKG_VERSION"),
+        );
+        println!();
 
         let streaming = config.stt_engine.to_lowercase() == "nemotron";
         Self {
@@ -1923,29 +1940,17 @@ impl Ui {
                 streaming,
                 ..UiState::default()
             }),
-            chips,
             ticker_running: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
-    fn header_line(&self) -> String {
-        let mut chips = String::new();
-        for (accent, label) in &self.chips {
-            let (bg, fg) = if *accent {
-                (CHIP_TEAL_BG, CHIP_TEAL_FG)
-            } else {
-                (CHIP_BG, CHIP_FG)
-            };
-            chips.push_str(&format!("{bg}{fg} {label} {RESET}  "));
+    /// The active skill, shown live in the status line (it changes with
+    /// ⌥Space+Tab while the printed mast cannot repaint).
+    fn skill_seg(&self) -> String {
+        match rekody_core::skill::active_name() {
+            Some(name) => format!("{CHIP_TEAL_BG}{CHIP_TEAL_FG} ◆ {name} {RESET}  ",),
+            None => String::new(),
         }
-        // Active skill rendered as a live chip so ⌥Space+Tab cycling shows up.
-        if let Some(name) = rekody_core::skill::active_name() {
-            chips.push_str(&format!("{CHIP_TEAL_BG}{CHIP_TEAL_FG} ◆ {name} {RESET}"));
-        }
-        format!(
-            "  {CREAM}{BOLD}rekody{RESET}{BRAND}{BOLD}.{RESET} {DIM}v{}{RESET}   {chips}",
-            env!("CARGO_PKG_VERSION"),
-        )
     }
 
     fn hero_line(&self, s: &UiState) -> String {
@@ -2004,27 +2009,26 @@ impl Ui {
                 format!("{BRAND_LIGHT}{wave}{RESET}  ")
             };
             format!(
-                "  {SLOW}{BOLD}●{RESET} {SLOW}{timer}{RESET}  {wave_seg}{SUBTLE}release ⌥space to insert{RESET}"
+                "  {skill}{SLOW}{BOLD}●{RESET} {SLOW}{timer}{RESET}  {wave_seg}{SUBTLE}release ⌥space to insert{RESET}",
+                skill = self.skill_seg()
             )
         } else if let Some(busy) = s.busy {
             format!("  {BRAND_LIGHT}{BOLD}◐{RESET}  {BRAND_LIGHT}{busy}{RESET}")
         } else {
             format!(
-                "  {SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+                "  {skill}{SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+                skill = self.skill_seg(),
                 sep = sep()
             )
         }
     }
 
-    /// Repaint the whole live region from current state.
+    /// Repaint the live region (transcript + status) from current state.
     fn render(&self) {
         let Ok(s) = self.state.lock() else { return };
-        let msg = format!(
-            "{}\n\n{}\n\n{}",
-            self.header_line(),
-            self.hero_line(&s),
-            self.status_line(&s)
-        );
+        // Leading newline keeps a gap between scrollback (completed
+        // dictations) and the live region.
+        let msg = format!("\n{}\n\n{}", self.hero_line(&s), self.status_line(&s));
         drop(s);
         self.bar.set_message(msg);
         self.bar.tick();
