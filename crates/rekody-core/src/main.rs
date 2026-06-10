@@ -1926,10 +1926,19 @@ impl Ui {
             };
             chips.push_str(&format!("{bg}{fg} {label} {RESET}  "));
         }
+        // The whole top block is static, printed once — completed dictations
+        // stack BELOW all of it; only transient activity draws underneath.
         println!();
         println!(
             "  {CREAM}{BOLD}rekody{RESET}{BRAND}{BOLD}.{RESET} {DIM}v{}{RESET}   {chips}",
             env!("CARGO_PKG_VERSION"),
+        );
+        println!();
+        println!("  {DIM}ready — hold ⌥space to dictate{RESET}");
+        println!();
+        println!(
+            "  {SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+            sep = sep()
         );
         println!();
 
@@ -1954,9 +1963,6 @@ impl Ui {
     }
 
     fn hero_line(&self, s: &UiState) -> String {
-        if !s.recording && s.busy.is_none() && s.partial.is_empty() {
-            return format!("  {DIM}ready — hold ⌥space to dictate{RESET}");
-        }
         if s.partial.is_empty() {
             return format!("  {BRAND_LIGHT}▌{RESET}");
         }
@@ -2015,20 +2021,21 @@ impl Ui {
         } else if let Some(busy) = s.busy {
             format!("  {BRAND_LIGHT}{BOLD}◐{RESET}  {BRAND_LIGHT}{busy}{RESET}")
         } else {
-            format!(
-                "  {skill}{SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
-                skill = self.skill_seg(),
-                sep = sep()
-            )
+            String::new()
         }
     }
 
-    /// Repaint the live region (transcript + status) from current state.
+    /// Repaint the live region from current state. Idle = empty: the static
+    /// top block already says everything, and completed dictations are plain
+    /// scrollback lines below it.
     fn render(&self) {
         let Ok(s) = self.state.lock() else { return };
-        // Leading newline keeps a gap between scrollback (completed
-        // dictations) and the live region.
-        let msg = format!("\n{}\n\n{}", self.hero_line(&s), self.status_line(&s));
+        let active = s.recording || s.busy.is_some();
+        let msg = if active {
+            format!("{}\n\n{}", self.hero_line(&s), self.status_line(&s))
+        } else {
+            String::new()
+        };
         drop(s);
         self.bar.set_message(msg);
         self.bar.tick();
