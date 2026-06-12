@@ -190,23 +190,10 @@ pub fn run_onboarding() -> Result<()> {
     };
 
     // --- Step 2: Speech-to-text engine ------------------------------------
+    // Priority order: Nemotron streaming first (the flagship engine and the
+    // preselected default), then local Whisper, then the cloud engines.
     #[allow(unused_mut)]
-    let mut stt_select = select("Choose your speech-to-text engine")
-        .item(
-            "local",
-            "Local Whisper",
-            "private — audio stays on your Mac (needs model download)",
-        )
-        .item(
-            "groq",
-            "Groq Cloud Whisper",
-            "fastest + most accurate — audio sent to Groq (uses your Groq API key)",
-        )
-        .item(
-            "deepgram",
-            "Deepgram Nova-3",
-            "most accurate — audio sent to Deepgram (needs separate API key)",
-        );
+    let mut stt_select = select("Choose your speech-to-text engine");
     #[cfg(feature = "nemotron")]
     {
         stt_select = stt_select.item(
@@ -215,6 +202,22 @@ pub fn run_onboarding() -> Result<()> {
             "private + instant — transcribes WHILE you talk (881 MB download, English only)",
         );
     }
+    stt_select = stt_select
+        .item(
+            "local",
+            "Local Whisper",
+            "private — 100+ languages, audio stays on your Mac (needs model download)",
+        )
+        .item(
+            "groq",
+            "Groq Cloud Whisper",
+            "fastest cloud — audio sent to Groq (uses your Groq API key)",
+        )
+        .item(
+            "deepgram",
+            "Deepgram Nova-3",
+            "cloud accuracy — audio sent to Deepgram (needs separate API key)",
+        );
     let stt_engine: &str = stt_select.interact().map_err(|e| anyhow::anyhow!(e))?;
 
     // Deepgram needs its own API key — check Keychain first
