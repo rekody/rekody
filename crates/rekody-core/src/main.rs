@@ -1856,6 +1856,41 @@ async fn run_dictation(verbose: bool, record_all_audio_flag: bool) -> Result<()>
     // Set up tracing with our custom UI layer.
     let ui_layer = UiLayer::new(Arc::clone(&ui), Arc::clone(&session));
 
+    // Floating HUD pill (rekody-hud helper). Entirely best-effort: any
+    // failure here logs and dictation runs without the HUD. The server always
+    // starts when not explicitly disabled (an externally launched helper can
+    // still connect); the helper is only spawned when its binary is found.
+    let mut hud_notes: Vec<(bool, String)> = Vec::new(); // (is_warning, message)
+    let hud_server = if config.hud == Some(false) {
+        None
+    } else {
+        let sock = rekody_core::hud::socket_path();
+        match rekody_core::hud::HudServer::new(&sock, "bottom") {
+            Ok(server) => {
+                match rekody_core::hud::spawn_helper(&sock) {
+                    Ok(Some(handle)) => server.attach_helper(handle),
+                    Ok(None) => {
+                        hud_notes.push((false, "rekody-hud helper not found — HUD off".into()));
+                    }
+                    Err(e) => {
+                        hud_notes.push((true, format!("failed to supervise rekody-hud: {e}")));
+                    }
+                }
+                Some(Arc::new(server))
+            }
+            Err(e) => {
+                hud_notes.push((
+                    true,
+                    format!("HUD server unavailable ({e}) — continuing without HUD"),
+                ));
+                None
+            }
+        }
+    };
+    let hud_layer = hud_server
+        .as_ref()
+        .map(|server| HudLayer::new(Arc::clone(server), &config));
+
     let level = if verbose { "debug" } else { "info" };
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| format!("{},rekody=debug", level).parse().unwrap());
@@ -1881,8 +1916,18 @@ async fn run_dictation(verbose: bool, record_all_audio_flag: bool) -> Result<()>
     tracing_subscriber::registry()
         .with(env_filter)
         .with(ui_layer)
+        .with(hud_layer)
         .with(debug_layer)
         .init();
+
+    // HUD setup notes gathered before tracing was initialized.
+    for (is_warning, note) in hud_notes {
+        if is_warning {
+            tracing::warn!("{note}");
+        } else {
+            tracing::info!("{note}");
+        }
+    }
 
     let pipeline = Pipeline::new(config)?;
     pipeline.run().await?;
@@ -2599,6 +2644,138 @@ where
         } else if msg.contains("no LLM API keys") {
             // Will show done on injection without LLM step.
         }
+    }
+}
+
+// ── HUD tracing layer ────────────────────────────────────────────────────────
+//
+// Maps the same pipeline tracing events UiLayer matches into rekody-hud
+// protocol events (docs/design/hud-protocol.md) and broadcasts them through
+// the HudServer. Fully decoupled from the terminal UI: the layer only exists
+// when the HUD server started, and every send is best-effort/non-blocking —
+// a slow or missing helper never affects dictation.
+
+/// Minimum interval between forwarded `level` events (protocol caps at 60Hz).
+const HUD_LEVEL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+
+struct HudLayer {
+    hud: Arc<rekody_core::hud::HudServer>,
+    /// Toggle activation records hands-free (no key held) — the pill shows it.
+    handsfree: bool,
+    /// Whether LLM post-processing will run (gates the "formatting…" verb).
+    llm_enabled: bool,
+    /// Final transcript + stt latency_ms, captured at "transcription
+    /// complete" and consumed at "text injected successfully" for `done`.
+    stt_result: Mutex<Option<(String, u64)>>,
+    /// Last forwarded mic level — coalesces the ~50ms event stream.
+    last_level: Mutex<Option<Instant>>,
+}
+
+impl HudLayer {
+    fn new(hud: Arc<rekody_core::hud::HudServer>, config: &RekodyConfig) -> Self {
+        Self {
+            hud,
+            handsfree: config.activation_mode == "toggle",
+            llm_enabled: rekody_core::has_llm_providers(config),
+            stt_result: Mutex::new(None),
+            last_level: Mutex::new(None),
+        }
+    }
+
+    /// Forward a mic level, coalesced to at most one event per ~16ms.
+    fn on_mic_level(&self, rms: f32) {
+        let now = Instant::now();
+        if let Ok(mut last) = self.last_level.lock() {
+            if last.is_some_and(|t| now.duration_since(t) < HUD_LEVEL_INTERVAL) {
+                return;
+            }
+            *last = Some(now);
+        }
+        self.hud.send(&rekody_core::hud::HudEvent::Level { rms });
+    }
+
+    fn on_injected(&self) {
+        use rekody_core::hud::HudEvent;
+        let stt = self.stt_result.lock().ok().and_then(|mut g| g.take());
+        if let Some((text, ms)) = stt {
+            let words = text.split_whitespace().count() as u64;
+            self.hud.send(&HudEvent::Done { words, ms });
+        }
+        self.hud.send(&HudEvent::idle());
+    }
+
+    fn on_error(&self, msg: &str) {
+        self.hud.send(&rekody_core::hud::HudEvent::Error {
+            msg: msg.to_string(),
+            recoverable: true,
+        });
+    }
+}
+
+impl<S> tracing_subscriber::Layer<S> for HudLayer
+where
+    S: tracing::Subscriber,
+{
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        use rekody_core::hud::HudEvent;
+
+        let mut visitor = EventVisitor::default();
+        event.record(&mut visitor);
+        let msg = &visitor.message;
+
+        // Highest-frequency event first (every ~50ms while recording).
+        if msg.contains("mic level") {
+            if let Some(rms) = visitor.fields.get("rms").and_then(|v| v.parse().ok()) {
+                self.on_mic_level(rms);
+            }
+        } else if msg.contains("recording started") {
+            if let Ok(mut guard) = self.stt_result.lock() {
+                *guard = None;
+            }
+            self.hud.send(&HudEvent::listening(self.handsfree));
+        } else if msg.contains("no speech detected") {
+            self.on_error("no speech detected");
+        } else if msg.contains("recording stopped") {
+            self.hud.send(&HudEvent::working("working…"));
+        } else if msg.contains("received audio segment") {
+            self.hud.send(&HudEvent::working("transcribing…"));
+        } else if msg.contains("partial transcript") {
+            let text = visitor.fields.get("text").cloned().unwrap_or_default();
+            self.hud.send(&HudEvent::Partial {
+                tail: rekody_core::hud::trim_tail(&text, 60),
+            });
+        } else if msg.contains("transcription complete") {
+            let text = visitor.fields.get("text").cloned().unwrap_or_default();
+            let ms = visitor
+                .fields
+                .get("latency_ms")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            if let Ok(mut guard) = self.stt_result.lock() {
+                *guard = Some((text, ms));
+            }
+            // Without LLM post-processing the next step is injection — keep
+            // the previous verb rather than flashing "formatting…".
+            if self.llm_enabled {
+                self.hud.send(&HudEvent::working("formatting…"));
+            }
+        } else if msg.contains("text injected successfully") {
+            self.on_injected();
+        } else if msg.contains("LLM formatting failed") || msg.contains("failed to process audio") {
+            let err = visitor
+                .fields
+                .get("error")
+                .cloned()
+                .unwrap_or_else(|| msg.clone());
+            self.on_error(&err);
+        } else if msg.contains("empty transcript") {
+            self.hud.send(&HudEvent::idle());
+        }
+        // "skill cycled" is intentionally ignored in HUD v1.
     }
 }
 

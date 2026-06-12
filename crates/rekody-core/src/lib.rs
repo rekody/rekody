@@ -18,6 +18,7 @@ pub mod corrections;
 pub mod dictionary;
 pub mod history;
 pub mod history_tui;
+pub mod hud;
 pub mod key_tui;
 pub mod numbers;
 pub mod onboarding;
@@ -147,6 +148,19 @@ pub struct RekodyConfig {
     /// shows the dataset size.
     #[serde(default = "default_save_training_data")]
     pub save_training_data: bool,
+
+    /// Show the floating HUD pill while dictating (requires the `rekody-hud`
+    /// helper binary).
+    ///
+    /// - `None` (default / omitted from config): auto — the HUD runs when the
+    ///   helper binary is found next to the daemon executable (or at
+    ///   `$REKODY_HUD_BIN`), and is silently off otherwise.
+    /// - `Some(true)`: same as auto (the helper binary is still required).
+    /// - `Some(false)`: never show the HUD.
+    ///
+    /// Set via `hud = true` / `hud = false` in config.toml.
+    #[serde(default)]
+    pub hud: Option<bool>,
 }
 
 fn default_save_training_data() -> bool {
@@ -189,6 +203,7 @@ impl Default for RekodyConfig {
             trigger_key: default_trigger_key(),
             max_recording_secs: default_max_recording_secs(),
             save_training_data: true,
+            hud: None,
         }
     }
 }
