@@ -1,12 +1,20 @@
 ---
 const engines = [
   {
-    name: 'Deepgram',
+    name: 'Nemotron Streaming',
     tag: 'Default',
+    model: 'NVIDIA Nemotron · int8',
+    latency: '~50ms',
+    note: 'Transcribes while you talk — fully on-device. English.',
+    highlight: true,
+  },
+  {
+    name: 'Deepgram',
+    tag: 'Cloud',
     model: 'Nova-3',
     latency: '~200ms',
     note: 'Cloud · 100+ languages · smart_format',
-    highlight: true,
+    highlight: false,
   },
   {
     name: 'Groq',
