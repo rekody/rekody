@@ -23,7 +23,6 @@ pub mod key_tui;
 pub mod numbers;
 pub mod onboarding;
 pub mod prompts;
-pub mod service;
 pub mod skill;
 pub mod skill_tui;
 pub mod snippets;

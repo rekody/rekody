@@ -169,16 +169,8 @@ pub fn spawn_helper(socket_path: &Path) -> std::io::Result<Option<HelperHandle>>
     std::thread::Builder::new()
         .name("hud-helper-supervisor".into())
         .spawn(move || {
-            // The helper's "Start at Login" menu item shells back into the
-            // daemon binary (`rekody service install`) — tell it where we are.
-            let daemon_exe = std::env::current_exe().unwrap_or_default();
             while !shutdown.load(Ordering::SeqCst) {
-                match Command::new(&bin)
-                    .arg("--socket")
-                    .arg(&sock)
-                    .env("REKODY_DAEMON_EXE", &daemon_exe)
-                    .spawn()
-                {
+                match Command::new(&bin).arg("--socket").arg(&sock).spawn() {
                     Ok(child) => {
                         debug!("rekody-hud helper started (pid {})", child.id());
                         if let Ok(mut slot) = child_slot.lock() {
