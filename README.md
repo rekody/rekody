@@ -18,6 +18,12 @@ Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on
 
 <p align="center"><a href="docs/assets/demo.mp4"><strong>▶ Watch the 1-minute demo with audio</strong></a></p>
 
+**New: streaming dictation.** With the on-device Nemotron engine, rekody transcribes *while you talk* — the live console shows your words as you speak, and the final text lands at your cursor **~50ms after you release the key** (batch engines take 1–3s).
+
+<p align="center">
+  <img src="docs/assets/cli-streaming.png" alt="rekody live console — words stream in while you talk, with a live waveform and timer" width="760" />
+</p>
+
 ---
 
 ## Quick Start
@@ -25,6 +31,8 @@ Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on
 ```bash
 # Install via Homebrew (recommended) — auto-taps + installs
 brew install rekody/rekody/rekody
+# Newer Homebrew versions gate third-party taps — if prompted, run:
+#   brew trust rekody/rekody
 
 # Or one-line installer (no Homebrew needed)
 curl -fsSL https://raw.githubusercontent.com/rekody/rekody/main/install.sh | bash
@@ -63,6 +71,7 @@ Commands:
   key      Manage API keys in the system keychain
   skill      Pick the active dictation skill (email, notes, commit, ...)
   dictionary Manage custom vocabulary the cleanup model should preserve
+  fix        Correct the transcript of a recent dictation (trains your dataset)
   update     Update to the latest release
 
 Options:
@@ -196,6 +205,47 @@ rekody key list             # show which keys are stored
 rekody key delete groq      # remove a key
 ```
 
+### The live console
+
+While you dictate, the terminal shows a live card: your words stream in as
+you speak (older lines scroll away like a phone dictation sheet), with a
+real-time waveform, timer, and the active skill. Completed dictations stack
+above it with their latency.
+
+<p align="center">
+  <img src="docs/assets/cli-inserted.png" alt="rekody console after a dictation — the finished text with latency, console back to idle" width="720" />
+</p>
+
+### Your personal fine-tuning dataset
+
+Every dictation can save its audio (lossless FLAC, ~60MB per hour of speech)
+plus transcript locally to `~/.local/share/rekody/training-data/` — so when
+you want a model fine-tuned on *your* voice, the dataset is already waiting.
+On by default with an explicit consent prompt in setup; `save_training_data
+= false` turns it off; `rekody doctor` shows size; **nothing ever leaves
+your machine.**
+
+Misheard something? Fix the label while you still remember what you said:
+
+```bash
+rekody fix            # shows what was heard, prompts for the correction
+rekody fix --play     # replay the clip first
+rekody fix -n 2       # reach back two dictations
+```
+
+### Desktop HUD (preview)
+
+A native floating pill for people who don't live in the terminal — it
+appears while you dictate (timer, live waveform, streaming words) and
+vanishes when you're done. Hidden from screen shares by default.
+
+<p align="center">
+  <img src="docs/assets/hud-pill.png" alt="rekody HUD pill — recording timer, live waveform, and words streaming in" width="700" />
+</p>
+
+The open-source daemon already ships the HUD integration (`docs/design/hud-protocol.md`);
+the pill itself is in private preview and will be distributed separately.
+
 ### History
 
 ```bash
@@ -222,14 +272,15 @@ rekody doctor    # live connectivity check for all configured providers
 
 ## STT Engines
 
-| Engine | Quality | Latency | Notes |
-|--------|---------|---------|-------|
+| Engine | Quality | Release→text | Notes |
+|--------|---------|--------------|-------|
+| `nemotron` | ★★★★☆ | **~50ms** | **Streaming** — transcribes while you talk, fully on-device (NVIDIA Nemotron, int8). English. Apple Silicon |
+| `local` | ★★★★☆ | 1–3s | whisper.cpp turbo + Core ML, 100+ languages, offline |
 | `deepgram` | ★★★★★ | ~200ms | Nova-3, smart formatting, cloud |
 | `groq` | ★★★★☆ | ~300ms | Whisper Large v3, cloud |
-| `local` | ★★★☆☆ | varies | On-device whisper.cpp, Metal GPU, offline |
 | `cohere` | ★★★★☆ | varies | Local server on configurable port |
 
-**Recommended:** `deepgram` — fastest, most accurate, already produces clean punctuated output (no LLM needed on top).
+**Recommended:** `nemotron` for English (the setup default — nothing leaves your Mac and the text is ready the instant you release the key). `local` Whisper for multilingual dictation.
 
 ---
 
