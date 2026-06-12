@@ -111,6 +111,9 @@ enum Cmd {
         #[command(subcommand)]
         action: Option<DictionaryCmd>,
     },
+    /// Drive the live status region through fake states (UI development aid)
+    #[command(hide = true)]
+    UiDemo,
 }
 
 #[derive(Subcommand)]
@@ -226,6 +229,52 @@ async fn main() -> Result<()> {
         }
         Some(Cmd::Skill { action }) => cmd_skill(action),
         Some(Cmd::Dictionary { action }) => cmd_dictionary(action),
+        Some(Cmd::UiDemo) => cmd_ui_demo(),
+    }
+}
+
+/// Hidden dev aid: loop the live status region through idle → recording
+/// (waveform + growing partials) → done with synthetic data, so UI changes
+/// can be eyeballed and screenshotted without a mic or hotkey.
+fn cmd_ui_demo() -> Result<()> {
+    let config = load_config_or_default(&find_config_path());
+    let ui = Arc::new(Ui::new(&config));
+    // Long enough that the wrapped preview overflows PREVIEW_LINES and the
+    // auto-scroll (older lines sliding off the top) is visible in the demo.
+    let words: Vec<&str> = "Fixed the race in the audio tap and pushed the branch for review, \
+        then started drafting the release notes for the streaming engine. The new preview \
+        wraps across multiple lines as you talk, and once it grows past five lines the \
+        oldest words quietly scroll away off the top, just like dictating on your phone. \
+        The current line stays bright with a cursor while everything above it dims, so \
+        your eye always lands on the words that just arrived, and the final text still \
+        lands at your cursor the instant you release the key."
+        .split_whitespace()
+        .collect();
+    let sleep = |ms: u64| std::thread::sleep(std::time::Duration::from_millis(ms));
+    loop {
+        ui.idle();
+        sleep(4000);
+        ui.start_recording();
+        let mut partial = String::new();
+        for (i, word) in words.iter().enumerate() {
+            // Synthetic speech-shaped mic levels.
+            let rms = 0.018 + 0.16 * ((i as f32 * 0.9).sin().abs());
+            ui.on_mic_level(rms);
+            ui.on_mic_level(rms * 0.6);
+            partial.push_str(word);
+            partial.push(' ');
+            ui.on_partial(partial.trim_end());
+            sleep(160);
+        }
+        sleep(2500);
+        ui.stop_recording("inserting…");
+        sleep(900);
+        ui.done_line(format!(
+            "  {OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {OK}●{RESET} {DIM}52ms stt{RESET}",
+            words.join(" ")
+        ));
+        ui.idle();
+        sleep(5000);
     }
 }
 
@@ -1702,18 +1751,16 @@ async fn run_dictation(verbose: bool, record_all_audio_flag: bool) -> Result<()>
         config.record_all_audio = true;
     }
 
-    // Print the startup banner.
-    print_banner(&config);
-
-    // Create the status spinner.
-    let spinner = ProgressBar::new_spinner();
-    set_idle_style(&spinner);
+    // Live status region: wordmark + config chips, transcript hero line, and
+    // a status/footer line (replaces the old one-line spinner + boxed banner).
+    let ui = Arc::new(Ui::new(&config));
+    ui.idle();
 
     // Session stats tracker.
     let session = Arc::new(SessionStats::new());
 
     // Set up tracing with our custom UI layer.
-    let ui_layer = UiLayer::new(spinner.clone(), Arc::clone(&session));
+    let ui_layer = UiLayer::new(Arc::clone(&ui), Arc::clone(&session));
 
     let level = if verbose { "debug" } else { "info" };
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -1746,7 +1793,7 @@ async fn run_dictation(verbose: bool, record_all_audio_flag: bool) -> Result<()>
     let pipeline = Pipeline::new(config)?;
     pipeline.run().await?;
 
-    spinner.finish_and_clear();
+    ui.finish();
     Ok(())
 }
 
@@ -1799,68 +1846,418 @@ fn inject_keychain_keys(config: &mut RekodyConfig) {
     }
 }
 
-// ── Startup banner ───────────────────────────────────────────────────────────
+// ── Live status region (Studio UI) ──────────────────────────────────────────
+//
+// A persistent multi-line region at the bottom of the terminal, drawn with
+// indicatif MultiProgress (scrollback above it stays intact — completed
+// dictations are printed into it):
+//
+//   rekody. v0.5.9   [● nemotron · en] [groq cleanup] [⌥space]
+//
+//   <transcript hero — live partials, dim head / bright tail, block cursor>
+//
+//   ● 0:06  ▁▃▆▇▅▂▄▇▆▃  release ⌥space to insert
+//
+// The transcript line is the visual hero: the only bright text on screen
+// while recording. Config collapses into chips on the header line.
 
-fn print_banner(config: &RekodyConfig) {
-    // Card-style banner: a brand-teal left rail + integrated title, closed
-    // with a bottom rule. The right edge is open (no right border) so we
-    // never have to do ANSI-aware width math. The card structure anchors the
-    // info block; the inline status line below it stays unbordered to read
-    // as a live element rather than another panel row.
-    const RULE_W: usize = 48;
-    let rule = "─".repeat(RULE_W);
+/// Number of recent mic levels shown in the waveform.
+const WAVE_BARS: usize = 14;
+const WAVE_GLYPHS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
-    let stt = stt_display_name(config);
+// Chip backgrounds (solid — terminals don't alpha-blend).
+const CHIP_TEAL_BG: &str = "\x1b[48;2;21;51;58m"; // dark teal fill
+const CHIP_TEAL_FG: &str = "\x1b[38;2;127;201;211m"; // #7FC9D3
+const CHIP_BG: &str = "\x1b[48;2;32;40;40m"; // neutral dark fill
+const CHIP_FG: &str = "\x1b[38;2;150;162;162m";
 
-    let llm_active = rekody_core::has_llm_providers(config);
-    let llm_line = if llm_active {
-        let names: Vec<_> = config
-            .providers
-            .iter()
-            .map(|p| format!("{}/{}", p.name, p.model))
-            .collect();
-        format!(
-            "{CREAM}{}{RESET}",
-            names.join(&format!("  {BRAND}›{RESET}  "))
-        )
-    } else if config.providers.is_empty() {
-        format!("{DIM}none{RESET}")
-    } else if config.llm_enabled == Some(false) {
-        format!("{DIM}off{RESET}")
-    } else {
-        format!("{DIM}none{RESET}  {SUBTLE}(Deepgram smart_format handles formatting){RESET}")
-    };
-
-    let mode_short = match config.activation_mode.to_lowercase().as_str() {
-        "toggle" => "toggle",
-        _ => "push-to-talk",
-    };
-
-    println!();
-    // Top: corner + integrated title.
-    println!(
-        "  {BRAND}╭─{RESET}  {BRAND_LIGHT}{BOLD}rekody{RESET}  {DIM}v{}{RESET}",
-        env!("CARGO_PKG_VERSION"),
-    );
-    println!("  {BRAND}│{RESET}");
-    // Body: left rail + content rows.
-    println!(
-        "  {BRAND}│{RESET}   {DIM}STT  {RESET}  {CREAM}{BOLD}{}{RESET}",
-        stt
-    );
-    println!("  {BRAND}│{RESET}   {DIM}LLM  {RESET}  {}", llm_line);
-    println!(
-        "  {BRAND}│{RESET}   {DIM}Mode {RESET}  {CREAM}{}{RESET}",
-        mode_short
-    );
-    // (The active skill is shown live in the status line, not here — a
-    // one-time banner can't repaint after ⌥Space+Tab cycling.)
-    println!("  {BRAND}│{RESET}");
-    // Bottom: corner + rule, closing the card.
-    println!("  {BRAND}╰{}{RESET}", rule);
-    println!();
+#[derive(Default)]
+struct UiState {
+    recording: bool,
+    /// Streaming engine active — mic levels drive a live waveform.
+    streaming: bool,
+    recording_start: Option<Instant>,
+    wave: std::collections::VecDeque<f32>,
+    partial: String,
+    /// Status line override while transcribing/formatting (batch path).
+    busy: Option<&'static str>,
+    /// Shimmer sweep position, advanced by the ticker (~8fps).
+    shimmer_phase: f32,
 }
 
+struct Ui {
+    /// One spinner whose multi-line message IS the live region (transcript +
+    /// status) — indicatif redraws embedded newlines correctly, and `println`
+    /// inserts completed dictations above it into scrollback. The wordmark +
+    /// chips header is printed ONCE at startup so dictations always flow
+    /// BELOW it, never on top.
+    bar: ProgressBar,
+    state: Mutex<UiState>,
+    ticker_running: std::sync::atomic::AtomicBool,
+}
+
+impl Ui {
+    fn new(config: &RekodyConfig) -> Self {
+        let bar = ProgressBar::new_spinner();
+        bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
+
+        // Header chips: (accented, label).
+        let engine = match config.stt_engine.to_lowercase().as_str() {
+            "nemotron" => "● nemotron · en".to_string(),
+            "groq" => "● groq whisper".to_string(),
+            "deepgram" => "● deepgram nova-3".to_string(),
+            "cohere" => "● cohere local".to_string(),
+            _ => format!("● whisper {}", config.whisper_model),
+        };
+        let cleanup = if rekody_core::has_llm_providers(config) {
+            config
+                .providers
+                .first()
+                .map(|p| format!("{} cleanup", p.name))
+                .unwrap_or_else(|| "cleanup".into())
+        } else {
+            "no cleanup".into()
+        };
+        let trigger = match config.trigger_key.to_lowercase().as_str() {
+            "fn_key" | "fn" => "🌐 fn".to_string(),
+            _ => "⌥space".to_string(),
+        };
+        let chip_list = [(true, engine), (false, cleanup), (false, trigger)];
+
+        // Print the mast once into scrollback — dictations stack below it.
+        let mut chips = String::new();
+        for (accent, label) in &chip_list {
+            let (bg, fg) = if *accent {
+                (CHIP_TEAL_BG, CHIP_TEAL_FG)
+            } else {
+                (CHIP_BG, CHIP_FG)
+            };
+            chips.push_str(&format!("{bg}{fg} {label} {RESET}  "));
+        }
+        // The whole top block is static, printed once — completed dictations
+        // stack BELOW all of it; only transient activity draws underneath.
+        println!();
+        println!(
+            "  {CREAM}{BOLD}rekody{RESET}{BRAND}{BOLD}.{RESET} {DIM}v{}{RESET}   {chips}",
+            env!("CARGO_PKG_VERSION"),
+        );
+        println!();
+        println!("  {DIM}ready — hold ⌥space to dictate{RESET}");
+        println!();
+        println!(
+            "  {SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+            sep = sep()
+        );
+        println!();
+
+        let streaming = config.stt_engine.to_lowercase() == "nemotron";
+        Self {
+            bar,
+            state: Mutex::new(UiState {
+                streaming,
+                ..UiState::default()
+            }),
+            ticker_running: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Live preview: full transcript word-wrapped to the terminal width,
+    /// showing the last `PREVIEW_LINES` lines — older lines auto-scroll off
+    /// the top as new words arrive (like a phone dictation sheet). Earlier
+    /// visible lines render dim; the current line is bright with a cursor.
+    /// Word-wrap the partial transcript to `avail` columns and return the
+    /// last `PREVIEW_LINES` (older lines auto-scroll off the top). Each entry
+    /// is (styled, plain_width): earlier lines dim, current line bright with
+    /// a cursor while recording.
+    fn preview_lines(&self, s: &UiState, avail: usize) -> Vec<(String, usize)> {
+        const PREVIEW_LINES: usize = 5;
+        if s.partial.is_empty() {
+            return vec![(format!("{BRAND_LIGHT}▌{RESET}"), 1)];
+        }
+        let mut lines: Vec<String> = vec![String::new()];
+        for word in s.partial.split_whitespace() {
+            let wlen = word.chars().count();
+            if wlen > avail {
+                // Hard-break pathological tokens so terminal soft-wrap can
+                // never corrupt the live region redraw.
+                let chars: Vec<char> = word.chars().collect();
+                for chunk in chars.chunks(avail) {
+                    lines.push(chunk.iter().collect());
+                }
+                continue;
+            }
+            let cur = lines.last_mut().expect("never empty");
+            let need = if cur.is_empty() {
+                wlen
+            } else {
+                cur.chars().count() + 1 + wlen
+            };
+            if need <= avail {
+                if !cur.is_empty() {
+                    cur.push(' ');
+                }
+                cur.push_str(word);
+            } else {
+                lines.push(word.to_string());
+            }
+        }
+        let start = lines.len().saturating_sub(PREVIEW_LINES);
+        let visible = &lines[start..];
+        let mut out = Vec::new();
+        for (i, line) in visible.iter().enumerate() {
+            let scroll_mark = if i == 0 && start > 0 { "…" } else { "" };
+            let plain = line.chars().count() + scroll_mark.chars().count();
+            if i + 1 == visible.len() {
+                let (cursor, cw) = if s.recording {
+                    (format!("{BRAND_LIGHT}▌{RESET}"), 1)
+                } else {
+                    (String::new(), 0)
+                };
+                out.push((
+                    format!("{DIM}{scroll_mark}{RESET}{CREAM}{line}{RESET}{cursor}"),
+                    plain + cw,
+                ));
+            } else {
+                out.push((format!("{DIM}{scroll_mark}{line}{RESET}"), plain));
+            }
+        }
+        out
+    }
+
+    /// Mic sparkline: eighth-block time series colored by amplitude along a
+    /// teal ramp (the cava trick — 8 sub-steps per cell reads as analog).
+    fn wave_sparkline(s: &UiState) -> (String, usize) {
+        if !s.streaming || s.wave.is_empty() {
+            return (String::new(), 0);
+        }
+        let mut out = String::new();
+        for rms in &s.wave {
+            let level = (rms.sqrt() * 14.0).min(7.0) as usize;
+            let color = match level {
+                0..=2 => "\x1b[38;2;32;128;141m", // #20808D
+                3..=4 => "\x1b[38;2;47;163;179m", // #2FA3B3
+                5..=6 => "\x1b[38;2;79;184;197m", // #4FB8C5
+                _ => "\x1b[38;2;127;212;222m",    // #7FD4DE
+            };
+            out.push_str(color);
+            out.push(WAVE_GLYPHS[level]);
+        }
+        out.push_str(RESET);
+        (out, s.wave.len())
+    }
+
+    /// Claude-Code-style shimmer: a bright window sweeps across dim text.
+    /// Pure per-char truecolor — the highlight position advances with the
+    /// ticker phase.
+    fn shimmer(text: &str, phase: f32) -> String {
+        const BASE: (f32, f32, f32) = (94.0, 110.0, 110.0); // dim slate
+        const HI: (f32, f32, f32) = (168.0, 228.0, 234.0); // bright teal
+        let n = text.chars().count() as f32;
+        let sweep = phase % (n + 8.0) - 4.0;
+        let mut out = String::new();
+        for (i, ch) in text.chars().enumerate() {
+            let d = (i as f32 - sweep).abs();
+            let w = (-d * d / 4.5).exp(); // gaussian window, sigma ≈ 1.5
+            let r = (BASE.0 + (HI.0 - BASE.0) * w) as u8;
+            let g = (BASE.1 + (HI.1 - BASE.1) * w) as u8;
+            let b = (BASE.2 + (HI.2 - BASE.2) * w) as u8;
+            out.push_str(&format!("\x1b[38;2;{r};{g};{b}m"));
+            out.push(ch);
+        }
+        out.push_str(RESET);
+        out
+    }
+
+    /// Repaint the live region. Idle = empty (the static top block already
+    /// says everything). Active = one rounded Console Card: state pill in
+    /// the border, auto-scrolling preview, sparkline + shimmer verb footer.
+    fn render(&self) {
+        let Ok(s) = self.state.lock() else { return };
+        if !s.recording && s.busy.is_none() {
+            drop(s);
+            self.bar.set_message(String::new());
+            self.bar.tick();
+            return;
+        }
+
+        let cols = (console::Term::stdout().size().1 as usize).max(40);
+        // Card geometry: 2-col margin, "│ " + content + " │".
+        let inner = cols.saturating_sub(8).min(110);
+        let border = if s.recording {
+            BRAND
+        } else {
+            "\x1b[38;2;79;184;197m" // lighter while finishing
+        };
+
+        // Title pill — inverted block, state-colored (the atuin badge move).
+        let (pill, pill_w) = if s.recording {
+            let elapsed = s
+                .recording_start
+                .map(|t| t.elapsed().as_secs())
+                .unwrap_or(0);
+            let label = format!(" ● REC {}:{:02} ", elapsed / 60, elapsed % 60);
+            let w = label.chars().count();
+            (
+                format!("\x1b[48;2;217;100;89m\x1b[38;2;11;17;17m{BOLD}{label}{RESET}"),
+                w,
+            )
+        } else {
+            let label = " ◐ WORKING ";
+            (
+                format!("\x1b[48;2;21;51;58m\x1b[38;2;127;201;211m{BOLD}{label}{RESET}"),
+                label.chars().count(),
+            )
+        };
+
+        // Footer: sparkline + shimmer verb left, hint + word count right.
+        let (wave, wave_w) = Self::wave_sparkline(&s);
+        let verb = if s.recording {
+            "listening…"
+        } else {
+            s.busy.unwrap_or("working…")
+        };
+        let verb_styled = Self::shimmer(verb, s.shimmer_phase);
+        let words = s.partial.split_whitespace().count();
+        // Active skill stays visible while ⌥Space+Tab cycles mid-recording.
+        let skill_seg = rekody_core::skill::active_name()
+            .map(|n| format!("◆ {n} · "))
+            .unwrap_or_default();
+        let right_plain = format!("{skill_seg}release ⌥space · {words:>3} words");
+        let left_w = wave_w + if wave_w > 0 { 2 } else { 0 } + verb.chars().count();
+        let mut footer = String::new();
+        let mut footer_w = left_w;
+        if wave_w > 0 {
+            footer.push_str(&wave);
+            footer.push_str("  ");
+        }
+        footer.push_str(&verb_styled);
+        if inner > left_w + right_plain.chars().count() + 2 {
+            let gap = inner - left_w - right_plain.chars().count();
+            footer.push_str(&" ".repeat(gap));
+            footer.push_str(&format!("{SUBTLE}{right_plain}{RESET}"));
+            footer_w = inner;
+        }
+
+        // Assemble the card.
+        let mut rows: Vec<(String, usize)> = self.preview_lines(&s, inner);
+        rows.push((String::new(), 0)); // breathing room above the footer
+        rows.push((footer, footer_w));
+        let elapsed_phase = s.shimmer_phase; // keep borrow short
+        let _ = elapsed_phase;
+        drop(s);
+
+        let mut msg = String::new();
+        let top_dashes = (inner + 2).saturating_sub(1 + pill_w);
+        msg.push_str(&format!(
+            "  {border}╭─{RESET}{pill}{border}{}╮{RESET}\n",
+            "─".repeat(top_dashes)
+        ));
+        for (styled, plain_w) in rows {
+            let pad = inner.saturating_sub(plain_w);
+            msg.push_str(&format!(
+                "  {border}│{RESET} {styled}{} {border}│{RESET}\n",
+                " ".repeat(pad)
+            ));
+        }
+        msg.push_str(&format!("  {border}╰{}╯{RESET}", "─".repeat(inner + 2)));
+
+        self.bar.set_message(msg);
+        self.bar.tick();
+    }
+    fn idle(&self) {
+        if let Ok(mut s) = self.state.lock() {
+            s.recording = false;
+            s.busy = None;
+            s.partial.clear();
+            s.wave.clear();
+        }
+        self.render();
+    }
+
+    fn start_recording(self: &Arc<Self>) {
+        if let Ok(mut s) = self.state.lock() {
+            s.recording = true;
+            s.busy = None;
+            s.recording_start = Some(Instant::now());
+            s.partial.clear();
+            s.wave.clear();
+        }
+        self.render();
+
+        // Animation ticker (~8fps): advances the timer, the shimmer sweep,
+        // and the sparkline through recording AND the busy tail, stopping
+        // only once the region returns to idle.
+        if !self
+            .ticker_running
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            let ui = Arc::clone(self);
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(120));
+                    let active = ui
+                        .state
+                        .lock()
+                        .map(|mut s| {
+                            s.shimmer_phase += 0.9;
+                            s.recording || s.busy.is_some()
+                        })
+                        .unwrap_or(false);
+                    if !active {
+                        break;
+                    }
+                    ui.render();
+                }
+                ui.ticker_running
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+            });
+        }
+    }
+
+    fn stop_recording(&self, busy: &'static str) {
+        if let Ok(mut s) = self.state.lock() {
+            s.recording = false;
+            s.busy = Some(busy);
+        }
+        self.render();
+    }
+
+    /// New mic RMS level from the live tap (streaming engines).
+    fn on_mic_level(&self, rms: f32) {
+        if let Ok(mut s) = self.state.lock() {
+            if !s.recording {
+                return;
+            }
+            s.wave.push_back(rms);
+            while s.wave.len() > WAVE_BARS {
+                s.wave.pop_front();
+            }
+        }
+        self.render();
+    }
+
+    /// Streaming partial: dim head, bright tail, block cursor.
+    fn on_partial(&self, text: &str) {
+        if let Ok(mut s) = self.state.lock() {
+            s.partial = text.to_string();
+        }
+        self.render();
+    }
+
+    /// Repaint the header (e.g. after skill cycling).
+    fn render_header(&self) {
+        self.render();
+    }
+
+    /// Print a completed dictation into scrollback and reset to idle.
+    fn done_line(&self, line: String) {
+        self.bar.println(line);
+    }
+
+    fn finish(&self) {
+        self.bar.finish_and_clear();
+    }
+}
 // ── Session statistics ───────────────────────────────────────────────────────
 
 struct SessionStats {
@@ -1932,134 +2329,8 @@ fn sep() -> String {
     format!("{DIM}·{RESET}")
 }
 
-/// Single shared style used for every state — avoids the new-line glitch
-/// caused by swapping styles while `enable_steady_tick` is running.
-fn spinner_style() -> ProgressStyle {
-    ProgressStyle::with_template("  {msg}").unwrap()
-}
-
-fn set_spinner_msg(spinner: &ProgressBar, msg: impl Into<String>) {
-    spinner.set_style(spinner_style());
-    spinner.set_message(msg.into());
-    spinner.tick();
-}
-
-fn set_idle_style(spinner: &ProgressBar) {
-    // Each hotkey is a tight key→action pair; pairs are separated by a wider
-    // gap with a brand-dim divider so it's obvious ⌥Space and Ctrl+C are
-    // independent chords, not one combined sequence.
-    //
-    // The active skill is shown here (not just the startup banner) so it stays
-    // current after ⌥Space+Tab cycling — a one-time banner can't repaint.
-    let skill_seg = match rekody_core::skill::active_name() {
-        Some(name) => format!(
-            "    {sep}    {DIM}skill {RESET}{CREAM}{BOLD}{name}{RESET}",
-            sep = sep()
-        ),
-        None => String::new(),
-    };
-    let msg = format!(
-        "{BRAND}◯{RESET}  {BRAND_LIGHT}{BOLD}rekody{RESET}    \
-         {CREAM}{BOLD}⌥Space{RESET} {DIM}hold to dictate{RESET}    {sep}    \
-         {CREAM}{BOLD}Ctrl+C{RESET} {DIM}quit{RESET}{skill_seg}",
-        sep = sep()
-    );
-    set_spinner_msg(spinner, msg);
-}
-
-fn set_recording_style(spinner: &ProgressBar, elapsed_secs: Option<f64>) {
-    let msg = match elapsed_secs {
-        Some(s) => format!(
-            "{SLOW}{BOLD}●{RESET}  {SLOW}{BOLD}recording{RESET}  {sep}  {SLOW}{:.1}s{RESET}  {sep}  {DIM}release {RESET}{CREAM}{BOLD}⌥Space{RESET}{DIM} to stop{RESET}",
-            s,
-            sep = sep()
-        ),
-        None => format!(
-            "{SLOW}{BOLD}●{RESET}  {SLOW}{BOLD}recording{RESET}  {sep}  {DIM}release {RESET}{CREAM}{BOLD}⌥Space{RESET}{DIM} to stop{RESET}",
-            sep = sep()
-        ),
-    };
-    set_spinner_msg(spinner, msg);
-}
-
-/// Live partial transcript while recording (streaming STT). Shows the tail of
-/// the text so the most recent words are always visible. Display-only — the
-/// final transcript is injected separately at key release.
-fn set_partial_style(spinner: &ProgressBar, text: &str) {
-    const TAIL: usize = 60;
-    let chars: Vec<char> = text.chars().collect();
-    let display = if chars.len() > TAIL {
-        format!(
-            "…{}",
-            chars[chars.len() - TAIL..].iter().collect::<String>()
-        )
-    } else {
-        text.to_string()
-    };
-    let msg = format!(
-        "{SLOW}{BOLD}●{RESET}  {CREAM}{display}{RESET}  {sep}  {DIM}release {RESET}{CREAM}{BOLD}⌥Space{RESET}{DIM} to insert{RESET}",
-        sep = sep()
-    );
-    set_spinner_msg(spinner, msg);
-}
-
-fn set_processing_style(spinner: &ProgressBar, detail: &str) {
-    let msg = format!("{BRAND_LIGHT}{BOLD}◐{RESET}  {BRAND_LIGHT}{BOLD}{detail}{RESET}",);
-    set_spinner_msg(spinner, msg);
-}
-
-fn set_done_style(
-    spinner: &ProgressBar,
-    text: &str,
-    stt_ms: &str,
-    llm_ms: Option<&str>,
-    skill: Option<&str>,
-) {
-    let display = if text.len() > 60 {
-        format!("{}…", &text[..59])
-    } else {
-        text.to_string()
-    };
-    let stt_num: u64 = stt_ms.parse().unwrap_or(0);
-    let llm_num: u64 = llm_ms.and_then(|s| s.parse().ok()).unwrap_or(0);
-    let total = stt_num + llm_num;
-    let dot_color = latency_color(total);
-    let lat = match llm_ms {
-        Some(l) => format!("{stt_ms}ms STT {sep} {l}ms LLM", sep = sep()),
-        None => format!("{stt_ms}ms STT"),
-    };
-    // When a skill shaped this dictation, name it so a silent prompt swap
-    // reads as a feature rather than a transcription bug.
-    let skill_tag = match skill {
-        Some(s) if !s.is_empty() => {
-            format!("  {sep}  {BRAND_LIGHT}◆ {s}{RESET}", sep = sep())
-        }
-        _ => String::new(),
-    };
-    let msg = format!(
-        "{OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {sep}  {dot_color}●{RESET} {DIM}{}{RESET}{}",
-        display,
-        lat,
-        skill_tag,
-        sep = sep()
-    );
-    set_spinner_msg(spinner, msg);
-}
-
-fn set_error_style(spinner: &ProgressBar, msg: &str) {
-    let short = if msg.len() > 70 { &msg[..70] } else { msg };
-    let line = format!(
-        "{SLOW}{BOLD}✗{RESET}  {SLOW}{}{RESET}  {sep}  {DIM}hold {RESET}{CREAM}{BOLD}⌥Space{RESET}{DIM} to retry{RESET}",
-        short,
-        sep = sep()
-    );
-    set_spinner_msg(spinner, line);
-}
-
-// ── Tracing → UI layer ───────────────────────────────────────────────────────
-
 struct UiLayer {
-    spinner: ProgressBar,
+    ui: Arc<Ui>,
     session: Arc<SessionStats>,
     recording_start: Mutex<Option<Instant>>,
     stt_result: Mutex<Option<SttResult>>,
@@ -2073,9 +2344,9 @@ struct SttResult {
 }
 
 impl UiLayer {
-    fn new(spinner: ProgressBar, session: Arc<SessionStats>) -> Self {
+    fn new(ui: Arc<Ui>, session: Arc<SessionStats>) -> Self {
         Self {
-            spinner,
+            ui,
             session,
             recording_start: Mutex::new(None),
             stt_result: Mutex::new(None),
@@ -2086,17 +2357,7 @@ impl UiLayer {
         if let Ok(mut start) = self.recording_start.lock() {
             *start = Some(Instant::now());
         }
-        set_recording_style(&self.spinner, None);
-    }
-
-    fn on_recording_stopped(&self) {
-        // Show elapsed time as we transition to processing.
-        let elapsed = self
-            .recording_start
-            .lock()
-            .ok()
-            .and_then(|g| g.map(|s| s.elapsed().as_secs_f64()));
-        set_recording_style(&self.spinner, elapsed);
+        self.ui.start_recording();
     }
 
     fn on_transcription_complete(&self, text: &str, latency_ms: &str) {
@@ -2107,7 +2368,8 @@ impl UiLayer {
                 done_shown: false,
             });
         }
-        set_processing_style(&self.spinner, "formatting with LLM…");
+        self.ui.stop_recording("formatting…");
+        self.ui.on_partial(text);
     }
 
     fn on_llm_complete(&self, llm_ms: &str, skill: Option<&str>) {
@@ -2118,14 +2380,7 @@ impl UiLayer {
             g.clone()
         });
         if let Some(stt) = stt {
-            set_done_style(
-                &self.spinner,
-                &stt.text,
-                &stt.latency_ms,
-                Some(llm_ms),
-                skill,
-            );
-            self.record_and_show_stats();
+            self.print_done(&stt, Some(llm_ms), skill);
         }
     }
 
@@ -2135,18 +2390,34 @@ impl UiLayer {
             && !stt.done_shown
         {
             // No-LLM path: no skill applies here.
-            set_done_style(&self.spinner, &stt.text, &stt.latency_ms, None, None);
-            self.record_and_show_stats();
+            self.print_done(stt, None, None);
         }
-        self.schedule_idle_reset();
+        self.ui.idle();
     }
 
-    fn on_error(&self, msg: &str) {
-        set_error_style(&self.spinner, msg);
-        self.schedule_idle_reset();
-    }
-
-    fn record_and_show_stats(&self) {
+    /// Completed dictation → one line in scrollback, then back to idle.
+    fn print_done(&self, stt: &SttResult, llm_ms: Option<&str>, skill: Option<&str>) {
+        let display: String = {
+            let chars: Vec<char> = stt.text.chars().collect();
+            if chars.len() > 64 {
+                format!("{}…", chars[..63].iter().collect::<String>())
+            } else {
+                stt.text.clone()
+            }
+        };
+        let stt_num: u64 = stt.latency_ms.parse().unwrap_or(0);
+        let llm_num: u64 = llm_ms.and_then(|s| s.parse().ok()).unwrap_or(0);
+        let dot = latency_color(stt_num + llm_num);
+        let lat = match llm_ms {
+            Some(l) => format!("{}ms stt {sep} {l}ms llm", stt.latency_ms, sep = sep()),
+            None => format!("{}ms stt", stt.latency_ms),
+        };
+        let skill_seg = match skill {
+            Some(s) if !s.is_empty() => {
+                format!("  {sep}  {BRAND_LIGHT}◆ {s}{RESET}", sep = sep())
+            }
+            _ => String::new(),
+        };
         let audio_secs = self
             .recording_start
             .lock()
@@ -2154,15 +2425,17 @@ impl UiLayer {
             .and_then(|s| s.map(|start| start.elapsed().as_secs_f64()))
             .unwrap_or(0.0);
         self.session.record(audio_secs);
-        self.spinner.println(self.session.summary_line());
+        self.ui.done_line(format!(
+            "  {OK}{BOLD}✓{RESET}  {CREAM}{display}{RESET}  {dot}●{RESET} {DIM}{lat}{RESET}{skill_seg}"
+        ));
+        self.ui.done_line(self.session.summary_line());
     }
 
-    fn schedule_idle_reset(&self) {
-        let spinner = self.spinner.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            set_idle_style(&spinner);
-        });
+    fn on_error(&self, msg: &str) {
+        let short: String = msg.chars().take(90).collect();
+        self.ui
+            .done_line(format!("  {SLOW}{BOLD}✗{RESET}  {SLOW}{short}{RESET}"));
+        self.ui.idle();
     }
 }
 
@@ -2179,17 +2452,22 @@ where
         event.record(&mut visitor);
         let msg = &visitor.message;
 
-        if msg.contains("recording started") {
+        // Highest-frequency event first (every ~50ms while recording).
+        if msg.contains("mic level") {
+            if let Some(rms) = visitor.fields.get("rms").and_then(|v| v.parse().ok()) {
+                self.ui.on_mic_level(rms);
+            }
+        } else if msg.contains("recording started") {
             self.on_recording_started();
         } else if msg.contains("no speech detected") {
             self.on_error("no speech detected — speak louder or lower vad_threshold in config");
         } else if msg.contains("recording stopped") {
-            self.on_recording_stopped();
+            self.ui.stop_recording("working…");
         } else if msg.contains("received audio segment") {
-            set_processing_style(&self.spinner, "transcribing…");
+            self.ui.stop_recording("transcribing…");
         } else if msg.contains("partial transcript") {
             let text = visitor.fields.get("text").cloned().unwrap_or_default();
-            set_partial_style(&self.spinner, &text);
+            self.ui.on_partial(&text);
         } else if msg.contains("transcription complete") {
             let text = visitor.fields.get("text").cloned().unwrap_or_default();
             let latency = visitor
@@ -2220,16 +2498,10 @@ where
                 .unwrap_or_else(|| msg.clone());
             self.on_error(&err);
         } else if msg.contains("empty transcript") {
-            set_idle_style(&self.spinner);
+            self.ui.idle();
         } else if msg.contains("skill cycled") {
-            let skill = visitor.fields.get("skill").cloned().unwrap_or_default();
-            let skill = skill.trim_matches('"');
-            // Print above the live spinner so it doesn't clobber the recording
-            // indicator (⌥Space is still held while cycling).
-            self.spinner.println(format!(
-                "  {BRAND_LIGHT}◆ skill → {BOLD}{}{RESET}",
-                if skill.is_empty() { "Auto" } else { skill }
-            ));
+            // Chip in the header repaints live; ⌥Space may still be held.
+            self.ui.render_header();
         } else if msg.contains("no LLM API keys") {
             // Will show done on injection without LLM step.
         }

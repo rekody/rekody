@@ -728,6 +728,12 @@ impl Pipeline {
                     match chunk {
                         // Drop stragglers that arrive after flush (see gate above).
                         Some(samples) if recording => {
+                            // Mic level for the UI waveform (picked up by the
+                            // tracing UI layer; ~20-100 events/s while held).
+                            let rms = (samples.iter().map(|s| s * s).sum::<f32>()
+                                / samples.len().max(1) as f32)
+                                .sqrt();
+                            tracing::debug!(rms, "mic level");
                             if self.config.save_training_data {
                                 utterance_samples.extend_from_slice(&samples);
                             }
