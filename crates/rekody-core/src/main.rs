@@ -1204,6 +1204,16 @@ fn render_release_body(body: &str) {
             text.truncate(idx);
             text.push_str(&pr);
         }
+        // **bold** → ANSI bold
+        while let Some(start) = text.find("**") {
+            match text[start + 2..].find("**") {
+                Some(end) => {
+                    let inner = text[start + 2..start + 2 + end].to_string();
+                    text.replace_range(start..start + 4 + end, &format!("{}", style(inner).bold()));
+                }
+                None => break,
+            }
+        }
         if let Some(h) = text.strip_prefix("## ") {
             println!("  {}", style(h).bold());
         } else if let Some(h) = text.strip_prefix("# ") {
