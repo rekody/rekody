@@ -1861,6 +1861,8 @@ struct UiState {
     partial: String,
     /// Status line override while transcribing/formatting (batch path).
     busy: Option<&'static str>,
+    /// Shimmer sweep position, advanced by the ticker (~8fps).
+    shimmer_phase: f32,
 }
 
 struct Ui {
@@ -1939,34 +1941,25 @@ impl Ui {
         }
     }
 
-    /// The active skill, shown live in the status line (it changes with
-    /// ⌥Space+Tab while the printed mast cannot repaint).
-    fn skill_seg(&self) -> String {
-        match rekody_core::skill::active_name() {
-            Some(name) => format!("{CHIP_TEAL_BG}{CHIP_TEAL_FG} ◆ {name} {RESET}  ",),
-            None => String::new(),
-        }
-    }
-
     /// Live preview: full transcript word-wrapped to the terminal width,
     /// showing the last `PREVIEW_LINES` lines — older lines auto-scroll off
     /// the top as new words arrive (like a phone dictation sheet). Earlier
     /// visible lines render dim; the current line is bright with a cursor.
-    fn hero_line(&self, s: &UiState) -> String {
+    /// Word-wrap the partial transcript to `avail` columns and return the
+    /// last `PREVIEW_LINES` (older lines auto-scroll off the top). Each entry
+    /// is (styled, plain_width): earlier lines dim, current line bright with
+    /// a cursor while recording.
+    fn preview_lines(&self, s: &UiState, avail: usize) -> Vec<(String, usize)> {
         const PREVIEW_LINES: usize = 5;
         if s.partial.is_empty() {
-            return format!("  {BRAND_LIGHT}▌{RESET}");
+            return vec![(format!("{BRAND_LIGHT}▌{RESET}"), 1)];
         }
-        let cols = console::Term::stdout().size().1 as usize;
-        let avail = cols.saturating_sub(4).max(20);
-
-        // Greedy word-wrap of the whole partial transcript.
         let mut lines: Vec<String> = vec![String::new()];
         for word in s.partial.split_whitespace() {
             let wlen = word.chars().count();
             if wlen > avail {
-                // Hard-break pathological tokens so a line never overflows
-                // (terminal soft-wrap would corrupt the live region redraw).
+                // Hard-break pathological tokens so terminal soft-wrap can
+                // never corrupt the live region redraw.
                 let chars: Vec<char> = word.chars().collect();
                 for chunk in chars.chunks(avail) {
                     lines.push(chunk.iter().collect());
@@ -1988,80 +1981,169 @@ impl Ui {
                 lines.push(word.to_string());
             }
         }
-
         let start = lines.len().saturating_sub(PREVIEW_LINES);
         let visible = &lines[start..];
-        let mut out = String::new();
+        let mut out = Vec::new();
         for (i, line) in visible.iter().enumerate() {
             let scroll_mark = if i == 0 && start > 0 { "…" } else { "" };
+            let plain = line.chars().count() + scroll_mark.chars().count();
             if i + 1 == visible.len() {
-                // Current line: bright, with the cursor while recording.
-                let cursor = if s.recording {
-                    format!("{BRAND_LIGHT}▌{RESET}")
+                let (cursor, cw) = if s.recording {
+                    (format!("{BRAND_LIGHT}▌{RESET}"), 1)
                 } else {
-                    String::new()
+                    (String::new(), 0)
                 };
-                out.push_str(&format!(
-                    "  {DIM}{scroll_mark}{RESET}{CREAM}{line}{RESET}{cursor}"
+                out.push((
+                    format!("{DIM}{scroll_mark}{RESET}{CREAM}{line}{RESET}{cursor}"),
+                    plain + cw,
                 ));
             } else {
-                out.push_str(&format!("  {DIM}{scroll_mark}{line}{RESET}\n"));
+                out.push((format!("{DIM}{scroll_mark}{line}{RESET}"), plain));
             }
         }
         out
     }
 
-    fn status_line(&self, s: &UiState) -> String {
-        if s.recording {
+    /// Mic sparkline: eighth-block time series colored by amplitude along a
+    /// teal ramp (the cava trick — 8 sub-steps per cell reads as analog).
+    fn wave_sparkline(s: &UiState) -> (String, usize) {
+        if !s.streaming || s.wave.is_empty() {
+            return (String::new(), 0);
+        }
+        let mut out = String::new();
+        for rms in &s.wave {
+            let level = (rms.sqrt() * 14.0).min(7.0) as usize;
+            let color = match level {
+                0..=2 => "\x1b[38;2;32;128;141m", // #20808D
+                3..=4 => "\x1b[38;2;47;163;179m", // #2FA3B3
+                5..=6 => "\x1b[38;2;79;184;197m", // #4FB8C5
+                _ => "\x1b[38;2;127;212;222m",    // #7FD4DE
+            };
+            out.push_str(color);
+            out.push(WAVE_GLYPHS[level]);
+        }
+        out.push_str(RESET);
+        (out, s.wave.len())
+    }
+
+    /// Claude-Code-style shimmer: a bright window sweeps across dim text.
+    /// Pure per-char truecolor — the highlight position advances with the
+    /// ticker phase.
+    fn shimmer(text: &str, phase: f32) -> String {
+        const BASE: (f32, f32, f32) = (94.0, 110.0, 110.0); // dim slate
+        const HI: (f32, f32, f32) = (168.0, 228.0, 234.0); // bright teal
+        let n = text.chars().count() as f32;
+        let sweep = phase % (n + 8.0) - 4.0;
+        let mut out = String::new();
+        for (i, ch) in text.chars().enumerate() {
+            let d = (i as f32 - sweep).abs();
+            let w = (-d * d / 4.5).exp(); // gaussian window, sigma ≈ 1.5
+            let r = (BASE.0 + (HI.0 - BASE.0) * w) as u8;
+            let g = (BASE.1 + (HI.1 - BASE.1) * w) as u8;
+            let b = (BASE.2 + (HI.2 - BASE.2) * w) as u8;
+            out.push_str(&format!("\x1b[38;2;{r};{g};{b}m"));
+            out.push(ch);
+        }
+        out.push_str(RESET);
+        out
+    }
+
+    /// Repaint the live region. Idle = empty (the static top block already
+    /// says everything). Active = one rounded Console Card: state pill in
+    /// the border, auto-scrolling preview, sparkline + shimmer verb footer.
+    fn render(&self) {
+        let Ok(s) = self.state.lock() else { return };
+        if !s.recording && s.busy.is_none() {
+            drop(s);
+            self.bar.set_message(String::new());
+            self.bar.tick();
+            return;
+        }
+
+        let cols = (console::Term::stdout().size().1 as usize).max(40);
+        // Card geometry: 2-col margin, "│ " + content + " │".
+        let inner = cols.saturating_sub(8).min(110);
+        let border = if s.recording {
+            BRAND
+        } else {
+            "\x1b[38;2;79;184;197m" // lighter while finishing
+        };
+
+        // Title pill — inverted block, state-colored (the atuin badge move).
+        let (pill, pill_w) = if s.recording {
             let elapsed = s
                 .recording_start
                 .map(|t| t.elapsed().as_secs())
                 .unwrap_or(0);
-            let timer = format!("{}:{:02}", elapsed / 60, elapsed % 60);
-            let wave: String = if s.streaming && !s.wave.is_empty() {
-                s.wave
-                    .iter()
-                    .map(|rms| {
-                        // sqrt scaling lifts quiet speech into the visible range
-                        let level = (rms.sqrt() * 14.0).min(7.0) as usize;
-                        WAVE_GLYPHS[level]
-                    })
-                    .collect()
-            } else {
-                String::new()
-            };
-            let wave_seg = if wave.is_empty() {
-                String::new()
-            } else {
-                format!("{BRAND_LIGHT}{wave}{RESET}  ")
-            };
-            format!(
-                "  {skill}{SLOW}{BOLD}●{RESET} {SLOW}{timer}{RESET}  {wave_seg}{SUBTLE}release ⌥space to insert{RESET}",
-                skill = self.skill_seg()
+            let label = format!(" ● REC {}:{:02} ", elapsed / 60, elapsed % 60);
+            let w = label.chars().count();
+            (
+                format!("\x1b[48;2;217;100;89m\x1b[38;2;11;17;17m{BOLD}{label}{RESET}"),
+                w,
             )
-        } else if let Some(busy) = s.busy {
-            format!("  {BRAND_LIGHT}{BOLD}◐{RESET}  {BRAND_LIGHT}{busy}{RESET}")
         } else {
-            String::new()
-        }
-    }
-
-    /// Repaint the live region from current state. Idle = empty: the static
-    /// top block already says everything, and completed dictations are plain
-    /// scrollback lines below it.
-    fn render(&self) {
-        let Ok(s) = self.state.lock() else { return };
-        let active = s.recording || s.busy.is_some();
-        let msg = if active {
-            format!("{}\n\n{}", self.hero_line(&s), self.status_line(&s))
-        } else {
-            String::new()
+            let label = " ◐ WORKING ";
+            (
+                format!("\x1b[48;2;21;51;58m\x1b[38;2;127;201;211m{BOLD}{label}{RESET}"),
+                label.chars().count(),
+            )
         };
+
+        // Footer: sparkline + shimmer verb left, hint + word count right.
+        let (wave, wave_w) = Self::wave_sparkline(&s);
+        let verb = if s.recording {
+            "listening…"
+        } else {
+            s.busy.unwrap_or("working…")
+        };
+        let verb_styled = Self::shimmer(verb, s.shimmer_phase);
+        let words = s.partial.split_whitespace().count();
+        // Active skill stays visible while ⌥Space+Tab cycles mid-recording.
+        let skill_seg = rekody_core::skill::active_name()
+            .map(|n| format!("◆ {n} · "))
+            .unwrap_or_default();
+        let right_plain = format!("{skill_seg}release ⌥space · {words:>3} words");
+        let left_w = wave_w + if wave_w > 0 { 2 } else { 0 } + verb.chars().count();
+        let mut footer = String::new();
+        let mut footer_w = left_w;
+        if wave_w > 0 {
+            footer.push_str(&wave);
+            footer.push_str("  ");
+        }
+        footer.push_str(&verb_styled);
+        if inner > left_w + right_plain.chars().count() + 2 {
+            let gap = inner - left_w - right_plain.chars().count();
+            footer.push_str(&" ".repeat(gap));
+            footer.push_str(&format!("{SUBTLE}{right_plain}{RESET}"));
+            footer_w = inner;
+        }
+
+        // Assemble the card.
+        let mut rows: Vec<(String, usize)> = self.preview_lines(&s, inner);
+        rows.push((String::new(), 0)); // breathing room above the footer
+        rows.push((footer, footer_w));
+        let elapsed_phase = s.shimmer_phase; // keep borrow short
+        let _ = elapsed_phase;
         drop(s);
+
+        let mut msg = String::new();
+        let top_dashes = (inner + 2).saturating_sub(1 + pill_w);
+        msg.push_str(&format!(
+            "  {border}╭─{RESET}{pill}{border}{}╮{RESET}\n",
+            "─".repeat(top_dashes)
+        ));
+        for (styled, plain_w) in rows {
+            let pad = inner.saturating_sub(plain_w);
+            msg.push_str(&format!(
+                "  {border}│{RESET} {styled}{} {border}│{RESET}\n",
+                " ".repeat(pad)
+            ));
+        }
+        msg.push_str(&format!("  {border}╰{}╯{RESET}", "─".repeat(inner + 2)));
+
         self.bar.set_message(msg);
         self.bar.tick();
     }
-
     fn idle(&self) {
         if let Ok(mut s) = self.state.lock() {
             s.recording = false;
@@ -2082,8 +2164,9 @@ impl Ui {
         }
         self.render();
 
-        // Timer ticker — keeps 0:0N counting even when no mic-level or
-        // partial events arrive (e.g. batch engines, silence).
+        // Animation ticker (~8fps): advances the timer, the shimmer sweep,
+        // and the sparkline through recording AND the busy tail, stopping
+        // only once the region returns to idle.
         if !self
             .ticker_running
             .swap(true, std::sync::atomic::Ordering::Relaxed)
@@ -2092,8 +2175,15 @@ impl Ui {
             std::thread::spawn(move || {
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(120));
-                    let recording = ui.state.lock().map(|s| s.recording).unwrap_or(false);
-                    if !recording {
+                    let active = ui
+                        .state
+                        .lock()
+                        .map(|mut s| {
+                            s.shimmer_phase += 0.9;
+                            s.recording || s.busy.is_some()
+                        })
+                        .unwrap_or(false);
+                    if !active {
                         break;
                     }
                     ui.render();
