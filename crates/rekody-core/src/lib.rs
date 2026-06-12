@@ -28,6 +28,7 @@ pub mod snippets;
 pub mod stats;
 #[cfg(feature = "nemotron")]
 pub mod streaming;
+pub mod training_data;
 
 /// Configuration for a single LLM provider.
 #[derive(Clone, Serialize, Deserialize)]
@@ -137,6 +138,19 @@ pub struct RekodyConfig {
     /// `0` means no limit. Default: 300 (5 minutes).
     #[serde(default = "default_max_recording_secs")]
     pub max_recording_secs: u64,
+
+    /// Save each dictation's audio (FLAC) + raw transcript locally under
+    /// `~/.local/share/rekody/training-data/` so a personal fine-tuning
+    /// dataset is ready when wanted. Local-only — nothing leaves the
+    /// machine. Default: on (set `save_training_data = false` to disable);
+    /// the daemon announces the capture path at startup and `rekody doctor`
+    /// shows the dataset size.
+    #[serde(default = "default_save_training_data")]
+    pub save_training_data: bool,
+}
+
+fn default_save_training_data() -> bool {
+    true
 }
 
 fn default_stt_engine() -> String {
@@ -174,6 +188,7 @@ impl Default for RekodyConfig {
             stt_language: None,
             trigger_key: default_trigger_key(),
             max_recording_secs: default_max_recording_secs(),
+            save_training_data: true,
         }
     }
 }
@@ -504,6 +519,15 @@ impl Pipeline {
     ///
     /// hotkey → audio capture → VAD → STT → (LLM) → text injection
     pub async fn run(&self) -> Result<()> {
+        // Default-on local dataset capture must never be covert: announce
+        // the path and the off switch at every startup.
+        if self.config.save_training_data {
+            tracing::info!(
+                dir = %training_data::dataset_dir().display(),
+                "saving dictation audio + transcripts locally for personal fine-tuning \
+                 (save_training_data = false to disable)"
+            );
+        }
         #[cfg(feature = "nemotron")]
         if let SttBackend::NemotronStreaming { model_dir } = &self.stt {
             return self.run_streaming(model_dir.clone()).await;
@@ -653,6 +677,9 @@ impl Pipeline {
         // can land a chunk in live_rx AFTER we drain+flush — without this it
         // would leak into the next utterance's buffer.
         let mut recording = false;
+        // Utterance audio accumulated for the training-data pair (opt-out
+        // via save_training_data = false). ~320KB per 5s of speech.
+        let mut utterance_samples: Vec<f32> = Vec::new();
 
         loop {
             tokio::select! {
@@ -661,6 +688,7 @@ impl Pipeline {
                         Some(HotkeyEvent::RecordStart) => {
                             tracing::info!(source = "hotkey", "recording started");
                             recording = true;
+                            utterance_samples.clear();
                             audio_capture.start_recording();
                         }
                         Some(HotkeyEvent::RecordStop) => {
@@ -669,6 +697,9 @@ impl Pipeline {
                             // Forward whatever the tap already queued, then
                             // flush the utterance.
                             while let Ok(chunk) = live_rx.try_recv() {
+                                if self.config.save_training_data {
+                                    utterance_samples.extend_from_slice(&chunk);
+                                }
                                 let _ = stream_tx.send(streaming::StreamMsg::Samples(chunk));
                             }
                             recording = false;
@@ -697,6 +728,9 @@ impl Pipeline {
                     match chunk {
                         // Drop stragglers that arrive after flush (see gate above).
                         Some(samples) if recording => {
+                            if self.config.save_training_data {
+                                utterance_samples.extend_from_slice(&samples);
+                            }
                             if stream_tx.send(streaming::StreamMsg::Samples(samples)).is_err() {
                                 anyhow::bail!("nemotron engine thread died");
                             }
@@ -718,11 +752,22 @@ impl Pipeline {
                         Some(streaming::StreamEvent::Final { text, latency_ms }) => {
                             if text.is_empty() {
                                 tracing::debug!("empty transcript, skipping injection");
-                            } else if let Err(e) =
-                                self.process_transcript(&text, latency_ms, llm_enabled).await
-                            {
-                                tracing::error!(error = %e, "failed to process transcript");
+                            } else {
+                                if self.config.save_training_data
+                                    && let Err(e) = training_data::save_pair(
+                                        &utterance_samples,
+                                        &text,
+                                        &self.config.stt_engine,
+                                    ) {
+                                        tracing::debug!(error = %e, "training pair not saved");
+                                    }
+                                if let Err(e) =
+                                    self.process_transcript(&text, latency_ms, llm_enabled).await
+                                {
+                                    tracing::error!(error = %e, "failed to process transcript");
+                                }
                             }
+                            utterance_samples.clear();
                         }
                         Some(streaming::StreamEvent::Error(msg)) => {
                             tracing::error!(error = %msg, "nemotron streaming error");
@@ -762,6 +807,17 @@ impl Pipeline {
         if transcript.text.is_empty() {
             tracing::debug!("empty transcript, skipping injection");
             return Ok(());
+        }
+
+        // Opt-in: persist (audio, raw transcript) for personal fine-tuning.
+        if self.config.save_training_data
+            && let Err(e) = training_data::save_pair(
+                &segment.samples,
+                &transcript.text,
+                &self.config.stt_engine,
+            )
+        {
+            tracing::debug!(error = %e, "training pair not saved");
         }
 
         self.process_transcript(&transcript.text, transcript.latency_ms, llm_enabled)

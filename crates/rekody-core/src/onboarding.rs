@@ -506,7 +506,18 @@ pub fn run_onboarding() -> Result<()> {
             .status();
     }
 
-    // --- Step 4: Write config --------------------------------------------
+    // --- Step 4: Training-data consent -------------------------------------
+    // One-time explicit consent for the default-on local dataset capture, so
+    // a voice app never writes recordings to disk without the user saying yes.
+    let save_training_data: bool = confirm(
+        "Build a local fine-tuning dataset as you dictate? \
+         (saves audio + transcripts to ~/.local/share/rekody — never leaves your Mac)",
+    )
+    .initial_value(true)
+    .interact()
+    .map_err(|e| anyhow::anyhow!(e))?;
+
+    // --- Step 5: Write config --------------------------------------------
     let sp = spinner();
     sp.start("Writing configuration...");
 
@@ -569,6 +580,10 @@ max_recording_secs = 300
 whisper_model = "{whisper_size}"
 vad_threshold = 0.01
 injection_method = "clipboard"
+# Save each dictation's audio (FLAC) + transcript locally so a personal
+# fine-tuning dataset is ready when you want one. Local-only, never uploaded.
+# Folder: ~/.local/share/rekody/training-data — set false to disable.
+save_training_data = {save_training_data}
 {stt_line}
 {deepgram_line}
 {groq_stt_line}
