@@ -180,7 +180,7 @@ fn default_trigger_key() -> String {
 }
 
 fn default_max_recording_secs() -> u64 {
-    300
+    600
 }
 
 impl Default for RekodyConfig {
@@ -602,6 +602,11 @@ impl Pipeline {
                             tracing::info!(source = "hotkey", "recording stopped");
                             audio_capture.stop_recording();
                         }
+                        Some(HotkeyEvent::RecordLatched) => {
+                            // Display-only: recording already runs; tells the
+                            // UI layers to show the hands-free stop hint.
+                            tracing::info!("hands-free latched");
+                        }
                         Some(HotkeyEvent::CommandMode) => {
                             tracing::info!("command mode activated (not yet implemented)");
                         }
@@ -726,6 +731,11 @@ impl Pipeline {
                             if stream_tx.send(streaming::StreamMsg::Flush).is_err() {
                                 anyhow::bail!("nemotron engine thread died");
                             }
+                        }
+                        Some(HotkeyEvent::RecordLatched) => {
+                            // Display-only: recording already runs; tells the
+                            // UI layers to show the hands-free stop hint.
+                            tracing::info!("hands-free latched");
                         }
                         Some(HotkeyEvent::CommandMode) => {
                             tracing::info!("command mode activated (not yet implemented)");

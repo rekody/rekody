@@ -91,6 +91,12 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// Show what changed in recent releases
+    Changelog {
+        /// List recent releases instead of just the latest
+        #[arg(long)]
+        all: bool,
+    },
     /// Benchmark local Whisper transcription latency (A/B Core ML vs Metal)
     Bench {
         /// Number of measured runs per sample (default: 5)
@@ -235,6 +241,7 @@ async fn main() -> Result<()> {
         Some(Cmd::Doctor) => cmd_doctor().await,
         Some(Cmd::Key { action }) => cmd_key(action),
         Some(Cmd::Update { check }) => cmd_update(check).await,
+        Some(Cmd::Changelog { all }) => cmd_changelog(all).await,
         Some(Cmd::Bench { runs, warmup }) => {
             let cfg = load_config_or_default(&find_config_path());
             rekody_core::bench::run(&cfg, runs, warmup).await
@@ -1172,6 +1179,144 @@ fn is_homebrew_install(path: &std::path::Path) -> bool {
     s.contains("/Cellar/") || s.contains("/homebrew/")
 }
 
+/// Render a GitHub release-notes body for the terminal: section headers
+/// bold, bullets kept, `by @user in <pr-url>` collapsed to `(#N)`.
+fn render_release_body(body: &str) {
+    for raw in body.lines() {
+        let line = raw.trim_end();
+        if line.trim().is_empty() {
+            println!();
+            continue;
+        }
+        // "* feat: x by @user in https://github.com/o/r/pull/41" → "• feat: x (#41)"
+        let mut text = line.trim_start().to_string();
+        let bullet = text.starts_with("* ") || text.starts_with("- ");
+        if bullet {
+            text = text[2..].to_string();
+        }
+        if let Some(idx) = text.find(" by @") {
+            let pr = text
+                .rsplit("/pull/")
+                .next()
+                .filter(|n| n.chars().all(|c| c.is_ascii_digit()))
+                .map(|n| format!(" (#{n})"))
+                .unwrap_or_default();
+            text.truncate(idx);
+            text.push_str(&pr);
+        }
+        if let Some(h) = text.strip_prefix("## ") {
+            println!("  {}", style(h).bold());
+        } else if let Some(h) = text.strip_prefix("# ") {
+            println!("  {}", style(h).bold());
+        } else if text.starts_with("**Full Changelog**") {
+            // skip the compare-link footer; `rekody changelog --all` covers it
+        } else if bullet {
+            println!("    {} {}", style("•").cyan(), text);
+        } else {
+            println!("  {text}");
+        }
+    }
+}
+
+/// Show release notes from GitHub: the latest release by default, or a
+/// one-line-per-release list with `--all`.
+async fn cmd_changelog(all: bool) -> Result<()> {
+    const CURRENT: &str = env!("CARGO_PKG_VERSION");
+    const REPO: &str = "rekody/rekody";
+
+    let client = reqwest::Client::builder()
+        .user_agent("rekody-changelog")
+        .build()?;
+
+    println!();
+    println!(
+        "  {}  {}",
+        style("Changelog").bold(),
+        style("─".repeat(42)).dim()
+    );
+
+    if all {
+        let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=10");
+        let resp = client.get(&url).send().await?;
+        if !resp.status().is_success() {
+            println!("  Could not reach GitHub. Check your internet connection.");
+            return Ok(());
+        }
+        let releases: serde_json::Value = resp.json().await?;
+        for rel in releases.as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+            let tag = rel["tag_name"].as_str().unwrap_or("?");
+            let date = rel["published_at"]
+                .as_str()
+                .map(|d| &d[..10.min(d.len())])
+                .unwrap_or("");
+            let name = rel["name"].as_str().unwrap_or("");
+            let name = if name == tag || name.is_empty() {
+                String::new()
+            } else {
+                format!("  {name}")
+            };
+            let marker = if tag.trim_start_matches('v') == CURRENT {
+                style(" ← installed").green().to_string()
+            } else {
+                String::new()
+            };
+            println!(
+                "  {} {}{}{}",
+                style(tag).cyan(),
+                style(date).dim(),
+                name,
+                marker
+            );
+        }
+        println!();
+        println!(
+            "  {}",
+            style("rekody changelog — details of the latest release").dim()
+        );
+        println!();
+        return Ok(());
+    }
+
+    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
+    let resp = client.get(&url).send().await?;
+    if !resp.status().is_success() {
+        println!("  Could not reach GitHub. Check your internet connection.");
+        return Ok(());
+    }
+    let release: serde_json::Value = resp.json().await?;
+    let tag = release["tag_name"].as_str().unwrap_or("?");
+    let date = release["published_at"]
+        .as_str()
+        .map(|d| &d[..10.min(d.len())])
+        .unwrap_or("");
+
+    let installed = tag.trim_start_matches('v') == CURRENT;
+    let status = if installed {
+        style("you're on this version").green().to_string()
+    } else {
+        format!(
+            "{} {}",
+            style("newer than your").yellow(),
+            style(format!("v{CURRENT} — run `rekody update`")).yellow()
+        )
+    };
+    println!(
+        "  {} {}  {}",
+        style(tag).cyan().bold(),
+        style(date).dim(),
+        status
+    );
+    println!();
+    render_release_body(release["body"].as_str().unwrap_or("(no notes)"));
+    println!();
+    println!(
+        "  {}",
+        style("rekody changelog --all — recent releases").dim()
+    );
+    println!();
+    Ok(())
+}
+
 async fn cmd_update(check_only: bool) -> Result<()> {
     const CURRENT: &str = env!("CARGO_PKG_VERSION");
     const REPO: &str = "rekody/rekody";
@@ -1786,9 +1931,9 @@ fn stt_display_name(config: &RekodyConfig) -> String {
 
 fn format_activation_mode(mode: &str) -> &str {
     match mode.to_lowercase().as_str() {
-        "toggle" => "toggle — tap ⌥Space to start/stop",
-        "push_to_talk" | "ptt" | "hold" => "push-to-talk — hold ⌥Space",
-        _ => "both — hold ⌥Space to talk, quick-tap for hands-free",
+        "toggle" => "toggle — tap ⌥ + space to start/stop",
+        "push_to_talk" | "ptt" | "hold" => "push-to-talk — hold ⌥ + space",
+        _ => "both — hold ⌥ + space to talk, quick-tap for hands-free",
     }
 }
 
@@ -2021,6 +2166,8 @@ struct UiState {
     partial: String,
     /// Status line override while transcribing/formatting (batch path).
     busy: Option<&'static str>,
+    /// Both mode: recording latched hands-free (quick tap) — show stop hint.
+    handsfree: bool,
     /// Shimmer sweep position, advanced by the ticker (~8fps).
     shimmer_phase: f32,
 }
@@ -2060,7 +2207,7 @@ impl Ui {
         };
         let trigger = match config.trigger_key.to_lowercase().as_str() {
             "fn_key" | "fn" => "🌐 fn".to_string(),
-            _ => "⌥space".to_string(),
+            _ => "⌥ + space".to_string(),
         };
         let chip_list = [(true, engine), (false, cleanup), (false, trigger)];
 
@@ -2082,10 +2229,10 @@ impl Ui {
             env!("CARGO_PKG_VERSION"),
         );
         println!();
-        println!("  {DIM}ready — hold ⌥space to dictate · tap for hands-free{RESET}");
+        println!("  {DIM}ready — hold ⌥ + space to talk · quick-tap for hands-free{RESET}");
         println!();
         println!(
-            "  {SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+            "  {SUBTLE}⌥ + space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
             sep = sep()
         );
         println!();
@@ -2235,7 +2382,11 @@ impl Ui {
                 .recording_start
                 .map(|t| t.elapsed().as_secs())
                 .unwrap_or(0);
-            let label = format!(" ● REC {}:{:02} ", elapsed / 60, elapsed % 60);
+            let label = if s.handsfree {
+                format!(" ● REC {}:{:02} · tap to stop ", elapsed / 60, elapsed % 60)
+            } else {
+                format!(" ● REC {}:{:02} ", elapsed / 60, elapsed % 60)
+            };
             let w = label.chars().count();
             (
                 format!("\x1b[48;2;217;100;89m\x1b[38;2;11;17;17m{BOLD}{label}{RESET}"),
@@ -2262,7 +2413,7 @@ impl Ui {
         let skill_seg = rekody_core::skill::active_name()
             .map(|n| format!("◆ {n} · "))
             .unwrap_or_default();
-        let right_plain = format!("{skill_seg}release ⌥space · {words:>3} words");
+        let right_plain = format!("{skill_seg}release ⌥ + space · {words:>3} words");
         let left_w = wave_w + if wave_w > 0 { 2 } else { 0 } + verb.chars().count();
         let mut footer = String::new();
         let mut footer_w = left_w;
@@ -2318,6 +2469,7 @@ impl Ui {
         if let Ok(mut s) = self.state.lock() {
             s.recording = true;
             s.busy = None;
+            s.handsfree = false;
             s.recording_start = Some(Instant::now());
             s.partial.clear();
             s.wave.clear();
@@ -2357,7 +2509,16 @@ impl Ui {
     fn stop_recording(&self, busy: &'static str) {
         if let Ok(mut s) = self.state.lock() {
             s.recording = false;
+            s.handsfree = false;
             s.busy = Some(busy);
+        }
+        self.render();
+    }
+
+    /// Both mode: quick tap latched the recording hands-free.
+    fn on_latched(&self) {
+        if let Ok(mut s) = self.state.lock() {
+            s.handsfree = true;
         }
         self.render();
     }
@@ -2599,6 +2760,8 @@ where
             }
         } else if msg.contains("recording started") {
             self.on_recording_started();
+        } else if msg.contains("hands-free latched") {
+            self.ui.on_latched();
         } else if msg.contains("no speech detected") {
             self.on_error("no speech detected — speak louder or lower vad_threshold in config");
         } else if msg.contains("recording stopped") {
@@ -2738,6 +2901,10 @@ where
                 *guard = None;
             }
             self.hud.send(&HudEvent::listening(self.handsfree));
+        } else if msg.contains("hands-free latched") {
+            // Quick-tap latch: re-announce listening with the hands-free flag
+            // so the pill swaps its hint to "tap ⌥ + space to stop".
+            self.hud.send(&HudEvent::listening(true));
         } else if msg.contains("no speech detected") {
             self.on_error("no speech detected");
         } else if msg.contains("recording stopped") {
