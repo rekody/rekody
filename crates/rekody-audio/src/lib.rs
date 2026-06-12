@@ -26,10 +26,11 @@ const MIN_SPEECH_DURATION_SECS: f32 = 0.15;
 const SILENCE_TAIL_SECS: f32 = 0.6;
 
 /// Maximum recording duration in seconds to prevent unbounded memory growth.
-/// 10 minutes — beats Wispr Flow's 6-minute limit. At 16kHz mono f32,
-/// 10 min = ~38 MB RAM, well within Groq's 25 MB WAV upload limit
-/// (the WAV is PCM16 = half the size = ~19 MB).
-const MAX_RECORDING_SECS: f32 = 600.0;
+/// 30 minutes headroom for hands-free rambles (the configurable
+/// max_recording_secs deadman is the real per-user limit). At 16kHz mono
+/// f32, 30 min = ~115 MB RAM. NOTE: Groq's 25 MB WAV upload limit means
+/// cloud STT effectively caps near 10 min regardless.
+const MAX_RECORDING_SECS: f32 = 1800.0;
 
 #[derive(Debug, Error)]
 pub enum AudioError {

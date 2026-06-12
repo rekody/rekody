@@ -29,6 +29,9 @@ pub enum HotkeyError {
 #[derive(Debug, Clone)]
 pub enum HotkeyEvent {
     RecordStart,
+    /// Both mode: a quick tap latched the recording hands-free (display-only
+    /// signal — recording is already running; UIs show "tap to stop").
+    RecordLatched,
     RecordStop,
     CommandMode,
     /// ⌥Space held + Tab — cycle the active dictation skill.
@@ -66,7 +69,8 @@ pub struct HotkeyConfig {
     pub activation_mode: ActivationMode,
     pub trigger_key: TriggerKey,
     /// Maximum continuous recording duration in seconds before a RecordStop is
-    /// force-sent (deadman switch). `0` means no limit. Default: 300 (5 min).
+    /// force-sent (deadman switch). `0` means no limit. Default: 600 (10 min)
+    /// — roomy enough for hands-free rambles, still a real backstop.
     pub max_recording_secs: u64,
 }
 
@@ -75,7 +79,7 @@ impl Default for HotkeyConfig {
         Self {
             activation_mode: ActivationMode::PushToTalk,
             trigger_key: TriggerKey::OptionSpace,
-            max_recording_secs: 300,
+            max_recording_secs: 600,
         }
     }
 }
@@ -209,7 +213,7 @@ fn on_trigger_release(mode: ActivationMode, state: &mut KeyState) -> Option<Hotk
                 Some(d) if d.as_millis() <= TAP_LATCH_MS => {
                     state.latched = true;
                     tracing::debug!("both: quick tap — latched hands-free (tap again to stop)");
-                    None
+                    Some(HotkeyEvent::RecordLatched)
                 }
                 _ => {
                     state.stop_recording();
@@ -965,12 +969,15 @@ mod tests {
         let mode = ActivationMode::Both;
         let mut s = KeyState::default();
 
-        // Tap 1: start + latch on release.
+        // Tap 1: start + latch on release (latch announced to UIs).
         assert!(matches!(
             press(mode, &mut s),
             Some(HotkeyEvent::RecordStart)
         ));
-        assert!(release_tap(mode, &mut s).is_none());
+        assert!(matches!(
+            release_tap(mode, &mut s),
+            Some(HotkeyEvent::RecordLatched)
+        ));
         assert!(s.is_recording);
         assert!(s.latched);
 
@@ -991,7 +998,10 @@ mod tests {
         let mode = ActivationMode::Both;
         let mut s = KeyState::default();
         press(mode, &mut s);
-        release_tap(mode, &mut s);
+        assert!(matches!(
+            release_tap(mode, &mut s),
+            Some(HotkeyEvent::RecordLatched)
+        ));
         assert!(s.latched);
 
         assert!(matches!(press(mode, &mut s), Some(HotkeyEvent::RecordStop)));
@@ -1015,7 +1025,10 @@ mod tests {
         let mode = ActivationMode::Both;
         let mut s = KeyState::default();
         press(mode, &mut s);
-        release_tap(mode, &mut s);
+        assert!(matches!(
+            release_tap(mode, &mut s),
+            Some(HotkeyEvent::RecordLatched)
+        ));
         assert!(s.latched);
 
         s.recording_start = Some(Instant::now() - Duration::from_secs(301));

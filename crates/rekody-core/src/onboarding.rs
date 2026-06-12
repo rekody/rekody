@@ -465,7 +465,7 @@ pub fn run_onboarding() -> Result<()> {
                 "  {} Accessibility permission not granted.",
                 console::style("✗").red().bold()
             );
-            println!("  rekody needs Accessibility to capture ⌥Space system-wide.");
+            println!("  rekody needs Accessibility to capture ⌥ + space system-wide.");
             println!();
             println!("  A macOS dialog will appear asking you to open System Settings.");
             println!("  After granting permission, restart rekody.");
@@ -526,37 +526,17 @@ pub fn run_onboarding() -> Result<()> {
         }
     }
 
-    // --- Step 3b: Hotkey selection ---------------------------------------
+    // --- Step 3b: Hotkey -------------------------------------------------
+    // One key for everyone: ⌥ + space. Hold to talk, quick-tap for
+    // hands-free. (fn_key remains honored in config.toml for existing
+    // setups, but isn't offered here — two key choices confused users.)
     println!();
     println!("  {}", console::style("Hotkey").bold());
-
-    let trigger_key: &str = select("Choose your dictation trigger key")
-        .item(
-            "option_space",
-            "⌥Space (Option+Space)",
-            "works on all keyboards — conflict risk with Raycast/Alfred",
-        )
-        .item(
-            "fn_key",
-            "Fn / 🌐 Globe key",
-            "recommended for Apple built-in keyboards — no app conflicts",
-        )
-        .interact()
-        .map_err(|e| anyhow::anyhow!(e))?;
-
-    #[cfg(target_os = "macos")]
-    if trigger_key == "fn_key" {
-        println!();
-        println!(
-            "  {} Action required: set System Settings → Keyboard →",
-            console::style("!").yellow().bold()
-        );
-        println!("    \"Press 🌐 key to\" → \"Do Nothing\"");
-        println!("    Otherwise macOS may intercept the Fn key before rekody sees it.");
-        let _ = Command::new("open")
-            .arg("x-apple.systempreferences:com.apple.preference.keyboard")
-            .status();
-    }
+    println!(
+        "    hold {} to talk · quick-tap for hands-free",
+        console::style("⌥ + space").cyan()
+    );
+    let trigger_key: &str = "option_space";
 
     // --- Step 4: Training-data consent -------------------------------------
     // One-time explicit consent for the default-on local dataset capture, so
@@ -632,8 +612,9 @@ activation_mode = "both"
 # Dictation trigger key: "option_space" (⌥Space) or "fn_key" (Fn/Globe).
 # fn_key requires System Settings → Keyboard → "Press 🌐 key to" → "Do Nothing".
 trigger_key = "{trigger_key}"
-# Maximum recording duration in seconds (deadman switch). 0 = no limit.
-max_recording_secs = 300
+# Longest single recording in seconds (safety stop for forgotten sessions).
+# Raise it if you ramble hands-free for a long time. 0 = no limit.
+max_recording_secs = 600
 whisper_model = "{whisper_size}"
 vad_threshold = 0.01
 injection_method = "clipboard"
