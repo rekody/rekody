@@ -186,7 +186,7 @@ fn default_max_recording_secs() -> u64 {
 impl Default for RekodyConfig {
     fn default() -> Self {
         Self {
-            activation_mode: "push_to_talk".into(),
+            activation_mode: "both".into(),
             providers: vec![],
             llm_provider: "groq".into(),
             groq_api_key: None,
@@ -292,10 +292,15 @@ fn migrate_legacy_config(config: &mut RekodyConfig) {
 }
 
 /// Parse the activation mode string from config into [`ActivationMode`].
+///
+/// `"both"` (hold = push-to-talk, quick tap = hands-free latch) is the
+/// default for new configs; explicit `"push_to_talk"` / `"toggle"` are
+/// honored so existing setups keep their exact behavior.
 fn parse_activation_mode(s: &str) -> ActivationMode {
     match s.to_lowercase().as_str() {
         "toggle" => ActivationMode::Toggle,
-        _ => ActivationMode::PushToTalk,
+        "push_to_talk" | "ptt" | "hold" => ActivationMode::PushToTalk,
+        _ => ActivationMode::Both,
     }
 }
 

@@ -1787,7 +1787,8 @@ fn stt_display_name(config: &RekodyConfig) -> String {
 fn format_activation_mode(mode: &str) -> &str {
     match mode.to_lowercase().as_str() {
         "toggle" => "toggle — tap ⌥Space to start/stop",
-        _ => "push-to-talk — hold ⌥Space",
+        "push_to_talk" | "ptt" | "hold" => "push-to-talk — hold ⌥Space",
+        _ => "both — hold ⌥Space to talk, quick-tap for hands-free",
     }
 }
 
@@ -2081,7 +2082,7 @@ impl Ui {
             env!("CARGO_PKG_VERSION"),
         );
         println!();
-        println!("  {DIM}ready — hold ⌥space to dictate{RESET}");
+        println!("  {DIM}ready — hold ⌥space to dictate · tap for hands-free{RESET}");
         println!();
         println!(
             "  {SUBTLE}⌥space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
