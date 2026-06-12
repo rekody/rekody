@@ -39,7 +39,15 @@ pub enum HotkeyEvent {
 pub enum ActivationMode {
     PushToTalk,
     Toggle,
+    /// Hold = push-to-talk; quick tap (≤ [`TAP_LATCH_MS`]) = latch recording
+    /// hands-free until the key is tapped again.
+    Both,
 }
+
+/// Press-to-release duration (ms) at or below which a press counts as a
+/// quick tap in [`ActivationMode::Both`], latching hands-free recording.
+/// Above it, the press is a push-to-talk hold and release stops recording.
+pub const TAP_LATCH_MS: u128 = 300;
 
 /// Which physical key combination triggers dictation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -83,6 +91,13 @@ struct KeyState {
     fn_flag_down: bool,
     /// When the current recording session started (for the deadman switch).
     recording_start: Option<std::time::Instant>,
+    /// When the current trigger press began (Both mode tap detection).
+    press_at: Option<std::time::Instant>,
+    /// Recording continues with the key released (Both mode quick-tap latch).
+    latched: bool,
+    /// The current press already toggled recording off, so its matching
+    /// release must not be treated as a tap or a push-to-talk stop.
+    press_stopped: bool,
 }
 
 impl KeyState {
@@ -115,10 +130,94 @@ impl KeyState {
             );
             self.trigger_held = false;
             self.fn_flag_down = false;
+            self.latched = false;
             self.stop_recording();
             return true;
         }
         false
+    }
+}
+
+/// Handle the trigger combo being pressed (⌥Space down / Fn 0→1).
+/// Mutates `state` and returns the event to emit, if any.
+fn on_trigger_press(mode: ActivationMode, state: &mut KeyState) -> Option<HotkeyEvent> {
+    state.press_at = Some(std::time::Instant::now());
+    state.press_stopped = false;
+    match mode {
+        ActivationMode::PushToTalk => {
+            if !state.is_recording {
+                state.start_recording();
+                tracing::debug!("push-to-talk: RecordStart");
+                Some(HotkeyEvent::RecordStart)
+            } else {
+                None
+            }
+        }
+        ActivationMode::Toggle => {
+            if state.is_recording {
+                state.stop_recording();
+                tracing::debug!("toggle: RecordStop");
+                Some(HotkeyEvent::RecordStop)
+            } else {
+                state.start_recording();
+                tracing::debug!("toggle: RecordStart");
+                Some(HotkeyEvent::RecordStart)
+            }
+        }
+        ActivationMode::Both => {
+            if state.is_recording {
+                // A press during a latched (or stuck) session stops it on the
+                // down-stroke; the matching release is inert via press_stopped.
+                state.stop_recording();
+                state.latched = false;
+                state.press_stopped = true;
+                tracing::debug!("both: RecordStop (tap while recording)");
+                Some(HotkeyEvent::RecordStop)
+            } else {
+                state.start_recording();
+                tracing::debug!("both: RecordStart");
+                Some(HotkeyEvent::RecordStart)
+            }
+        }
+    }
+}
+
+/// Handle the trigger combo being released (Space up / Option drop / Fn 1→0).
+/// Mutates `state` and returns the event to emit, if any.
+fn on_trigger_release(mode: ActivationMode, state: &mut KeyState) -> Option<HotkeyEvent> {
+    let held_for = state.press_at.take().map(|t| t.elapsed());
+    if state.press_stopped {
+        state.press_stopped = false;
+        return None;
+    }
+    match mode {
+        ActivationMode::PushToTalk => {
+            if state.is_recording {
+                state.stop_recording();
+                tracing::debug!("push-to-talk: RecordStop (released)");
+                Some(HotkeyEvent::RecordStop)
+            } else {
+                None
+            }
+        }
+        ActivationMode::Toggle => None,
+        ActivationMode::Both => {
+            if !state.is_recording {
+                return None;
+            }
+            match held_for {
+                Some(d) if d.as_millis() <= TAP_LATCH_MS => {
+                    state.latched = true;
+                    tracing::debug!("both: quick tap — latched hands-free (tap again to stop)");
+                    None
+                }
+                _ => {
+                    state.stop_recording();
+                    tracing::debug!("both: RecordStop (hold released)");
+                    Some(HotkeyEvent::RecordStop)
+                }
+            }
+        }
     }
 }
 
@@ -309,6 +408,7 @@ mod platform {
                 tracing::warn!("tap was disabled mid-recording — synthesizing RecordStop");
                 state.trigger_held = false;
                 state.fn_flag_down = false;
+                state.latched = false;
                 state.stop_recording();
                 drop(state);
                 unsafe { send_event(ctx, HotkeyEvent::RecordStop) };
@@ -357,6 +457,7 @@ mod platform {
                 );
                 state.trigger_held = false;
                 state.fn_flag_down = false;
+                state.latched = false;
                 state.stop_recording();
                 drop(state);
                 unsafe { send_event(ctx, HotkeyEvent::RecordStop) };
@@ -406,28 +507,10 @@ mod platform {
                             }
                             state.trigger_held = true;
 
-                            match ctx.mode {
-                                ActivationMode::PushToTalk => {
-                                    if !state.is_recording {
-                                        state.start_recording();
-                                        tracing::debug!("push-to-talk: RecordStart");
-                                        drop(state);
-                                        unsafe { send_event(ctx, HotkeyEvent::RecordStart) };
-                                    }
-                                }
-                                ActivationMode::Toggle => {
-                                    if state.is_recording {
-                                        state.stop_recording();
-                                        tracing::debug!("toggle: RecordStop");
-                                        drop(state);
-                                        unsafe { send_event(ctx, HotkeyEvent::RecordStop) };
-                                    } else {
-                                        state.start_recording();
-                                        tracing::debug!("toggle: RecordStart");
-                                        drop(state);
-                                        unsafe { send_event(ctx, HotkeyEvent::RecordStart) };
-                                    }
-                                }
+                            let ev = on_trigger_press(ctx.mode, &mut state);
+                            drop(state);
+                            if let Some(ev) = ev {
+                                unsafe { send_event(ctx, ev) };
                             }
                             return std::ptr::null_mut();
                         }
@@ -458,25 +541,26 @@ mod platform {
             }
 
             // ── Key up ────────────────────────────────────────────────────────
-            // Space released — stop recording. Suppress the key-up so no stray
-            // character reaches the focused app.
+            // Space released after OUR suppressed ⌥Space press — run release
+            // logic and suppress the key-up so no stray character reaches the
+            // focused app. Gated on trigger_held so plain typing while a
+            // latched/toggle recording runs is never intercepted.
             K_CGEVENT_KEY_UP
                 if ctx.trigger_key == TriggerKey::OptionSpace
                     && keycode == KC_SPACE
-                    && (state.trigger_held || state.is_recording) =>
+                    && state.trigger_held =>
             {
                 tracing::trace!(
-                    trigger_held = state.trigger_held,
                     is_recording = state.is_recording,
+                    latched = state.latched,
                     "KeyUp Space"
                 );
                 state.trigger_held = false;
 
-                if ctx.mode == ActivationMode::PushToTalk && state.is_recording {
-                    state.stop_recording();
-                    tracing::debug!("push-to-talk: RecordStop (Space released)");
-                    drop(state);
-                    unsafe { send_event(ctx, HotkeyEvent::RecordStop) };
+                let ev = on_trigger_release(ctx.mode, &mut state);
+                drop(state);
+                if let Some(ev) = ev {
+                    unsafe { send_event(ctx, ev) };
                 }
                 return std::ptr::null_mut();
             }
@@ -497,28 +581,10 @@ mod platform {
                         // Fn pressed (0 → 1 transition)
                         if fn_held && !state.fn_flag_down {
                             state.fn_flag_down = true;
-                            match ctx.mode {
-                                ActivationMode::PushToTalk => {
-                                    if !state.is_recording {
-                                        state.start_recording();
-                                        tracing::debug!("Fn push-to-talk: RecordStart");
-                                        drop(state);
-                                        unsafe { send_event(ctx, HotkeyEvent::RecordStart) };
-                                    }
-                                }
-                                ActivationMode::Toggle => {
-                                    if state.is_recording {
-                                        state.stop_recording();
-                                        tracing::debug!("Fn toggle: RecordStop");
-                                        drop(state);
-                                        unsafe { send_event(ctx, HotkeyEvent::RecordStop) };
-                                    } else {
-                                        state.start_recording();
-                                        tracing::debug!("Fn toggle: RecordStart");
-                                        drop(state);
-                                        unsafe { send_event(ctx, HotkeyEvent::RecordStart) };
-                                    }
-                                }
+                            let ev = on_trigger_press(ctx.mode, &mut state);
+                            drop(state);
+                            if let Some(ev) = ev {
+                                unsafe { send_event(ctx, ev) };
                             }
                             // Suppress Fn so it doesn't trigger "Change Input
                             // Source" / "Show Emoji" system actions.
@@ -528,32 +594,34 @@ mod platform {
                         // Fn released (1 → 0 transition)
                         if !fn_held && state.fn_flag_down {
                             state.fn_flag_down = false;
-                            if ctx.mode == ActivationMode::PushToTalk && state.is_recording {
-                                state.stop_recording();
-                                tracing::debug!("Fn push-to-talk: RecordStop (Fn released)");
-                                drop(state);
-                                unsafe { send_event(ctx, HotkeyEvent::RecordStop) };
+                            let ev = on_trigger_release(ctx.mode, &mut state);
+                            drop(state);
+                            if let Some(ev) = ev {
+                                unsafe { send_event(ctx, ev) };
                             }
                             return std::ptr::null_mut();
                         }
                     }
 
                     TriggerKey::OptionSpace => {
-                        // Option released while recording → stop immediately.
-                        if !option_held && (state.trigger_held || state.is_recording) {
+                        // Option released while OUR trigger press is live →
+                        // treat as the release (stops push-to-talk holds).
+                        // Gated on trigger_held so Option-only chords during
+                        // a latched recording never stop it.
+                        if !option_held && state.trigger_held {
                             tracing::trace!(
-                                trigger_held = state.trigger_held,
                                 is_recording = state.is_recording,
+                                latched = state.latched,
                                 "FlagsChanged: Option released"
                             );
                             state.trigger_held = false;
 
-                            if ctx.mode == ActivationMode::PushToTalk && state.is_recording {
-                                state.stop_recording();
-                                tracing::debug!("push-to-talk: RecordStop (Option released)");
-                                drop(state);
-                                unsafe { send_event(ctx, HotkeyEvent::RecordStop) };
+                            let ev = on_trigger_release(ctx.mode, &mut state);
+                            drop(state);
+                            if let Some(ev) = ev {
+                                unsafe { send_event(ctx, ev) };
                             }
+                            return event;
                         }
                     }
                 }
@@ -805,4 +873,154 @@ pub fn request_accessibility_permission() -> bool {
 #[cfg(not(target_os = "macos"))]
 pub fn request_accessibility_permission() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn press(mode: ActivationMode, state: &mut KeyState) -> Option<HotkeyEvent> {
+        state.trigger_held = true;
+        on_trigger_press(mode, state)
+    }
+
+    /// Release after a quick tap (press_at left at "just now").
+    fn release_tap(mode: ActivationMode, state: &mut KeyState) -> Option<HotkeyEvent> {
+        state.trigger_held = false;
+        on_trigger_release(mode, state)
+    }
+
+    /// Release after a long hold (press_at backdated past the tap window).
+    fn release_hold(mode: ActivationMode, state: &mut KeyState) -> Option<HotkeyEvent> {
+        state.trigger_held = false;
+        if let Some(t) = state.press_at.as_mut() {
+            *t = Instant::now() - Duration::from_millis(TAP_LATCH_MS as u64 + 200);
+        }
+        on_trigger_release(mode, state)
+    }
+
+    #[test]
+    fn ptt_hold_starts_and_release_stops() {
+        let mode = ActivationMode::PushToTalk;
+        let mut s = KeyState::default();
+        assert!(matches!(
+            press(mode, &mut s),
+            Some(HotkeyEvent::RecordStart)
+        ));
+        assert!(s.is_recording);
+        assert!(matches!(
+            release_hold(mode, &mut s),
+            Some(HotkeyEvent::RecordStop)
+        ));
+        assert!(!s.is_recording);
+    }
+
+    #[test]
+    fn ptt_quick_tap_also_stops() {
+        // PushToTalk has no latch — even a sub-threshold tap stops on release.
+        let mode = ActivationMode::PushToTalk;
+        let mut s = KeyState::default();
+        press(mode, &mut s);
+        assert!(matches!(
+            release_tap(mode, &mut s),
+            Some(HotkeyEvent::RecordStop)
+        ));
+        assert!(!s.is_recording);
+    }
+
+    #[test]
+    fn toggle_press_starts_press_stops_releases_inert() {
+        let mode = ActivationMode::Toggle;
+        let mut s = KeyState::default();
+        assert!(matches!(
+            press(mode, &mut s),
+            Some(HotkeyEvent::RecordStart)
+        ));
+        assert!(release_tap(mode, &mut s).is_none());
+        assert!(s.is_recording);
+        assert!(matches!(press(mode, &mut s), Some(HotkeyEvent::RecordStop)));
+        assert!(release_tap(mode, &mut s).is_none());
+        assert!(!s.is_recording);
+    }
+
+    #[test]
+    fn both_hold_acts_as_push_to_talk() {
+        let mode = ActivationMode::Both;
+        let mut s = KeyState::default();
+        assert!(matches!(
+            press(mode, &mut s),
+            Some(HotkeyEvent::RecordStart)
+        ));
+        assert!(matches!(
+            release_hold(mode, &mut s),
+            Some(HotkeyEvent::RecordStop)
+        ));
+        assert!(!s.is_recording);
+        assert!(!s.latched);
+    }
+
+    #[test]
+    fn both_quick_tap_latches_then_tap_stops() {
+        let mode = ActivationMode::Both;
+        let mut s = KeyState::default();
+
+        // Tap 1: start + latch on release.
+        assert!(matches!(
+            press(mode, &mut s),
+            Some(HotkeyEvent::RecordStart)
+        ));
+        assert!(release_tap(mode, &mut s).is_none());
+        assert!(s.is_recording);
+        assert!(s.latched);
+
+        // Tap 2: stop fires on the DOWN-stroke…
+        assert!(matches!(press(mode, &mut s), Some(HotkeyEvent::RecordStop)));
+        assert!(!s.is_recording);
+        assert!(!s.latched);
+        // …and its release is inert (must not re-latch or re-stop).
+        assert!(release_tap(mode, &mut s).is_none());
+        assert!(!s.is_recording);
+        assert!(!s.latched);
+    }
+
+    #[test]
+    fn both_long_hold_during_latched_session_stops_on_press() {
+        // Latched, then the user HOLDS the key (>300ms) instead of tapping:
+        // stop still fires on the down-stroke, and the long release is inert.
+        let mode = ActivationMode::Both;
+        let mut s = KeyState::default();
+        press(mode, &mut s);
+        release_tap(mode, &mut s);
+        assert!(s.latched);
+
+        assert!(matches!(press(mode, &mut s), Some(HotkeyEvent::RecordStop)));
+        assert!(release_hold(mode, &mut s).is_none());
+        assert!(!s.is_recording);
+    }
+
+    #[test]
+    fn both_release_without_recording_is_inert() {
+        // e.g. deadman fired mid-hold; the eventual release must not emit.
+        let mode = ActivationMode::Both;
+        let mut s = KeyState::default();
+        press(mode, &mut s);
+        s.deadman_triggered(0); // no-op (0 = unlimited), just exercising state
+        s.stop_recording();
+        assert!(release_hold(mode, &mut s).is_none());
+    }
+
+    #[test]
+    fn deadman_clears_latch() {
+        let mode = ActivationMode::Both;
+        let mut s = KeyState::default();
+        press(mode, &mut s);
+        release_tap(mode, &mut s);
+        assert!(s.latched);
+
+        s.recording_start = Some(Instant::now() - Duration::from_secs(301));
+        assert!(s.deadman_triggered(300));
+        assert!(!s.is_recording);
+        assert!(!s.latched);
+    }
 }
