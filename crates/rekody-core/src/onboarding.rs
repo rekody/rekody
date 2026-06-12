@@ -239,23 +239,10 @@ pub fn run_onboarding() -> Result<()> {
     };
 
     // --- Step 2: Speech-to-text engine ------------------------------------
+    // Priority order: Nemotron streaming first (the flagship engine and the
+    // preselected default), then local Whisper, then the cloud engines.
     #[allow(unused_mut)]
-    let mut stt_select = select("Choose your speech-to-text engine")
-        .item(
-            "local",
-            "Local Whisper",
-            "private — audio stays on your Mac (needs model download)",
-        )
-        .item(
-            "groq",
-            "Groq Cloud Whisper",
-            "fastest + most accurate — audio sent to Groq (uses your Groq API key)",
-        )
-        .item(
-            "deepgram",
-            "Deepgram Nova-3",
-            "most accurate — audio sent to Deepgram (needs separate API key)",
-        );
+    let mut stt_select = select("Choose your speech-to-text engine");
     #[cfg(feature = "nemotron")]
     {
         stt_select = stt_select.item(
@@ -264,6 +251,22 @@ pub fn run_onboarding() -> Result<()> {
             "private + instant — transcribes WHILE you talk (881 MB download, English only)",
         );
     }
+    stt_select = stt_select
+        .item(
+            "local",
+            "Local Whisper",
+            "private — 100+ languages, audio stays on your Mac (needs model download)",
+        )
+        .item(
+            "groq",
+            "Groq Cloud Whisper",
+            "fastest cloud — audio sent to Groq (uses your Groq API key)",
+        )
+        .item(
+            "deepgram",
+            "Deepgram Nova-3",
+            "cloud accuracy — audio sent to Deepgram (needs separate API key)",
+        );
     let stt_engine: &str = stt_select.interact().map_err(|e| anyhow::anyhow!(e))?;
 
     // Deepgram needs its own API key — check Keychain first
@@ -555,7 +558,18 @@ pub fn run_onboarding() -> Result<()> {
             .status();
     }
 
-    // --- Step 4: Write config --------------------------------------------
+    // --- Step 4: Training-data consent -------------------------------------
+    // One-time explicit consent for the default-on local dataset capture, so
+    // a voice app never writes recordings to disk without the user saying yes.
+    let save_training_data: bool = confirm(
+        "Build a local fine-tuning dataset as you dictate? \
+         (saves audio + transcripts to ~/.local/share/rekody — never leaves your Mac)",
+    )
+    .initial_value(true)
+    .interact()
+    .map_err(|e| anyhow::anyhow!(e))?;
+
+    // --- Step 5: Write config --------------------------------------------
     let sp = spinner();
     sp.start("Writing configuration...");
 
@@ -618,6 +632,10 @@ max_recording_secs = 300
 whisper_model = "{whisper_size}"
 vad_threshold = 0.01
 injection_method = "clipboard"
+# Save each dictation's audio (FLAC) + transcript locally so a personal
+# fine-tuning dataset is ready when you want one. Local-only, never uploaded.
+# Folder: ~/.local/share/rekody/training-data — set false to disable.
+save_training_data = {save_training_data}
 {stt_line}
 {deepgram_line}
 {groq_stt_line}
