@@ -1,0 +1,50 @@
+---
+// Streaming + HUD showcase: the live console screenshot and the desktop
+// pill preview, with the latency claim that differentiates rekody.
+---
+
+<section class="streaming" id="streaming">
+  <div class="inner">
+    <p class="eyebrow">Streaming dictation</p>
+    <h2 class="display">The work happens <em>while you talk.</em></h2>
+    <p class="lede">
+      The on-device Nemotron engine decodes your speech in 560ms slices as
+      you speak — so when you release the key, only ~50ms of work remains.
+      Watch your words stream into the live console, then land at your
+      cursor the instant you let go.
+    </p>
+    <figure class="shot">
+      <img src="/cli-streaming.png" alt="rekody live console — words streaming in while dictating, with live waveform and timer" loading="lazy" />
+      <figcaption>The live console: words appear as you speak, older lines scroll away.</figcaption>
+    </figure>
+    <div class="hud-teaser">
+      <div class="hud-copy">
+        <p class="eyebrow">Coming soon</p>
+        <h3>A HUD for everyone else.</h3>
+        <p>
+          Not a terminal person? A native floating pill shows the same live
+          transcription anywhere on your desktop — and hides itself from
+          screen shares. The open-source daemon already speaks to it.
+        </p>
+      </div>
+      <img class="hud-pill" src="/hud-pill.png" alt="rekody desktop HUD pill — recording timer, live waveform, streaming words" loading="lazy" />
+    </div>
+  </div>
+</section>
+
+<style>
+  .streaming { padding: 96px 24px; background: var(--color-cream-warm); }
+  .inner { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-teal); margin: 0; }
+  .display { font-size: clamp(32px, 5vw, 52px); margin: 0; }
+  .display em { color: var(--color-teal); }
+  .lede { font-size: 17px; line-height: 1.6; color: var(--color-ink-mute); max-width: 640px; margin: 0; }
+  .shot { margin: 24px 0 0; }
+  .shot img { width: 100%; border-radius: 14px; box-shadow: 0 24px 60px rgba(15, 23, 23, 0.18); }
+  .shot figcaption { font-family: var(--font-mono); font-size: 12px; color: var(--color-ink-faint); margin-top: 12px; text-align: center; }
+  .hud-teaser { display: flex; align-items: center; gap: 40px; margin-top: 48px; padding: 32px; border: 1px solid var(--color-hairline); border-radius: 16px; background: var(--color-cream); flex-wrap: wrap; }
+  .hud-copy { flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 10px; }
+  .hud-copy h3 { margin: 0; font-size: 24px; }
+  .hud-copy p { margin: 0; color: var(--color-ink-mute); line-height: 1.55; }
+  .hud-pill { flex: 1; min-width: 280px; max-width: 420px; }
+</style>
