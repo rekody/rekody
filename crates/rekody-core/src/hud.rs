@@ -241,6 +241,13 @@ impl HudServer {
             std::fs::remove_file(socket_path)?;
         }
         let listener = UnixListener::bind(socket_path)?;
+        // Live partial transcripts flow over this socket — restrict it to
+        // the owning user (default would be world-connectable).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
+        }
         listener.set_nonblocking(true)?;
 
         let clients: Arc<Mutex<Vec<UnixStream>>> = Arc::new(Mutex::new(Vec::new()));

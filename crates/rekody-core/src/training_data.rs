@@ -55,6 +55,14 @@ pub fn save_pair(samples: &[f32], raw_text: &str, engine: &str) -> Result<PathBu
     let root = dataset_dir();
     let audio_dir = root.join("audio");
     std::fs::create_dir_all(&audio_dir).context("creating training-data/audio")?;
+    // Voice recordings are personal data: keep the tree owner-only.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for d in [&root, &audio_dir] {
+            let _ = std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700));
+        }
+    }
 
     // Filename: timestamp + short random suffix (two dictations can share a
     // second). Colons are unfriendly in filenames — use dashes.
@@ -111,11 +119,14 @@ pub fn save_pair(samples: &[f32], raw_text: &str, engine: &str) -> Result<PathBu
     });
     let manifest = root.join("manifest.jsonl");
     use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&manifest)
-        .context("opening manifest.jsonl")?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(&manifest).context("opening manifest.jsonl")?;
     writeln!(f, "{line}")?;
 
     warn_if_large(&root);
