@@ -239,31 +239,17 @@ async fn main() -> Result<()> {
 fn cmd_ui_demo() -> Result<()> {
     let config = load_config_or_default(&find_config_path());
     let ui = Arc::new(Ui::new(&config));
-    let words = [
-        "Fixed",
-        "the",
-        "race",
-        "in",
-        "the",
-        "audio",
-        "tap",
-        "and",
-        "pushed",
-        "the",
-        "branch",
-        "for",
-        "review,",
-        "then",
-        "started",
-        "drafting",
-        "the",
-        "release",
-        "notes",
-        "for",
-        "the",
-        "streaming",
-        "engine.",
-    ];
+    // Long enough that the wrapped preview overflows PREVIEW_LINES and the
+    // auto-scroll (older lines sliding off the top) is visible in the demo.
+    let words: Vec<&str> = "Fixed the race in the audio tap and pushed the branch for review, \
+        then started drafting the release notes for the streaming engine. The new preview \
+        wraps across multiple lines as you talk, and once it grows past five lines the \
+        oldest words quietly scroll away off the top, just like dictating on your phone. \
+        The current line stays bright with a cursor while everything above it dims, so \
+        your eye always lands on the words that just arrived, and the final text still \
+        lands at your cursor the instant you release the key."
+        .split_whitespace()
+        .collect();
     let sleep = |ms: u64| std::thread::sleep(std::time::Duration::from_millis(ms));
     loop {
         ui.idle();
@@ -278,7 +264,7 @@ fn cmd_ui_demo() -> Result<()> {
             partial.push_str(word);
             partial.push(' ');
             ui.on_partial(partial.trim_end());
-            sleep(420);
+            sleep(160);
         }
         sleep(2500);
         ui.stop_recording("inserting…");
@@ -1962,32 +1948,67 @@ impl Ui {
         }
     }
 
+    /// Live preview: full transcript word-wrapped to the terminal width,
+    /// showing the last `PREVIEW_LINES` lines — older lines auto-scroll off
+    /// the top as new words arrive (like a phone dictation sheet). Earlier
+    /// visible lines render dim; the current line is bright with a cursor.
     fn hero_line(&self, s: &UiState) -> String {
+        const PREVIEW_LINES: usize = 5;
         if s.partial.is_empty() {
             return format!("  {BRAND_LIGHT}▌{RESET}");
         }
         let cols = console::Term::stdout().size().1 as usize;
-        let avail = cols.saturating_sub(6).max(20);
-        let chars: Vec<char> = s.partial.chars().collect();
-        let (head_ellipsis, visible) = if chars.len() > avail {
-            ("…", &chars[chars.len() - (avail - 1)..])
-        } else {
-            ("", &chars[..])
-        };
-        let visible: String = visible.iter().collect();
-        // Last few words bright, the rest dim — recency is the signal.
-        let split = visible
-            .rmatch_indices(' ')
-            .nth(4)
-            .map(|(i, _)| i + 1)
-            .unwrap_or(0);
-        let (dim_part, bright_part) = visible.split_at(split);
-        let cursor = if s.recording {
-            format!("{BRAND_LIGHT}▌{RESET}")
-        } else {
-            String::new()
-        };
-        format!("  {DIM}{head_ellipsis}{dim_part}{RESET}{CREAM}{bright_part}{RESET}{cursor}")
+        let avail = cols.saturating_sub(4).max(20);
+
+        // Greedy word-wrap of the whole partial transcript.
+        let mut lines: Vec<String> = vec![String::new()];
+        for word in s.partial.split_whitespace() {
+            let wlen = word.chars().count();
+            if wlen > avail {
+                // Hard-break pathological tokens so a line never overflows
+                // (terminal soft-wrap would corrupt the live region redraw).
+                let chars: Vec<char> = word.chars().collect();
+                for chunk in chars.chunks(avail) {
+                    lines.push(chunk.iter().collect());
+                }
+                continue;
+            }
+            let cur = lines.last_mut().expect("never empty");
+            let need = if cur.is_empty() {
+                wlen
+            } else {
+                cur.chars().count() + 1 + wlen
+            };
+            if need <= avail {
+                if !cur.is_empty() {
+                    cur.push(' ');
+                }
+                cur.push_str(word);
+            } else {
+                lines.push(word.to_string());
+            }
+        }
+
+        let start = lines.len().saturating_sub(PREVIEW_LINES);
+        let visible = &lines[start..];
+        let mut out = String::new();
+        for (i, line) in visible.iter().enumerate() {
+            let scroll_mark = if i == 0 && start > 0 { "…" } else { "" };
+            if i + 1 == visible.len() {
+                // Current line: bright, with the cursor while recording.
+                let cursor = if s.recording {
+                    format!("{BRAND_LIGHT}▌{RESET}")
+                } else {
+                    String::new()
+                };
+                out.push_str(&format!(
+                    "  {DIM}{scroll_mark}{RESET}{CREAM}{line}{RESET}{cursor}"
+                ));
+            } else {
+                out.push_str(&format!("  {DIM}{scroll_mark}{line}{RESET}\n"));
+            }
+        }
+        out
     }
 
     fn status_line(&self, s: &UiState) -> String {
