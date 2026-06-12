@@ -12,3 +12,6 @@ tokio.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true

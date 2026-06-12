@@ -224,15 +224,18 @@ impl AudioCapture {
         rx
     }
 
-    /// Open the default input device and start the capture thread.
+    /// Start the capture thread. The default input device is probed once so
+    /// missing-device / permission errors surface synchronously, but the mic
+    /// stream itself is NOT opened here.
+    ///
+    /// The stream opens on [`start_recording`](Self::start_recording) and
+    /// closes after [`stop_recording`](Self::stop_recording)'s flush, so the
+    /// OS mic-in-use indicator is lit only while rekody is actually
+    /// listening. Each recording re-queries the default device, so switching
+    /// microphones between dictations needs no restart.
     ///
     /// Returns a receiver that yields [`AudioSegment`]s whenever speech is
-    /// detected. The capture thread runs in the background; use
-    /// [`start_recording`](Self::start_recording) / [`stop_recording`](Self::stop_recording)
-    /// to gate actual audio processing.
-    ///
-    /// The stream is kept alive even while not recording so that start/stop
-    /// latency is minimal.
+    /// detected.
     pub fn open(&self, config: AudioConfig) -> Result<mpsc::UnboundedReceiver<AudioSegment>> {
         let (segment_tx, segment_rx) = mpsc::unbounded_channel();
 
@@ -246,24 +249,25 @@ impl AudioCapture {
         // back to the caller synchronously.
         let (init_tx, init_rx) = std::sync::mpsc::sync_channel::<Result<(), AudioError>>(1);
 
-        // The cpal Stream type is !Send on macOS, so we must create the
-        // stream on the same thread that will keep it alive.
+        // The cpal Stream type is !Send on macOS, so streams must be created
+        // on the thread that keeps them alive — sessions run entirely here.
         std::thread::Builder::new()
             .name("rekody-audio-proc".into())
             .spawn(move || {
-                // ----- device & stream setup (runs on this thread) -----
-                let host = cpal::default_host();
-                let device = match host.default_input_device() {
-                    Some(d) => d,
-                    None => {
-                        let _ = init_tx.send(Err(AudioError::NoInputDevice));
-                        return;
-                    }
-                };
-
-                let supported_config = match device.default_input_config() {
-                    Ok(c) => c,
-                    Err(e) => {
+                // ----- startup probe (no stream kept open) -----
+                // default_input_config() is where cpal-on-macOS surfaces
+                // missing devices and TCC denial, so this preserves the
+                // fail-at-startup behavior without holding the mic.
+                {
+                    let host = cpal::default_host();
+                    let device = match host.default_input_device() {
+                        Some(d) => d,
+                        None => {
+                            let _ = init_tx.send(Err(AudioError::NoInputDevice));
+                            return;
+                        }
+                    };
+                    if let Err(e) = device.default_input_config() {
                         let msg = e.to_string();
                         let err = if msg.to_lowercase().contains("permission") {
                             AudioError::PermissionDenied
@@ -273,323 +277,40 @@ impl AudioCapture {
                         let _ = init_tx.send(Err(err));
                         return;
                     }
-                };
-
-                let sample_format = supported_config.sample_format();
-                let input_config: StreamConfig = supported_config.into();
-                let input_rate = input_config.sample_rate.0;
-                let input_channels = input_config.channels as usize;
-
-                tracing::info!(
-                    device = ?device.name().unwrap_or_default(),
-                    sample_rate = input_rate,
-                    channels = input_channels,
-                    format = ?sample_format,
-                    "opened default input device"
-                );
-
-                // Channel to shuttle raw f32 samples from the cpal callback
-                // to this processing thread.
-                let (raw_tx, raw_rx) = std::sync::mpsc::sync_channel::<Vec<f32>>(64);
-
-                let recording_for_cb = Arc::clone(&recording);
-                let err_callback = |err: cpal::StreamError| {
-                    tracing::error!(%err, "audio stream error");
-                };
-
-                let stream_result = match sample_format {
-                    SampleFormat::F32 => {
-                        device.build_input_stream(
-                            &input_config,
-                            move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                                if recording_for_cb.load(Ordering::Relaxed) {
-                                    let _ = raw_tx.try_send(data.to_vec());
-                                }
-                            },
-                            err_callback,
-                            None,
-                        )
-                    }
-                    SampleFormat::I16 => {
-                        let raw_tx = raw_tx;
-                        let rec = Arc::clone(&recording);
-                        device.build_input_stream(
-                            &input_config,
-                            move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                                if rec.load(Ordering::Relaxed) {
-                                    let floats: Vec<f32> =
-                                        data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                                    let _ = raw_tx.try_send(floats);
-                                }
-                            },
-                            err_callback,
-                            None,
-                        )
-                    }
-                    SampleFormat::U16 => {
-                        let raw_tx = raw_tx;
-                        let rec = Arc::clone(&recording);
-                        device.build_input_stream(
-                            &input_config,
-                            move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                                if rec.load(Ordering::Relaxed) {
-                                    let floats: Vec<f32> = data
-                                        .iter()
-                                        .map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0)
-                                        .collect();
-                                    let _ = raw_tx.try_send(floats);
-                                }
-                            },
-                            err_callback,
-                            None,
-                        )
-                    }
-                    _ => {
-                        let _ = init_tx.send(Err(AudioError::StreamError(
-                            format!("unsupported sample format: {sample_format:?}"),
-                        )));
-                        return;
-                    }
-                };
-
-                let stream = match stream_result {
-                    Ok(s) => s,
-                    Err(e) => {
-                        let _ = init_tx.send(Err(AudioError::StreamError(e.to_string())));
-                        return;
-                    }
-                };
-
-                if let Err(e) = stream.play() {
-                    let _ = init_tx.send(Err(AudioError::StreamError(e.to_string())));
-                    return;
                 }
-
-                // Signal success to the caller.
                 let _ = init_tx.send(Ok(()));
 
-                // ----- processing loop -----
-                let vad_threshold = config.vad_threshold;
-                let record_all_audio = config.record_all_audio;
-                let needs_resample = input_rate != TARGET_SAMPLE_RATE;
-
-                let chunk_size = 1024_usize;
-                let mut resampler = if needs_resample {
-                    Some(
-                        FftFixedIn::<f32>::new(
-                            input_rate as usize,
-                            TARGET_SAMPLE_RATE as usize,
-                            chunk_size,
-                            1, // sub_chunks
-                            1, // mono after down-mix
-                        )
-                        .expect("failed to create resampler"),
-                    )
-                } else {
-                    None
-                };
-
-                let mut mono_buf: Vec<f32> = Vec::with_capacity(chunk_size * 4);
-                let mut resampled_buf: Vec<f32> = Vec::new();
-
-                // VAD state
-                let mut speech_buf: Vec<f32> = Vec::new();
-                let silence_frames_limit =
-                    (SILENCE_TAIL_SECS * TARGET_SAMPLE_RATE as f32) as usize / VAD_FRAME_SAMPLES;
-                let mut consecutive_silence: usize = 0;
-                let mut in_speech = false;
-
-                tracing::info!("audio processing loop started");
-
+                // ----- idle loop: wait for start_recording() -----
                 loop {
                     if shutdown.load(Ordering::Relaxed) {
                         tracing::info!("audio processing thread shutting down");
                         break;
                     }
-
-                    // Check if we've been asked to flush buffered speech
-                    // (recording just stopped). Always emit *something* so the
-                    // UI never silently hangs on Recording — if VAD never
-                    // detected speech, surface that as a user-visible error
-                    // instead of dropping the recording with no signal.
-                    if flush.load(Ordering::Relaxed) {
+                    if !recording.load(Ordering::Relaxed) {
+                        // A stop with no live session (e.g. the open below
+                        // failed mid-hold) leaves a stale flush; clear it so
+                        // it can't truncate the NEXT utterance.
                         flush.store(false, Ordering::Relaxed);
-                        let duration_secs =
-                            speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
-                        if duration_secs >= MIN_SPEECH_DURATION_SECS {
-                            let segment = AudioSegment {
-                                samples: std::mem::take(&mut speech_buf),
-                                duration_secs,
-                            };
-                            tracing::info!(
-                                duration = duration_secs,
-                                "flushing audio segment (recording stopped)"
-                            );
-                            let _ = segment_tx.send(segment);
-                        } else {
-                            tracing::warn!(
-                                buffered_secs = duration_secs,
-                                "no speech detected — speak louder or lower vad_threshold"
-                            );
-                            speech_buf.clear();
-                        }
-                        in_speech = false;
-                        consecutive_silence = 0;
+                        std::thread::park_timeout(std::time::Duration::from_millis(10));
+                        continue;
                     }
 
-                    let raw_samples =
-                        match raw_rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                            Ok(s) => s,
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                        };
-
-                    // Down-mix to mono.
-                    if input_channels == 1 {
-                        mono_buf.extend_from_slice(&raw_samples);
-                    } else {
-                        for frame in raw_samples.chunks(input_channels) {
-                            let sum: f32 = frame.iter().sum();
-                            mono_buf.push(sum / input_channels as f32);
+                    if let Err(e) = run_capture_session(
+                        &config,
+                        &recording,
+                        &shutdown,
+                        &flush,
+                        &latest_rms_bits,
+                        &live_tx,
+                        &segment_tx,
+                    ) {
+                        tracing::error!(error = %e, "mic capture session failed");
+                        // Hold off until the key is released so a dead device
+                        // doesn't retry in a tight loop for the whole hold.
+                        while recording.load(Ordering::Relaxed) && !shutdown.load(Ordering::Relaxed)
+                        {
+                            std::thread::park_timeout(std::time::Duration::from_millis(50));
                         }
-                    }
-
-                    // Resample (or pass through). New 16kHz mono samples are
-                    // also forwarded to the live tap (streaming STT) while
-                    // recording — the VAD/segment path below is unaffected.
-                    let live_recording =
-                        live_tx.is_some() && recording.load(Ordering::Relaxed);
-                    if let Some(ref mut rs) = resampler {
-                        let input_frames_needed = rs.input_frames_next();
-                        while mono_buf.len() >= input_frames_needed {
-                            let input_chunk: Vec<f32> =
-                                mono_buf.drain(..input_frames_needed).collect();
-                            let input_ref: Vec<&[f32]> = vec![&input_chunk];
-                            match rs.process(&input_ref, None) {
-                                Ok(output) => {
-                                    if let Some(ch) = output.first() {
-                                        if live_recording
-                                            && let Some(ref tx) = live_tx {
-                                                let _ = tx.send(ch.clone());
-                                            }
-                                        resampled_buf.extend_from_slice(ch);
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!(%e, "resampling error");
-                                }
-                            }
-                        }
-                    } else {
-                        if live_recording && !mono_buf.is_empty()
-                            && let Some(ref tx) = live_tx {
-                                let _ = tx.send(mono_buf.clone());
-                            }
-                        resampled_buf.append(&mut mono_buf);
-                    }
-
-                    // Run energy-based VAD on 30ms frames.
-                    //
-                    // While recording is active (push-to-talk held), we
-                    // accumulate ALL speech into one buffer and never emit
-                    // mid-recording segments. The single combined segment
-                    // is flushed when stop_recording() sets the flush flag.
-                    let currently_recording = recording.load(Ordering::Relaxed);
-
-                    while resampled_buf.len() >= VAD_FRAME_SAMPLES {
-                        let frame: Vec<f32> =
-                            resampled_buf.drain(..VAD_FRAME_SAMPLES).collect();
-
-                        // VAD-bypass mode: while recording is active, append
-                        // every frame unconditionally. Used for low-energy
-                        // input (speaker→mic playback) where VAD would drop
-                        // everything as silence. Outside of recording windows,
-                        // fall through to the normal VAD logic so idle
-                        // silence isn't accumulated forever.
-                        if record_all_audio && currently_recording {
-                            in_speech = true;
-                            consecutive_silence = 0;
-                            speech_buf.extend_from_slice(&frame);
-                            continue;
-                        }
-
-                        let rms = compute_rms(&frame);
-                        latest_rms_bits.store(rms.to_bits(), Ordering::Relaxed);
-                        let is_speech = rms > vad_threshold;
-
-                        if is_speech {
-                            consecutive_silence = 0;
-                            if !in_speech {
-                                in_speech = true;
-                                tracing::trace!("speech start detected (rms={rms:.4})");
-                            }
-                            speech_buf.extend_from_slice(&frame);
-                        } else if in_speech {
-                            speech_buf.extend_from_slice(&frame);
-                            consecutive_silence += 1;
-
-                            // Only split on silence when NOT actively recording.
-                            // During recording, keep accumulating into one buffer.
-                            if !currently_recording && consecutive_silence >= silence_frames_limit {
-                                let trailing = silence_frames_limit * VAD_FRAME_SAMPLES;
-                                let trimmed_len = speech_buf.len().saturating_sub(trailing);
-                                speech_buf.truncate(trimmed_len);
-
-                                let duration_secs =
-                                    speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
-
-                                if duration_secs >= MIN_SPEECH_DURATION_SECS {
-                                    let segment = AudioSegment {
-                                        samples: std::mem::take(&mut speech_buf),
-                                        duration_secs,
-                                    };
-                                    tracing::debug!(
-                                        duration = duration_secs,
-                                        "emitting audio segment"
-                                    );
-                                    if segment_tx.send(segment).is_err() {
-                                        tracing::info!(
-                                            "segment receiver dropped, stopping capture"
-                                        );
-                                        return;
-                                    }
-                                } else {
-                                    speech_buf.clear();
-                                }
-
-                                in_speech = false;
-                                consecutive_silence = 0;
-                            }
-                        }
-
-                        // Auto-flush to prevent unbounded memory growth.
-                        let current_duration = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
-                        if in_speech && current_duration >= MAX_RECORDING_SECS {
-                            tracing::warn!("max recording duration reached ({MAX_RECORDING_SECS}s), auto-flushing");
-                            let duration_secs = current_duration;
-                            let segment = AudioSegment {
-                                samples: std::mem::take(&mut speech_buf),
-                                duration_secs,
-                            };
-                            let _ = segment_tx.send(segment);
-                            in_speech = false;
-                            consecutive_silence = 0;
-                        }
-                    }
-                }
-
-                // Keep the stream alive until the loop exits.
-                drop(stream);
-
-                // Flush remaining speech on shutdown.
-                if !speech_buf.is_empty() {
-                    let duration_secs = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
-                    if duration_secs >= MIN_SPEECH_DURATION_SECS {
-                        let segment = AudioSegment {
-                            samples: speech_buf,
-                            duration_secs,
-                        };
-                        let _ = segment_tx.send(segment);
                     }
                 }
             })
@@ -604,16 +325,17 @@ impl AudioCapture {
         Ok(segment_rx)
     }
 
-    /// Begin capturing audio. Frames are processed and speech segments are
-    /// emitted through the channel returned by [`open`](Self::open).
+    /// Begin capturing audio. The capture thread opens the mic stream
+    /// (lighting the OS mic-in-use indicator) and emits speech segments
+    /// through the channel returned by [`open`](Self::open).
     pub fn start_recording(&self) {
         tracing::info!("recording started");
         self.recording.store(true, Ordering::Relaxed);
     }
 
-    /// Pause audio capture. The stream stays open but incoming samples are
-    /// discarded, so resuming via [`start_recording`](Self::start_recording)
-    /// is near-instant.
+    /// Stop capturing audio. The capture thread flushes any buffered speech
+    /// immediately, then closes the mic stream so the OS mic-in-use
+    /// indicator turns off between dictations.
     pub fn stop_recording(&self) {
         tracing::info!("recording stopped");
         self.recording.store(false, Ordering::Relaxed);
@@ -655,6 +377,341 @@ impl Drop for AudioCapture {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+/// Run one recording session: open the default input device, process audio
+/// until the post-stop flush (or shutdown), then close the stream.
+///
+/// Must run on the capture thread — the cpal `Stream` is `!Send` on macOS
+/// and lives only inside this call, which is what scopes the OS mic-in-use
+/// indicator to the recording itself.
+fn run_capture_session(
+    config: &AudioConfig,
+    recording: &Arc<AtomicBool>,
+    shutdown: &Arc<AtomicBool>,
+    flush: &Arc<AtomicBool>,
+    latest_rms_bits: &Arc<AtomicU32>,
+    live_tx: &Option<mpsc::UnboundedSender<Vec<f32>>>,
+    segment_tx: &mpsc::UnboundedSender<AudioSegment>,
+) -> Result<(), AudioError> {
+    let open_started = std::time::Instant::now();
+
+    // ----- device & stream setup -----
+    let host = cpal::default_host();
+    let device = host
+        .default_input_device()
+        .ok_or(AudioError::NoInputDevice)?;
+
+    let supported_config = device.default_input_config().map_err(|e| {
+        let msg = e.to_string();
+        if msg.to_lowercase().contains("permission") {
+            AudioError::PermissionDenied
+        } else {
+            AudioError::StreamError(msg)
+        }
+    })?;
+
+    let sample_format = supported_config.sample_format();
+    let input_config: StreamConfig = supported_config.into();
+    let input_rate = input_config.sample_rate.0;
+    let input_channels = input_config.channels as usize;
+
+    // Channel to shuttle raw f32 samples from the cpal callback to this
+    // processing thread.
+    let (raw_tx, raw_rx) = std::sync::mpsc::sync_channel::<Vec<f32>>(64);
+
+    let err_callback = |err: cpal::StreamError| {
+        tracing::error!(%err, "audio stream error");
+    };
+
+    let stream_result = match sample_format {
+        SampleFormat::F32 => {
+            let rec = Arc::clone(recording);
+            device.build_input_stream(
+                &input_config,
+                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                    if rec.load(Ordering::Relaxed) {
+                        let _ = raw_tx.try_send(data.to_vec());
+                    }
+                },
+                err_callback,
+                None,
+            )
+        }
+        SampleFormat::I16 => {
+            let rec = Arc::clone(recording);
+            device.build_input_stream(
+                &input_config,
+                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                    if rec.load(Ordering::Relaxed) {
+                        let floats: Vec<f32> =
+                            data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
+                        let _ = raw_tx.try_send(floats);
+                    }
+                },
+                err_callback,
+                None,
+            )
+        }
+        SampleFormat::U16 => {
+            let rec = Arc::clone(recording);
+            device.build_input_stream(
+                &input_config,
+                move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                    if rec.load(Ordering::Relaxed) {
+                        let floats: Vec<f32> = data
+                            .iter()
+                            .map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0)
+                            .collect();
+                        let _ = raw_tx.try_send(floats);
+                    }
+                },
+                err_callback,
+                None,
+            )
+        }
+        _ => {
+            return Err(AudioError::StreamError(format!(
+                "unsupported sample format: {sample_format:?}"
+            )));
+        }
+    };
+
+    let stream = stream_result.map_err(|e| AudioError::StreamError(e.to_string()))?;
+    stream
+        .play()
+        .map_err(|e| AudioError::StreamError(e.to_string()))?;
+
+    tracing::info!(
+        device = ?device.name().unwrap_or_default(),
+        sample_rate = input_rate,
+        channels = input_channels,
+        format = ?sample_format,
+        open_ms = open_started.elapsed().as_millis() as u64,
+        "mic stream opened"
+    );
+
+    // ----- processing loop -----
+    let vad_threshold = config.vad_threshold;
+    let record_all_audio = config.record_all_audio;
+    let needs_resample = input_rate != TARGET_SAMPLE_RATE;
+
+    let chunk_size = 1024_usize;
+    let mut resampler = if needs_resample {
+        Some(
+            FftFixedIn::<f32>::new(
+                input_rate as usize,
+                TARGET_SAMPLE_RATE as usize,
+                chunk_size,
+                1, // sub_chunks
+                1, // mono after down-mix
+            )
+            .expect("failed to create resampler"),
+        )
+    } else {
+        None
+    };
+
+    let mut mono_buf: Vec<f32> = Vec::with_capacity(chunk_size * 4);
+    let mut resampled_buf: Vec<f32> = Vec::new();
+
+    // VAD state
+    let mut speech_buf: Vec<f32> = Vec::new();
+    let silence_frames_limit =
+        (SILENCE_TAIL_SECS * TARGET_SAMPLE_RATE as f32) as usize / VAD_FRAME_SAMPLES;
+    let mut consecutive_silence: usize = 0;
+    let mut in_speech = false;
+
+    loop {
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+
+        // Check if we've been asked to flush buffered speech
+        // (recording just stopped). Always emit *something* so the
+        // UI never silently hangs on Recording — if VAD never
+        // detected speech, surface that as a user-visible error
+        // instead of dropping the recording with no signal.
+        if flush.load(Ordering::Relaxed) {
+            flush.store(false, Ordering::Relaxed);
+            let duration_secs = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
+            if duration_secs >= MIN_SPEECH_DURATION_SECS {
+                let segment = AudioSegment {
+                    samples: std::mem::take(&mut speech_buf),
+                    duration_secs,
+                };
+                tracing::info!(
+                    duration = duration_secs,
+                    "flushing audio segment (recording stopped)"
+                );
+                let _ = segment_tx.send(segment);
+            } else {
+                tracing::warn!(
+                    buffered_secs = duration_secs,
+                    "no speech detected — speak louder or lower vad_threshold"
+                );
+                speech_buf.clear();
+            }
+            in_speech = false;
+            consecutive_silence = 0;
+
+            // Flush marks the end of a press-to-talk hold; once recording is
+            // off, the session is over and the stream closes below.
+            if !recording.load(Ordering::Relaxed) {
+                break;
+            }
+        }
+
+        let raw_samples = match raw_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok(s) => s,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+
+        // Down-mix to mono.
+        if input_channels == 1 {
+            mono_buf.extend_from_slice(&raw_samples);
+        } else {
+            for frame in raw_samples.chunks(input_channels) {
+                let sum: f32 = frame.iter().sum();
+                mono_buf.push(sum / input_channels as f32);
+            }
+        }
+
+        // Resample (or pass through). New 16kHz mono samples are
+        // also forwarded to the live tap (streaming STT) while
+        // recording — the VAD/segment path below is unaffected.
+        let live_recording = live_tx.is_some() && recording.load(Ordering::Relaxed);
+        if let Some(ref mut rs) = resampler {
+            let input_frames_needed = rs.input_frames_next();
+            while mono_buf.len() >= input_frames_needed {
+                let input_chunk: Vec<f32> = mono_buf.drain(..input_frames_needed).collect();
+                let input_ref: Vec<&[f32]> = vec![&input_chunk];
+                match rs.process(&input_ref, None) {
+                    Ok(output) => {
+                        if let Some(ch) = output.first() {
+                            if live_recording && let Some(tx) = live_tx {
+                                let _ = tx.send(ch.clone());
+                            }
+                            resampled_buf.extend_from_slice(ch);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(%e, "resampling error");
+                    }
+                }
+            }
+        } else {
+            if live_recording
+                && !mono_buf.is_empty()
+                && let Some(tx) = live_tx
+            {
+                let _ = tx.send(mono_buf.clone());
+            }
+            resampled_buf.append(&mut mono_buf);
+        }
+
+        // Run energy-based VAD on 30ms frames.
+        //
+        // While recording is active (push-to-talk held), we
+        // accumulate ALL speech into one buffer and never emit
+        // mid-recording segments. The single combined segment
+        // is flushed when stop_recording() sets the flush flag.
+        let currently_recording = recording.load(Ordering::Relaxed);
+
+        while resampled_buf.len() >= VAD_FRAME_SAMPLES {
+            let frame: Vec<f32> = resampled_buf.drain(..VAD_FRAME_SAMPLES).collect();
+
+            // VAD-bypass mode: while recording is active, append
+            // every frame unconditionally. Used for low-energy
+            // input (speaker→mic playback) where VAD would drop
+            // everything as silence. Outside of recording windows,
+            // fall through to the normal VAD logic so idle
+            // silence isn't accumulated forever.
+            if record_all_audio && currently_recording {
+                in_speech = true;
+                consecutive_silence = 0;
+                speech_buf.extend_from_slice(&frame);
+                continue;
+            }
+
+            let rms = compute_rms(&frame);
+            latest_rms_bits.store(rms.to_bits(), Ordering::Relaxed);
+            let is_speech = rms > vad_threshold;
+
+            if is_speech {
+                consecutive_silence = 0;
+                if !in_speech {
+                    in_speech = true;
+                    tracing::trace!("speech start detected (rms={rms:.4})");
+                }
+                speech_buf.extend_from_slice(&frame);
+            } else if in_speech {
+                speech_buf.extend_from_slice(&frame);
+                consecutive_silence += 1;
+
+                // Only split on silence when NOT actively recording.
+                // During recording, keep accumulating into one buffer.
+                if !currently_recording && consecutive_silence >= silence_frames_limit {
+                    let trailing = silence_frames_limit * VAD_FRAME_SAMPLES;
+                    let trimmed_len = speech_buf.len().saturating_sub(trailing);
+                    speech_buf.truncate(trimmed_len);
+
+                    let duration_secs = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
+
+                    if duration_secs >= MIN_SPEECH_DURATION_SECS {
+                        let segment = AudioSegment {
+                            samples: std::mem::take(&mut speech_buf),
+                            duration_secs,
+                        };
+                        tracing::debug!(duration = duration_secs, "emitting audio segment");
+                        if segment_tx.send(segment).is_err() {
+                            tracing::info!("segment receiver dropped, stopping capture");
+                            return Ok(());
+                        }
+                    } else {
+                        speech_buf.clear();
+                    }
+
+                    in_speech = false;
+                    consecutive_silence = 0;
+                }
+            }
+
+            // Auto-flush to prevent unbounded memory growth.
+            let current_duration = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
+            if in_speech && current_duration >= MAX_RECORDING_SECS {
+                tracing::warn!(
+                    "max recording duration reached ({MAX_RECORDING_SECS}s), auto-flushing"
+                );
+                let duration_secs = current_duration;
+                let segment = AudioSegment {
+                    samples: std::mem::take(&mut speech_buf),
+                    duration_secs,
+                };
+                let _ = segment_tx.send(segment);
+                in_speech = false;
+                consecutive_silence = 0;
+            }
+        }
+    }
+
+    drop(stream);
+    tracing::info!("mic stream closed");
+
+    // Flush remaining speech on shutdown.
+    if !speech_buf.is_empty() {
+        let duration_secs = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
+        if duration_secs >= MIN_SPEECH_DURATION_SECS {
+            let segment = AudioSegment {
+                samples: speech_buf,
+                duration_secs,
+            };
+            let _ = segment_tx.send(segment);
+        }
+    }
+
+    Ok(())
 }
 
 /// Compute RMS (root mean square) energy of a sample buffer.
