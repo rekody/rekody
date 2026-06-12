@@ -111,11 +111,6 @@ enum Cmd {
         #[command(subcommand)]
         action: Option<DictionaryCmd>,
     },
-    /// Run rekody at login with no terminal (LaunchAgent)
-    Service {
-        #[command(subcommand)]
-        action: ServiceCmd,
-    },
     /// Correct the transcript of a recent dictation in the training dataset
     /// (fix mishears while you still remember what you said)
     Fix {
@@ -131,20 +126,6 @@ enum Cmd {
     /// Drive the live status region through fake states (UI development aid)
     #[command(hide = true)]
     UiDemo,
-}
-
-#[derive(Subcommand)]
-enum ServiceCmd {
-    /// Install the login agent (and start it now)
-    Install {
-        /// Path to the rekody-hud helper binary to launch with the daemon
-        #[arg(long)]
-        hud_bin: Option<std::path::PathBuf>,
-    },
-    /// Stop and remove the login agent
-    Uninstall,
-    /// Show whether the agent is installed and running
-    Status,
 }
 
 #[derive(Subcommand)]
@@ -260,11 +241,6 @@ async fn main() -> Result<()> {
         }
         Some(Cmd::Skill { action }) => cmd_skill(action),
         Some(Cmd::Dictionary { action }) => cmd_dictionary(action),
-        Some(Cmd::Service { action }) => match action {
-            ServiceCmd::Install { hud_bin } => rekody_core::service::install(hud_bin),
-            ServiceCmd::Uninstall => rekody_core::service::uninstall(),
-            ServiceCmd::Status => rekody_core::service::status(),
-        },
         Some(Cmd::Fix { text, n, play }) => cmd_fix(text, n, play),
         Some(Cmd::UiDemo) => cmd_ui_demo(),
     }
