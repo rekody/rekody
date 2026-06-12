@@ -127,6 +127,74 @@ pub fn save_pair(samples: &[f32], raw_text: &str, engine: &str) -> Result<PathBu
     Ok(audio_path)
 }
 
+/// One manifest entry, parsed for correction workflows.
+#[derive(Debug, Clone)]
+pub struct Pair {
+    /// 0 = most recent.
+    pub recency: usize,
+    /// Line index in manifest.jsonl.
+    pub line_idx: usize,
+    pub audio_path: PathBuf,
+    pub text: String,
+    pub duration: f64,
+    pub timestamp: String,
+    pub corrected: bool,
+}
+
+/// The `n`-th most recent pair (0 = latest). `Err` when the dataset is empty
+/// or `n` reaches past its start.
+pub fn nth_recent(n: usize) -> Result<Pair> {
+    let manifest = dataset_dir().join("manifest.jsonl");
+    let contents = std::fs::read_to_string(&manifest)
+        .context("no training data captured yet (manifest.jsonl missing)")?;
+    let lines: Vec<&str> = contents.lines().filter(|l| !l.trim().is_empty()).collect();
+    let idx = lines
+        .len()
+        .checked_sub(1 + n)
+        .with_context(|| format!("only {} pairs captured", lines.len()))?;
+    let v: serde_json::Value = serde_json::from_str(lines[idx]).context("manifest line parse")?;
+    Ok(Pair {
+        recency: n,
+        line_idx: idx,
+        audio_path: dataset_dir().join(v["audio_filepath"].as_str().unwrap_or_default()),
+        text: v["text"].as_str().unwrap_or_default().to_string(),
+        duration: v["duration"].as_f64().unwrap_or(0.0),
+        timestamp: v["timestamp"].as_str().unwrap_or_default().to_string(),
+        corrected: v["corrected"].as_bool().unwrap_or(false),
+    })
+}
+
+/// Replace a pair's transcript (label correction). Rewrites the manifest
+/// atomically (tmp + rename) and marks the entry `corrected: true`.
+pub fn correct_text(pair: &Pair, new_text: &str) -> Result<()> {
+    let new_text = new_text.trim();
+    if new_text.is_empty() {
+        anyhow::bail!("corrected text is empty");
+    }
+    let manifest = dataset_dir().join("manifest.jsonl");
+    let contents = std::fs::read_to_string(&manifest).context("reading manifest")?;
+    let mut lines: Vec<String> = contents
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(String::from)
+        .collect();
+    let line = lines
+        .get_mut(pair.line_idx)
+        .context("manifest changed underneath the correction")?;
+    let mut v: serde_json::Value = serde_json::from_str(line).context("manifest line parse")?;
+    // Guard against racing a new dictation between read and write.
+    if v["timestamp"].as_str() != Some(pair.timestamp.as_str()) {
+        anyhow::bail!("manifest changed underneath the correction — re-run rekody fix");
+    }
+    v["text"] = serde_json::Value::String(new_text.to_string());
+    v["corrected"] = serde_json::Value::Bool(true);
+    *line = v.to_string();
+    let tmp = manifest.with_extension("jsonl.tmp");
+    std::fs::write(&tmp, lines.join("\n") + "\n").context("writing manifest tmp")?;
+    std::fs::rename(&tmp, &manifest).context("replacing manifest")?;
+    Ok(())
+}
+
 /// Dataset stats for `rekody doctor`: (clip count, total audio bytes).
 /// `None` when no dataset exists yet.
 pub fn stats() -> Option<(usize, u64)> {
@@ -195,11 +263,15 @@ fn timestamp_for_filename() -> String {
 mod tests {
     use super::*;
 
+    /// Tests in this module mutate the shared REKODY_TRAINING_DIR env var —
+    /// hold this lock so the parallel test runner can't interleave them.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn saves_flac_and_manifest_line() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        // SAFETY: test-local env mutation; tests in this module run serially
-        // on the same var.
+        // SAFETY: env mutation serialized by ENV_LOCK.
         unsafe { std::env::set_var("REKODY_TRAINING_DIR", dir.path()) };
 
         // 1s of 220Hz sine at 16kHz.
@@ -214,6 +286,33 @@ mod tests {
             serde_json::from_str(manifest.lines().last().unwrap()).unwrap();
         assert_eq!(entry["text"], "hello training world");
         assert!((entry["duration"].as_f64().unwrap() - 1.0).abs() < 0.01);
+
+        unsafe { std::env::remove_var("REKODY_TRAINING_DIR") };
+    }
+
+    #[test]
+    fn corrects_last_pair_text() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: env mutation serialized by ENV_LOCK.
+        unsafe { std::env::set_var("REKODY_TRAINING_DIR", dir.path()) };
+
+        let samples: Vec<f32> = (0..16_000)
+            .map(|i| (i as f32 * 220.0 * std::f32::consts::TAU / 16_000.0).sin() * 0.4)
+            .collect();
+        save_pair(&samples, "the spark gdx", "nemotron").unwrap();
+        save_pair(&samples, "second utterance", "nemotron").unwrap();
+
+        // n=1 reaches the older entry.
+        let pair = nth_recent(1).unwrap();
+        assert_eq!(pair.text, "the spark gdx");
+        correct_text(&pair, "the Spark DGX").unwrap();
+
+        let fixed = nth_recent(1).unwrap();
+        assert_eq!(fixed.text, "the Spark DGX");
+        assert!(fixed.corrected);
+        // Neighbor untouched.
+        assert_eq!(nth_recent(0).unwrap().text, "second utterance");
 
         unsafe { std::env::remove_var("REKODY_TRAINING_DIR") };
     }

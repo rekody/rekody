@@ -111,6 +111,18 @@ enum Cmd {
         #[command(subcommand)]
         action: Option<DictionaryCmd>,
     },
+    /// Correct the transcript of a recent dictation in the training dataset
+    /// (fix mishears while you still remember what you said)
+    Fix {
+        /// The corrected text. Omit to be prompted (you can dictate it).
+        text: Option<String>,
+        /// Reach back to the Nth most recent dictation (1 = latest)
+        #[arg(short, long, default_value = "1")]
+        n: usize,
+        /// Play the clip's audio before prompting
+        #[arg(short, long)]
+        play: bool,
+    },
     /// Drive the live status region through fake states (UI development aid)
     #[command(hide = true)]
     UiDemo,
@@ -229,8 +241,90 @@ async fn main() -> Result<()> {
         }
         Some(Cmd::Skill { action }) => cmd_skill(action),
         Some(Cmd::Dictionary { action }) => cmd_dictionary(action),
+        Some(Cmd::Fix { text, n, play }) => cmd_fix(text, n, play),
         Some(Cmd::UiDemo) => cmd_ui_demo(),
     }
+}
+
+/// Correct the transcript label of a recent training pair, while the context
+/// is still fresh. With no text argument, prompts interactively — the
+/// correction can be dictated.
+fn cmd_fix(text: Option<String>, n: usize, play: bool) -> Result<()> {
+    use rekody_core::training_data;
+
+    let pair = training_data::nth_recent(n.saturating_sub(1))?;
+    let mins = (pair.duration / 60.0) as u64;
+    let secs = pair.duration % 60.0;
+    println!();
+    println!(
+        "  {BRAND}╭─{RESET}  {BRAND_LIGHT}{BOLD}rekody fix{RESET}  {DIM}{} · {}m{:.0}s{}{RESET}",
+        pair.timestamp,
+        mins,
+        secs,
+        if pair.corrected {
+            " · already corrected"
+        } else {
+            ""
+        },
+    );
+    println!("  {BRAND}│{RESET}");
+    println!("  {BRAND}│{RESET}   {DIM}heard:{RESET}");
+    for chunk in wrap_plain(&pair.text, 76) {
+        println!("  {BRAND}│{RESET}   {CREAM}{chunk}{RESET}");
+    }
+    println!("  {BRAND}│{RESET}");
+
+    if play {
+        println!("  {BRAND}│{RESET}   {DIM}playing clip…{RESET}");
+        let status = std::process::Command::new("afplay")
+            .arg(&pair.audio_path)
+            .status();
+        if !status.map(|s| s.success()).unwrap_or(false) {
+            println!(
+                "  {BRAND}│{RESET}   {WARN}couldn't play {}{RESET}",
+                pair.audio_path.display()
+            );
+        }
+    }
+
+    let new_text = match text {
+        Some(t) => t,
+        None => {
+            println!(
+                "  {BRAND}╰─{RESET}  {DIM}type or dictate the corrected text (empty = abort){RESET}"
+            );
+            let mut buf = String::new();
+            std::io::stdin().read_line(&mut buf)?;
+            buf
+        }
+    };
+    if new_text.trim().is_empty() {
+        println!("  {DIM}unchanged.{RESET}");
+        return Ok(());
+    }
+    training_data::correct_text(&pair, &new_text)?;
+    println!(
+        "  {OK}{BOLD}✓{RESET}  {CREAM}label corrected{RESET}  {DIM}→ {}{RESET}",
+        new_text.trim()
+    );
+    Ok(())
+}
+
+/// Plain word-wrap for terminal output (no ANSI awareness needed).
+fn wrap_plain(text: &str, width: usize) -> Vec<String> {
+    let mut lines = vec![String::new()];
+    for word in text.split_whitespace() {
+        let cur = lines.last_mut().unwrap();
+        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > width {
+            lines.push(word.to_string());
+        } else {
+            if !cur.is_empty() {
+                cur.push(' ');
+            }
+            cur.push_str(word);
+        }
+    }
+    lines
 }
 
 /// Hidden dev aid: loop the live status region through idle → recording
