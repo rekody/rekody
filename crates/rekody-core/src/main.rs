@@ -1182,6 +1182,12 @@ fn is_homebrew_install(path: &std::path::Path) -> bool {
 /// Render a GitHub release-notes body for the terminal: section headers
 /// bold, bullets kept, `by @user in <pr-url>` collapsed to `(#N)`.
 fn render_release_body(body: &str) {
+    // The body comes from the GitHub API — strip control characters so a
+    // crafted release can't inject terminal escape sequences.
+    let body: String = body
+        .chars()
+        .filter(|c| !c.is_control() || *c == '\n')
+        .collect();
     for raw in body.lines() {
         let line = raw.trim_end();
         if line.trim().is_empty() {
