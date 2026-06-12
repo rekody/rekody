@@ -569,6 +569,10 @@ max_recording_secs = 300
 whisper_model = "{whisper_size}"
 vad_threshold = 0.01
 injection_method = "clipboard"
+# Save each dictation's audio (FLAC) + transcript locally so a personal
+# fine-tuning dataset is ready when you want one. Local-only, never uploaded.
+# Folder: ~/.local/share/rekody/training-data — set false to disable.
+save_training_data = true
 {stt_line}
 {deepgram_line}
 {groq_stt_line}

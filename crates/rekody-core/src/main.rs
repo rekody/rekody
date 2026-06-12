@@ -861,6 +861,26 @@ async fn cmd_doctor() -> Result<()> {
         );
     }
     println!("  {BRAND}│{RESET}");
+
+    // Training data (local fine-tuning dataset; default-on capture)
+    println!("  {BRAND}│{RESET}   {BRAND_LIGHT}{BOLD}Training data{RESET}");
+    if config.save_training_data {
+        match rekody_core::training_data::stats() {
+            Some((clips, bytes)) => println!(
+                "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}{} clips · {:.1} MB{RESET}  {DIM}{} · save_training_data = false to disable{RESET}",
+                clips,
+                bytes as f64 / 1e6,
+                rekody_core::training_data::dataset_dir().display()
+            ),
+            None => println!(
+                "  {BRAND}│{RESET}     {BRAND_LIGHT}○{RESET}  {DIM}capture on — pairs save to {} after your next dictation{RESET}",
+                rekody_core::training_data::dataset_dir().display()
+            ),
+        }
+    } else {
+        println!("  {BRAND}│{RESET}     {DIM}off (save_training_data = false){RESET}");
+    }
+    println!("  {BRAND}│{RESET}");
     // Bottom: corner + rule, closing the card.
     println!("  {BRAND}╰{}{RESET}", rule);
     println!();
