@@ -3,12 +3,12 @@ const steps = [
   {
     num: '01',
     title: 'Hold',
-    body: 'Hold <span class="key">⌥</span> <span class="key">Space</span> anywhere on macOS. A quiet indicator shows the mic is live.',
+    body: 'Hold <span class="key">⌥</span> + <span class="key">Space</span> anywhere on macOS. A quiet indicator shows the mic is live.',
   },
   {
     num: '02',
     title: 'Speak',
-    body: 'Talk normally. Silence gets trimmed; language auto-detects across 100+ tongues.',
+    body: 'Speak naturally. With the Whisper engine, rekody handles 100+ languages — the default on-device engine is English-only for now.',
   },
   {
     num: '03',
@@ -21,8 +21,8 @@ const steps = [
 const pipeline = [
   { key: 'capture', label: 'Capture',  sub: 'Mic stream',     ms: '·',       icon: 'mic' },
   { key: 'vad',     label: 'Trim',     sub: 'VAD silences',   ms: '< 5ms',   icon: 'scissors' },
-  { key: 'stt',     label: 'Transcribe', sub: 'Deepgram Nova-3', ms: '~180ms', icon: 'wave', highlight: true },
-  { key: 'format',  label: 'Format',   sub: 'smart_format',   ms: '< 5ms',   icon: 'sparkle' },
+  { key: 'stt',     label: 'Transcribe', sub: 'Engine of your choice', ms: 'streaming', icon: 'wave', highlight: true },
+  { key: 'format',  label: 'Format',   sub: 'punctuation',    ms: '< 5ms',   icon: 'sparkle' },
   { key: 'inject',  label: 'Paste',    sub: 'CGEvent inject', ms: '< 10ms',  icon: 'cursor' },
 ];
 ---
@@ -32,10 +32,10 @@ const pipeline = [
   <div class="mb-16 max-w-2xl">
     <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-ink-faint); letter-spacing:0.12em;">How it works</p>
     <h2 class="display" style="font-size:clamp(36px, 5vw, 56px);">
-      Three beats<span class="display-italic" style="color:var(--color-teal);">,</span> no friction.
+      Three beats: hold, speak, <span class="display-italic" style="color:var(--color-teal);">release</span>.
     </h2>
     <p class="body-serif mt-5" style="font-size:18px;">
-      Push to talk. Release to send. Desktop-grade latency, native to macOS.
+      Push to talk, release to send — native to macOS, final text ~100ms after you let go.
     </p>
   </div>
 
@@ -63,13 +63,13 @@ const pipeline = [
         <h3 class="display" style="font-size:clamp(22px, 2.8vw, 30px); color:var(--color-cream);">Five stages, start to cursor.</h3>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-[11px] font-mono" style="color:rgba(251,250,244,0.5); letter-spacing:0.08em;">END-TO-END</span>
+        <span class="text-[11px] font-mono" style="color:rgba(251,250,244,0.5); letter-spacing:0.08em;">FINAL TEXT</span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full" style="background:rgba(32,128,141,0.18); border:1px solid rgba(32,128,141,0.35); color:var(--color-teal);">
           <span class="relative inline-flex h-1.5 w-1.5">
             <span class="absolute inline-flex h-full w-full rounded-full animate-ping opacity-60" style="background:var(--color-teal);"></span>
             <span class="relative inline-flex rounded-full h-1.5 w-1.5" style="background:var(--color-teal);"></span>
           </span>
-          <span class="font-mono text-[12px]">~200ms total</span>
+          <span class="font-mono text-[12px]">~100ms after release</span>
         </span>
       </div>
     </div>
@@ -167,7 +167,7 @@ const pipeline = [
 
     <!-- Footer line -->
     <div class="px-6 sm:px-8 py-4 flex flex-wrap items-center justify-between gap-3 text-[11px] font-mono" style="border-top:1px solid rgba(251,250,244,0.08); color:rgba(251,250,244,0.5);">
-      <span>Every stage runs in the rekody Rust binary. No browser, no Electron, no background daemon.</span>
+      <span>No browser, no Electron — one Rust binary.</span>
       <span style="color:var(--color-teal);">audio in → text at cursor</span>
     </div>
   </div>

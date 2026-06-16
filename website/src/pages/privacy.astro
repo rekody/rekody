@@ -11,22 +11,22 @@ const toc = [
 ];
 
 const title = 'Privacy — rekody';
-const description = 'rekody is an open-source CLI that runs entirely on your Mac. No accounts, no servers, no telemetry.';
+const description = 'rekody is an open-source CLI that runs entirely on your Mac. It has no accounts or telemetry, and we don\'t run servers.';
 ---
 
 <Base title={title} description={description}>
   <LegalPage
     eyebrow="Privacy"
-    title="Your voice. Your words. Your machine."
+    title="Everything stays on your Mac."
     updated="May 30, 2026"
-    summary="rekody is open-source software that runs entirely on your Mac. There are no accounts, no rekody servers, and no telemetry. We can't see your data because it never reaches us."
+    summary="rekody is open-source software that runs entirely on your Mac. There are no accounts or telemetry, and we don't run servers. We can't see your data because it never reaches us."
     toc={toc}
   >
     <section id="short-version">
       <h2>The short version</h2>
       <p>
         rekody is a free, MIT-licensed CLI (<a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>).
-        It has no sign-up, no license server, and no analytics inside the app. Every line of code that touches
+        It has no sign-up and no analytics inside the app, and it never checks in with a license server. Every line of code that touches
         your audio is open for inspection.
       </p>
     </section>
@@ -35,7 +35,7 @@ const description = 'rekody is an open-source CLI that runs entirely on your Mac
       <h2>Everything runs on your Mac</h2>
       <p>
         Audio capture, voice detection, transcription, cleanup, and typing the text at your cursor all happen
-        on your device. With the default local Whisper engine — or the on-device Apple Intelligence cleanup —
+        on your device. With the default on-device engine — or the on-device Apple Intelligence cleanup —
         <strong>nothing leaves your machine at all</strong>.
       </p>
       <ul>

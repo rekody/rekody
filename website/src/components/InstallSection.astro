@@ -37,16 +37,6 @@ const tabs = [
     ],
     note: '— installs into <code>~/.cargo/bin</code>. Rust users only.',
   },
-  {
-    id: 'dmg',
-    label: '.dmg',
-    recommended: false,
-    lines: [
-      { tokens: [ {c:'comment', t:'# signed universal .dmg — drag into Applications'} ] },
-      { tokens: [ {c:'cmd', t:'open'}, {c:'url', t:' https://github.com/rekody/rekody/releases/latest'} ] },
-    ],
-    note: '— no terminal required. Double-click the .dmg, drag to Applications.',
-  },
 ];
 ---
 
@@ -55,9 +45,9 @@ const tabs = [
 
     <!-- Heading -->
     <div class="text-center mb-14">
-      <p class="text-[11px] font-mono uppercase mb-5" style="color:var(--color-teal); letter-spacing:0.16em;">— One command. One minute.</p>
+      <p class="text-[11px] font-mono uppercase mb-5" style="color:var(--color-teal); letter-spacing:0.16em;">— One command, about a minute.</p>
       <h2 class="display" style="font-size:clamp(44px, 6vw, 72px);">
-        Install. Then hold <span class="key" style="padding:4px 10px; font-size:inherit; background:transparent; border:0; color:var(--color-ink-soft); font-family:var(--font-serif);">⌥Space</span>.
+        Install. Then hold <span class="key" style="padding:4px 10px; font-size:inherit; background:transparent; border:0; color:var(--color-ink-soft); font-family:var(--font-serif);">⌥ + Space</span>.
       </h2>
     </div>
 
@@ -197,7 +187,6 @@ const tabs = [
     curl:  'curl -fsSL https://rekody.com/install.sh | bash',
     make:  'git clone https://github.com/rekody/rekody.git\ncd rekody && make install',
     cargo: 'cargo install --git https://github.com/rekody/rekody rekody-core',
-    dmg:   'open https://github.com/rekody/rekody/releases/latest',
   };
 
   document.querySelectorAll<HTMLButtonElement>('[data-copy-btn]').forEach(btn => {
