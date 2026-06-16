@@ -1,0 +1,104 @@
+---
+// Live console card — a faithful DOM rebuild of rekody's terminal Studio
+// Console Card (replaces the stale cli-streaming.png). Retina-sharp at any
+// DPI, dark-native, animated in CSS. Waveform + cursor pulse honor
+// prefers-reduced-motion.
+const WAVE_BARS = 28;
+const heights = [4, 7, 12, 9, 16, 22, 18, 11, 6, 13, 20, 26, 17, 9, 5, 14, 23, 19, 12, 7, 15, 21, 16, 10, 6, 11, 18, 8];
+---
+
+<div class="console" role="img" aria-label="rekody live console: words streaming in while dictating, with a live waveform, timer, and word count">
+  <!-- top border with state pill + chips -->
+  <div class="console-top">
+    <span class="state-pill">
+      <span class="rec-dot"></span>
+      ● REC 0:06
+    </span>
+    <span class="chips">
+      <span class="chip chip-teal">● nemotron · en</span>
+      <span class="chip">no cleanup</span>
+      <span class="chip">⌥ + space</span>
+    </span>
+  </div>
+
+  <!-- streamed transcript: older lines dim, current line bright + cursor -->
+  <div class="console-body">
+    <p class="ln dim">Let's move Thursday's stand-up to ten and push the design</p>
+    <p class="ln dim">review to after lunch. Ping the team in the channel so</p>
+    <p class="ln">nobody books over it<span class="caret"></span></p>
+  </div>
+
+  <!-- footer: live waveform sparkline + right-aligned metrics -->
+  <div class="console-foot">
+    <span class="wave" aria-hidden="true">
+      {heights.map((h, i) => (
+        <span class="bar" style={`--h:${h}px; --i:${i};`}></span>
+      ))}
+    </span>
+    <span class="metrics">release ⌥ + space · 21 words</span>
+  </div>
+</div>
+
+<style>
+  .console {
+    --c-ink: #0B1111;
+    --c-cream: #FBFAF4;
+    --c-teal: #7FC9D3;
+    --c-teal-deep: #20808D;
+    --c-red: #D96459;
+    --c-dim: rgba(251, 250, 244, 0.42);
+    background: var(--c-ink);
+    border: 1px solid rgba(251, 250, 244, 0.08);
+    border-radius: 14px;
+    padding: 18px 20px 16px;
+    box-shadow: 0 24px 60px -28px rgba(15, 23, 23, 0.55);
+    font-family: var(--font-mono);
+    overflow: hidden;
+  }
+  .console-top {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .state-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+    color: var(--c-red);
+    background: rgba(217, 100, 89, 0.14);
+    border: 1px solid rgba(217, 100, 89, 0.4);
+    padding: 4px 10px; border-radius: 999px;
+  }
+  .rec-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-red); animation: pulse 1.6s ease-in-out infinite; }
+  .chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11px; letter-spacing: 0.03em;
+    color: rgba(251, 250, 244, 0.55);
+    background: rgba(251, 250, 244, 0.04);
+    border: 1px solid rgba(251, 250, 244, 0.08);
+    padding: 3px 8px; border-radius: 6px;
+  }
+  .chip-teal { color: var(--c-teal); background: rgba(32, 128, 141, 0.14); border-color: rgba(32, 128, 141, 0.32); }
+  .console-body { display: flex; flex-direction: column; gap: 4px; margin-bottom: 18px; min-height: 84px; }
+  .ln { margin: 0; font-size: 15px; line-height: 1.5; color: var(--c-cream); }
+  .ln.dim { color: var(--c-dim); }
+  .caret { display: inline-block; width: 7px; height: 15px; margin-left: 2px; vertical-align: text-bottom; background: var(--c-teal); animation: blink 1s step-start infinite; }
+  .console-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .wave { display: inline-flex; align-items: center; gap: 2px; height: 26px; }
+  .bar {
+    width: 3px; border-radius: 1.5px;
+    height: var(--h);
+    background: linear-gradient(to top, var(--c-teal-deep), var(--c-teal));
+    animation: wave 1.3s ease-in-out infinite;
+    animation-delay: calc(var(--i) * -0.07s);
+    transform-origin: center bottom;
+  }
+  .metrics { font-size: 12px; color: rgba(251, 250, 244, 0.5); white-space: nowrap; }
+
+  @keyframes wave { 0%, 100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bar, .caret, .rec-dot { animation: none; }
+    .bar { transform: scaleY(0.7); }
+  }
+</style>
