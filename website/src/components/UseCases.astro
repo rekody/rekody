@@ -97,7 +97,7 @@ const cases: UseCase[] = [
     <div class="mb-16 max-w-2xl">
       <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-ink-faint); letter-spacing:0.12em;">Use cases</p>
       <h2 class="display mb-6" style="font-size:clamp(36px, 5vw, 56px);">
-        Whoever you are. <span class="display-italic" style="color:var(--color-teal);">Whatever</span> you write.
+        rekody adapts to <span class="display-italic" style="color:var(--color-teal);">whatever</span> you write.
       </h2>
       <p class="body-serif max-w-xl" style="font-size:19px; line-height:1.55;">
         rekody is a general-purpose dictation tool. It learns your vocabulary — <em>your</em> vocabulary, not a preset — so the words that matter in your work come out right. Here's what that looks like across a few fields.
@@ -177,20 +177,20 @@ const cases: UseCase[] = [
             For the days the keyboard <span class="display-italic" style="color:#6BC5D0;">isn't</span> an option.
           </h3>
           <p class="body-serif max-w-xl" style="font-size:17px; line-height:1.55; color:rgba(251,250,244,0.75);">
-            If you live with RSI, carpal tunnel, limited mobility, a broken wrist, or simply a long recovery — voice isn't a novelty, it's how you work. rekody was built around a single held key so the trigger itself is as forgiving as possible. Push-to-talk, hands-free VAD, or toggle mode — pick what fits your hands today.
+            If you live with RSI, carpal tunnel, limited mobility, a broken wrist, or simply a long recovery — voice isn't a novelty, it's how you work. rekody was built around a single held key so the trigger itself is as forgiving as possible. Hold to talk, or quick-tap to latch hands-free — pick what fits your hands today.
           </p>
           <ul class="mt-6 flex flex-col gap-2.5 text-[14px]" style="color:rgba(251,250,244,0.85);">
             <li class="flex items-start gap-2.5">
               <span style="color:#6BC5D0; font-family:var(--font-mono); margin-top:2px;">→</span>
-              <span>One held key — no chord, no double-tap, no drag</span>
+              <span>One held key — nothing to chord or double-tap</span>
             </li>
             <li class="flex items-start gap-2.5">
               <span style="color:#6BC5D0; font-family:var(--font-mono); margin-top:2px;">→</span>
-              <span>Hands-free VAD mode for days typing isn't feasible</span>
+              <span>Quick-tap latch mode for days holding a key isn't feasible</span>
             </li>
             <li class="flex items-start gap-2.5">
               <span style="color:#6BC5D0; font-family:var(--font-mono); margin-top:2px;">→</span>
-              <span>Works with VoiceOver; text injects where your cursor already is</span>
+              <span>Text injects where your cursor already is — no copy, no paste step</span>
             </li>
             <li class="flex items-start gap-2.5">
               <span style="color:#6BC5D0; font-family:var(--font-mono); margin-top:2px;">→</span>
@@ -204,6 +204,7 @@ const cases: UseCase[] = [
           <div class="relative">
             <div class="flex items-center gap-2">
               <span class="key key-dark" style="font-size:18px; padding:12px 16px;">⌥</span>
+              <span style="color:rgba(251,250,244,0.45); font-size:18px;">+</span>
               <span class="key key-dark" style="font-size:18px; padding:12px 20px;">Space</span>
             </div>
             <p class="text-center mt-5 font-mono text-[11px] uppercase" style="color:rgba(251,250,244,0.45); letter-spacing:0.14em;">
@@ -221,10 +222,10 @@ const cases: UseCase[] = [
       <div>
         <p class="text-[11px] font-mono uppercase mb-3" style="color:var(--color-teal); letter-spacing:0.12em;">And in your language</p>
         <h3 class="display mb-5" style="font-size:clamp(28px, 3.8vw, 44px); line-height:1.1;">
-          Dictate in Swahili, Spanish, Mandarin. <span class="display-italic" style="color:var(--color-teal);">Switch mid-sentence.</span>
+          Dictate in Swahili, Spanish, Mandarin — <span class="display-italic" style="color:var(--color-teal);">with the Whisper engine.</span>
         </h3>
         <p class="body-serif max-w-xl" style="font-size:17px; line-height:1.55;">
-          Every profession above works in 100+ languages. A teacher in Nairobi dictating a lesson plan. A physio in São Paulo writing a referral. A lawyer in Tokyo drafting a brief. Auto-detect is on by default — if you slip a Swahili word into an English email, rekody hears you.
+          Every profession above works in 100+ languages when you use the Whisper engine. The default streaming engine is English-only for now. A teacher in Nairobi dictating a lesson plan. A physio in São Paulo writing a referral. A lawyer in Tokyo drafting a brief.
         </p>
         <p class="mt-4 body-serif italic" style="font-size:15px; color:var(--color-ink-mute);">
           "Tuma message kwa Amina — tutaenda duka kesho saa tano."
@@ -233,7 +234,7 @@ const cases: UseCase[] = [
 
       <!-- Tiny rendered example -->
       <div class="rounded-2xl p-6" style="background:#FFFFFF; border:1px solid var(--color-hairline);">
-        <p class="text-[10px] font-mono uppercase mb-4" style="color:var(--color-ink-faint); letter-spacing:0.12em;">Mid-sentence switch</p>
+        <p class="text-[10px] font-mono uppercase mb-4" style="color:var(--color-ink-faint); letter-spacing:0.12em;">Mixed-language dictation</p>
         <p class="body-serif" style="font-size:17px; line-height:1.6;">
           <span style="color:var(--color-ink-soft);">The experiment failed because the </span>
           <span style="color:var(--color-teal); font-style:italic;">probabilité de convergence</span>
@@ -242,7 +243,7 @@ const cases: UseCase[] = [
           <span style="color:var(--color-ink-soft);"> at 0.001.</span>
         </p>
         <p class="mt-4 font-mono text-[11px]" style="color:var(--color-ink-faint);">
-          EN → FR → EN · auto-detect
+          EN + FR · Whisper engine
         </p>
       </div>
     </div>
@@ -251,16 +252,14 @@ const cases: UseCase[] = [
   <!-- Closing CTA -->
   <div class="max-w-6xl mx-auto px-6 mt-24 text-center">
     <h3 class="display mb-4" style="font-size:clamp(28px, 4vw, 44px);">
-      Your vocabulary. Your voice. <span class="display-italic" style="color:var(--color-teal);">Your cursor.</span>
+      The word you say is the word that <span class="display-italic" style="color:var(--color-teal);">lands</span>.
     </h3>
     <p class="body-serif max-w-xl mx-auto mb-8" style="font-size:17px;">
-      rekody doesn't care what you do for a living. It cares that the word you just said is the word that lands on the screen.
+      Whatever you do for a living, the job is the same: the word you said shows up on the screen, spelled the way your field spells it.
     </p>
     <div class="flex flex-wrap items-center justify-center gap-3">
       <a
-        href="https://github.com/rekody/rekody/releases/latest"
-        target="_blank"
-        rel="noopener noreferrer"
+        href="/#install"
         class="pill pill-dark"
         style="padding:0.75rem 1.25rem; font-size:14px;"
       >
@@ -270,13 +269,6 @@ const cases: UseCase[] = [
           <line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
         Download for Mac
-      </a>
-      <a
-        href="/#install"
-        class="pill pill-ghost"
-        style="padding:0.75rem 1.125rem; font-size:13px;"
-      >
-        See install options →
       </a>
     </div>
   </div>

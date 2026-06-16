@@ -15,7 +15,7 @@ const crates = [
   {
     name: 'rekody-stt',
     role: 'Transcription',
-    body: 'Speech-to-text adapters. Whisper tiny runs locally for free users. Cloud providers (Deepgram, AssemblyAI, Groq) plug in as drop-in backends.',
+    body: 'Speech-to-text adapters. Whisper tiny runs locally out of the box. Cloud providers (Deepgram, AssemblyAI, Groq) plug in as drop-in backends.',
   },
   {
     name: 'rekody-llm',
@@ -71,7 +71,7 @@ const tabs = [
   <div class="max-w-4xl mx-auto px-6 text-center">
     <p class="text-[11px] font-mono uppercase mb-5" style="color:var(--color-teal); letter-spacing:0.16em;">— Open source</p>
     <h1 class="display mb-6" style="font-size:clamp(44px, 6.2vw, 76px); line-height:1.02;">
-      rekody is <em style="font-style:italic; color:var(--color-teal);">open</em>. <br/>All the way down.
+      rekody is <em style="font-style:italic; color:var(--color-teal);">open</em>, <br/>all the way down.
     </h1>
     <p class="body-serif max-w-2xl mx-auto" style="font-size:18px; color:var(--color-ink-soft);">
       Every line of the dictation engine is on GitHub under MIT. Six small Rust crates, one CLI binary, no hidden runtime. Read it, audit it, fork it, run it — forever, for free.
@@ -80,7 +80,7 @@ const tabs = [
     <div class="flex flex-wrap items-center justify-center gap-2 mt-8">
       <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer" class="pill pill-dark" style="padding:0.625rem 1rem;">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.7c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.69.92.69 1.85V21c0 .27.16.58.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/></svg>
-        Star on GitHub
+        View source on GitHub
       </a>
       <a href="https://github.com/rekody/rekody/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="pill pill-ghost" style="padding:0.625rem 1rem;">
         Read the MIT license
@@ -130,9 +130,9 @@ const tabs = [
   <div class="max-w-4xl mx-auto px-6">
     <div class="text-center mb-12">
       <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-teal); letter-spacing:0.14em;">— Install the CLI</p>
-      <h2 class="display mb-4" style="font-size:clamp(32px, 4vw, 48px);">Pick a path. Any works.</h2>
+      <h2 class="display mb-4" style="font-size:clamp(32px, 4vw, 48px);">Every path installs the same binary.</h2>
       <p class="body-serif max-w-xl mx-auto" style="font-size:16px; color:var(--color-ink-soft);">
-        No installer, no account, no network fetch-on-launch. The binary is ~5MB, the Whisper tiny model is ~75MB, and everything stays on your machine.
+        There's no installer and no account — nothing is fetched at launch. The binary is ~5MB, the Whisper tiny model is ~75MB, and everything stays on your machine.
       </p>
     </div>
 
@@ -190,13 +190,13 @@ const tabs = [
     <div class="grid md:grid-cols-[1fr_380px] gap-12 items-start">
       <div>
         <p class="text-[11px] font-mono uppercase mb-4" style="color:#6BC5D0; letter-spacing:0.14em;">— The license</p>
-        <h2 class="display mb-6" style="font-size:clamp(32px, 4vw, 48px); color:var(--color-cream);">MIT. Nothing fancy.</h2>
+        <h2 class="display mb-6" style="font-size:clamp(32px, 4vw, 48px); color:var(--color-cream);">It's MIT — nothing fancy.</h2>
         <div class="body-serif space-y-4" style="font-size:16px; color:rgba(251,250,244,0.78); line-height:1.7;">
           <p>
             Use it at work. Fork it for your own thing. Bundle it with a closed-source product. Rip out the hotkey crate and drop it in a different app. We don't ask.
           </p>
           <p>
-            The only thing MIT requires is that you keep the copyright notice. That's it — no viral terms, no redistribution clause, no patent grant gymnastics.
+            The only thing MIT requires is that you keep the copyright notice. That's it — no viral terms or redistribution clauses.
           </p>
           <p>
             The bar we set for ourselves: the CLI is, and always will be, good enough to use on its own. If it ever stops being that, MIT means you can take it somewhere better.
@@ -244,12 +244,6 @@ const tabs = [
       </a>
     </div>
 
-    <div class="mt-12">
-      <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer" class="pill pill-dark" style="padding:0.75rem 1.25rem;">
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.7c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.69.92.69 1.85V21c0 .27.16.58.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/></svg>
-        github.com/rekody/rekody
-      </a>
-    </div>
   </div>
 </section>
 

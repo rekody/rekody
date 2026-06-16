@@ -19,3 +19,4 @@ package-lock.json
 # Swift helper (rekody-fm) build artifacts
 helpers/**/.build/
 .claude/
+run-with-hud.command

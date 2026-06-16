@@ -28,15 +28,13 @@ import Lettermark from './Lettermark.astro';
 
       <!-- Deck -->
       <p class="body-serif mb-10 max-w-xl" style="font-size:19px; line-height:1.55;">
-        Open-source macOS voice dictation. Hold <span class="key">⌥</span> <span class="key">Space</span>, speak, release — text appears at your cursor in <em>any app</em>, transcribed <strong style="color:var(--color-ink); font-weight:500;">while you talk</strong>, fully on-device. Ready in ~50ms.
+        Open-source macOS voice dictation. Hold <span class="key">⌥</span> + <span class="key">Space</span>, speak, release — first words appear <strong style="color:var(--color-ink); font-weight:500;">while you're still talking</strong>, final text lands at your cursor in <em>any app</em> ~100ms after release. On-device by default.
       </p>
 
       <!-- CTAs -->
       <div class="flex flex-wrap items-center gap-3 mb-6">
         <a
-          href="https://github.com/rekody/rekody/releases/latest"
-          target="_blank"
-          rel="noopener noreferrer"
+          href="#install"
           class="pill pill-dark"
           style="padding:0.75rem 1.25rem; font-size:14px;"
         >
@@ -98,6 +96,7 @@ import Lettermark from './Lettermark.astro';
           <div class="is-recording flex items-center gap-3 mb-5">
             <div class="flex items-center gap-1.5">
               <span class="key key-dark">⌥</span>
+              <span style="color:var(--color-ink-faint);">+</span>
               <span class="key key-dark">Space</span>
             </div>
             <div class="flex items-end gap-[3px] h-6" aria-hidden="true">
@@ -125,9 +124,9 @@ import Lettermark from './Lettermark.astro';
             <div class="flex items-center gap-3">
               <span>Nemotron · streaming</span>
               <span aria-hidden="true">·</span>
-              <span>auto · 100+ langs</span>
+              <span>on-device · en</span>
             </div>
-            <span style="color:var(--color-teal);">194ms</span>
+            <span style="color:var(--color-teal);">~100ms</span>
           </div>
 
           <!-- Target app strip -->
