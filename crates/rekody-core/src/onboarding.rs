@@ -602,6 +602,12 @@ trigger_key = "{trigger_key}"
 max_recording_secs = 1800
 whisper_model = "{whisper_size}"
 vad_threshold = 0.01
+# Microphone to capture from, matched by name (case-insensitive). "system"
+# follows the macOS default input — which jumps to whatever you connected
+# last (e.g. AirPods). Pin a device to keep it: input_device = "MacBook Air Microphone"
+# (run `rekody doctor` to see the resolved device). Unknown names fall back
+# to the system default.
+input_device = "system"
 injection_method = "clipboard"
 # Save each dictation's audio (FLAC) + transcript locally so a personal
 # fine-tuning dataset is ready when you want one. Local-only, never uploaded.

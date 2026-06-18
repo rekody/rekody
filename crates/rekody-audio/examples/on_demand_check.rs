@@ -12,9 +12,18 @@ async fn main() -> anyhow::Result<()> {
         .with_max_level(tracing::Level::DEBUG)
         .init();
 
+    // Optional: pin a device by name to exercise the resolver
+    // (REKODY_TEST_DEVICE="MacBook" etc; unset = system default).
+    let input_device = std::env::var("REKODY_TEST_DEVICE")
+        .ok()
+        .filter(|s| !s.is_empty());
+    if let Some(d) = &input_device {
+        println!("== input_device pinned to: {d:?} ==");
+    }
     let config = rekody_audio::AudioConfig {
         vad_threshold: 0.0001, // accept ambient noise so segments emit
         record_all_audio: true,
+        input_device,
     };
     let capture = rekody_audio::AudioCapture::new(config.clone());
     let mut live_rx = capture.live_chunks();

@@ -1016,6 +1016,7 @@ async fn cmd_doctor() -> Result<()> {
         print_permission("Microphone", mic);
         print_permission("Accessibility", acc);
     }
+    print_input_device(&config);
     #[cfg(not(target_os = "macos"))]
     {
         println!(
@@ -1179,6 +1180,31 @@ fn print_permission(name: &str, status: MicCheck) {
             println!(
                 "  {BRAND}│{RESET}     {WARN}{BOLD}…{RESET}  {CREAM}{}{RESET}  {DIM}could not probe — try recording to test{RESET}",
                 name
+            );
+        }
+    }
+}
+
+/// Show which input device rekody will capture from, given the configured
+/// `input_device` preference, and warn if a pinned device isn't connected.
+fn print_input_device(config: &RekodyConfig) {
+    let devices = rekody_audio::list_input_devices();
+    match config.input_device.as_deref() {
+        Some(want) if !want.trim().is_empty() && !want.eq_ignore_ascii_case("system") => {
+            let want_l = want.to_lowercase();
+            if let Some(found) = devices.iter().find(|n| n.to_lowercase().contains(&want_l)) {
+                println!(
+                    "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Input device{RESET}  {DIM}{found} (pinned){RESET}"
+                );
+            } else {
+                println!(
+                    "  {BRAND}│{RESET}     {WARN}{BOLD}…{RESET}  {CREAM}Input device{RESET}  {WARN}\"{want}\" not connected — using system default{RESET}"
+                );
+            }
+        }
+        _ => {
+            println!(
+                "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Input device{RESET}  {DIM}system default{RESET}"
             );
         }
     }
