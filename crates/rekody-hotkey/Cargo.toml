@@ -1,5 +1,6 @@
 [package]
 name = "rekody-hotkey"
+publish = false        # internal app crate — never published to crates.io
 description = "Global hotkey listener for rekody"
 version.workspace = true
 edition.workspace = true
