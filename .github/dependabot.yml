@@ -1,0 +1,43 @@
+# Dependabot configuration — groups updates so they arrive as a few reviewable
+# PRs instead of one-per-bump, and covers all three ecosystems in the repo.
+version: 2
+updates:
+  # Rust workspace
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps(cargo)"
+
+  # Website (pnpm — read under the npm ecosystem)
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      website-minor-patch:
+        update-types: ["minor", "patch"]
+      website-major:
+        update-types: ["major"]
+    commit-message:
+      prefix: "deps(web)"
+
+  # GitHub Actions (pairs with SHA-pinning; Dependabot bumps the SHA + comment)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(ci)"
