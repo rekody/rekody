@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 cpal = "0.15"
-rubato = "0.16"
+rubato = "3.0"
 tokio.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
