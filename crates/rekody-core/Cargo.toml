@@ -1,5 +1,6 @@
 [package]
 name = "rekody-core"
+publish = false        # internal app crate — never published to crates.io
 description = "Pipeline orchestration for rekody voice dictation"
 version.workspace = true
 edition.workspace = true

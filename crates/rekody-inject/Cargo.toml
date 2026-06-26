@@ -1,5 +1,6 @@
 [package]
 name = "rekody-inject"
+publish = false        # internal app crate — never published to crates.io
 description = "Cross-platform text injection for rekody"
 version.workspace = true
 edition.workspace = true

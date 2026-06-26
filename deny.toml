@@ -1,0 +1,52 @@
+# cargo-deny — supply-chain gate for the Rust workspace.
+# Run locally with `cargo deny check`; CI runs the same on every PR.
+# Fails on security vulnerabilities, disallowed licenses, and unknown
+# sources. See https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+version = 2
+# Security VULNERABILITIES are always denied (the point of this gate).
+# For "unmaintained" advisories, only flag crates a workspace member depends
+# on DIRECTLY (actionable) — not deep transitive ones we can't fix without
+# upstream moving (currently number_prefix via indicatif, paste via macros).
+unmaintained = "workspace"
+# Accepted advisories go here, each with a justification + revisit trigger.
+# (The lru IterMut soundness issue is GHSA-only, not in RUSTSEC, so it isn't
+# flagged here; it's dismissed on GitHub with rationale.)
+ignore = []
+
+[bans]
+# Surface accidental duplicate crate versions (bloat / drift) without failing
+# CI yet — flip to "deny" once the tree is deduped.
+multiple-versions = "warn"
+# Deny crates.io wildcard versions (an easy vector for an unexpected version)
+# — but allow them for internal workspace path deps, which is how rekody's own
+# crates reference each other.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# Exactly the permissive licenses present in the current tree. Anything new
+# and unrecognized fails CI, forcing a conscious review before it ships.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "BSL-1.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "MPL-2.0", # weak/file-level copyleft; fine as a dependency, doesn't infect rekody
+  "CDLA-Permissive-2.0", # permissive data license (ML/tokenizer crate)
+]
+
+[sources]
+# crates.io only — no unknown registries, no git dependencies (we have none).
+unknown-registry = "deny"
+unknown-git = "deny"
