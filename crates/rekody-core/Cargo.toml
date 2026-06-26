@@ -27,7 +27,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "linux-
 clap = { workspace = true }
 arboard = "3"
 ratatui = "0.29"
-crossterm = "0.28"
+crossterm = "0.29"
 hound = "3.5"
 
 [features]
