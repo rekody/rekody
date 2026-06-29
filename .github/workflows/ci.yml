@@ -92,3 +92,26 @@ jobs:
 
           [ $FAIL -eq 0 ] && echo "OK: all filename patterns are consistent"
           exit $FAIL
+
+  # Windows port spike: build the portable crates + the new Windows keyboard
+  # hook (rekody-hotkey) on a real Windows runner. The STT crate (whisper.cpp +
+  # onnxruntime C deps) and rekody-core are gated/ported in a later step.
+  windows-spike:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: rustup show
+      - name: Cache cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ env.ImageVersion }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.ImageVersion }}-cargo-
+      - name: Build portable crates + Windows hotkey hook
+        run: cargo build -p rekody-hotkey -p rekody-inject -p rekody-audio -p rekody-llm
+      - name: Clippy the Windows hotkey hook
+        run: cargo clippy -p rekody-hotkey -- -D warnings

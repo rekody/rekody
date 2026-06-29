@@ -779,12 +779,160 @@ mod platform {
 
 // ── Non-macOS stub ────────────────────────────────────────────────────────────
 
-#[cfg(not(target_os = "macos"))]
+// ── Windows: low-level keyboard hook (WH_KEYBOARD_LL) ────────────────────────
+//
+// Drives the SAME platform-agnostic press/release state machine as macOS
+// (on_trigger_press / on_trigger_release / KeyState). A global low-level
+// keyboard hook detects the trigger and the message loop on the hook thread
+// dispatches it.
+#[cfg(target_os = "windows")]
+mod platform {
+    use super::*;
+    use std::sync::OnceLock;
+    use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, MSG,
+        SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN,
+        WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    };
+
+    /// Windows trigger: Ctrl + Space. (⌥Space is macOS-only; on Windows
+    /// Alt+Space opens the window menu and Win+Space switches input methods —
+    /// both unusable. The trigger key is an open UX decision; a user-
+    /// configurable hotkey is the likely cross-platform answer. Ctrl+Space is
+    /// a sane beta default.)
+    const VK_SPACE_U32: u32 = 0x20;
+
+    struct HookContext {
+        tx: mpsc::UnboundedSender<HotkeyEvent>,
+        state: Mutex<KeyState>,
+        mode: ActivationMode,
+        max_recording_secs: u64,
+    }
+    static CTX: OnceLock<HookContext> = OnceLock::new();
+
+    #[inline]
+    fn ctrl_down() -> bool {
+        // GetAsyncKeyState high bit set => key currently down.
+        unsafe { (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 }
+    }
+
+    fn emit(ev: HotkeyEvent) {
+        if let Some(ctx) = CTX.get() {
+            let _ = ctx.tx.send(ev);
+        }
+    }
+
+    unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        if code < 0 {
+            return unsafe { CallNextHookEx(HHOOK::default(), code, wparam, lparam) };
+        }
+        let Some(ctx) = CTX.get() else {
+            return unsafe { CallNextHookEx(HHOOK::default(), code, wparam, lparam) };
+        };
+        let kb = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
+        let msg = wparam.0 as u32;
+        let is_down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+        let is_up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+
+        if kb.vkCode == VK_SPACE_U32 {
+            let mut state = match ctx.state.lock() {
+                Ok(s) => s,
+                Err(p) => p.into_inner(),
+            };
+            if is_down && ctrl_down() {
+                if state.trigger_held {
+                    return LRESULT(1); // key-repeat: suppress, don't re-fire
+                }
+                state.trigger_held = true;
+                let ev = on_trigger_press(ctx.mode, &mut state);
+                drop(state);
+                if let Some(ev) = ev {
+                    emit(ev);
+                }
+                return LRESULT(1); // suppress so Space isn't typed
+            }
+            if is_up && state.trigger_held {
+                state.trigger_held = false;
+                let ev = on_trigger_release(ctx.mode, &mut state);
+                drop(state);
+                if let Some(ev) = ev {
+                    emit(ev);
+                }
+                return LRESULT(1);
+            }
+        }
+        unsafe { CallNextHookEx(HHOOK::default(), code, wparam, lparam) }
+    }
+
+    pub fn start_listener(config: HotkeyConfig) -> Result<mpsc::UnboundedReceiver<HotkeyEvent>> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        CTX.set(HookContext {
+            tx,
+            state: Mutex::new(KeyState::default()),
+            mode: config.activation_mode,
+            max_recording_secs: config.max_recording_secs,
+        })
+        .map_err(|_| anyhow::anyhow!("hotkey listener already started"))?;
+
+        // Deadman watchdog: the LL hook only fires on key events, so a hold-
+        // and-walk-away never gets a stop. Poll the deadman switch here.
+        std::thread::Builder::new()
+            .name("rekody-hotkey-deadman".into())
+            .spawn(|| {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if let Some(ctx) = CTX.get() {
+                        let fired = ctx
+                            .state
+                            .lock()
+                            .map(|mut s| s.deadman_triggered(ctx.max_recording_secs))
+                            .unwrap_or(false);
+                        if fired {
+                            emit(HotkeyEvent::RecordStop);
+                        }
+                    }
+                }
+            })?;
+
+        // WH_KEYBOARD_LL callbacks are dispatched on the installing thread's
+        // message loop, so the hook thread must pump messages.
+        std::thread::Builder::new()
+            .name("rekody-hotkey".into())
+            .spawn(|| unsafe {
+                let hook = match SetWindowsHookExW(
+                    WH_KEYBOARD_LL,
+                    Some(keyboard_proc),
+                    HINSTANCE::default(),
+                    0,
+                ) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        tracing::error!(error = %e, "SetWindowsHookExW failed");
+                        return;
+                    }
+                };
+                tracing::info!("Windows keyboard hook installed — hold Ctrl+Space to dictate");
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+                let _ = UnhookWindowsHookEx(hook);
+            })?;
+
+        Ok(rx)
+    }
+}
+
+// ── Other platforms: not yet supported ───────────────────────────────────────
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use super::*;
 
     pub fn start_listener(_config: HotkeyConfig) -> Result<mpsc::UnboundedReceiver<HotkeyEvent>> {
-        anyhow::bail!("global hotkeys are only supported on macOS currently")
+        anyhow::bail!("global hotkeys are supported on macOS and Windows currently")
     }
 }
 
