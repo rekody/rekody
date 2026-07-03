@@ -118,4 +118,18 @@ jobs:
       - name: Build portable crates + Windows hotkey hook
         run: cargo build -p rekody-hotkey -p rekody-inject -p rekody-audio -p rekody-llm
       - name: Clippy the Windows hotkey hook
-        run: cargo clippy -p rekody-hotkey -- -D warnings
+        run: cargo clippy -p rekody-hotkey --all-targets -- -D warnings
+      # Runtime harness: actually RUN the hook on real Windows and drive it with
+      # synthesized Ctrl+Space (SendInput). The Windows analog of the macOS
+      # keysim test — proves the WH_KEYBOARD_LL hook fires and the activation
+      # state machine emits the right events for every mode.
+      - name: Runtime test — Windows keyboard hook
+        shell: pwsh
+        run: |
+          cargo build -p rekody-hotkey --example win_hook_check
+          foreach ($m in @("ptt","toggle","both","deadman")) {
+            Write-Host "===== REKODY_TEST_MODE=$m ====="
+            $env:REKODY_TEST_MODE = $m
+            cargo run -q -p rekody-hotkey --example win_hook_check
+            if ($LASTEXITCODE -ne 0) { throw "win_hook_check FAILED for mode '$m'" }
+          }
