@@ -41,7 +41,11 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/Library/Caches/ort.pyke.io
             target
+          # ort.pyke.io: the `ort` crate downloads onnxruntime prebuilts there
+          # and cached target/ link args reference that absolute path — restoring
+          # target without it is the other half of the intermittent linker flake.
           # ImageVersion in the key: when the runner image (and its Xcode/clang)
           # changes, build a fresh cache instead of restoring a `target/` whose
           # cached C/C++ artifacts (whisper.cpp via cmake) baked in the old
