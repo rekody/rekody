@@ -13,8 +13,12 @@
 //! | Cycle the active skill | `Option+Space + Tab` |
 
 use anyhow::Result;
+use std::sync::Mutex;
+// Arc/AtomicPtr/Ordering are used only by the macOS CGEventTap path.
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
+#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicPtr, Ordering};
-use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
