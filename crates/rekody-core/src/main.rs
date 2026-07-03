@@ -15,7 +15,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use rekody_core::onboarding;
-use rekody_core::{Pipeline, RekodyConfig, load_config};
+use rekody_core::{Pipeline, RekodyConfig, TRIGGER_LABEL, load_config};
 
 // ── CLI definition ─────────────────────────────────────────────────────────
 
@@ -282,16 +282,28 @@ fn cmd_fix(text: Option<String>, n: usize, play: bool) -> Result<()> {
     println!("  {BRAND}│{RESET}");
 
     if play {
-        println!("  {BRAND}│{RESET}   {DIM}playing clip…{RESET}");
-        let status = std::process::Command::new("afplay")
-            .arg(&pair.audio_path)
-            .status();
-        if !status.map(|s| s.success()).unwrap_or(false) {
-            println!(
-                "  {BRAND}│{RESET}   {WARN}couldn't play {}{RESET}",
-                pair.audio_path.display()
-            );
+        #[cfg(target_os = "macos")]
+        {
+            println!("  {BRAND}│{RESET}   {DIM}playing clip…{RESET}");
+            let status = std::process::Command::new("afplay")
+                .arg(&pair.audio_path)
+                .status();
+            if !status.map(|s| s.success()).unwrap_or(false) {
+                println!(
+                    "  {BRAND}│{RESET}   {WARN}couldn't play {}{RESET}",
+                    pair.audio_path.display()
+                );
+            }
         }
+        // Clip playback isn't wired up off macOS yet — say so plainly rather
+        // than shelling out to a player that isn't there. The transcript is
+        // already shown above, which is what `fix` actually needs.
+        #[cfg(not(target_os = "macos"))]
+        println!(
+            "  {BRAND}│{RESET}   {DIM}clip playback isn't supported on this platform yet — \
+             the clip is at {}{RESET}",
+            pair.audio_path.display()
+        );
     }
 
     let new_text = match text {
@@ -2052,11 +2064,11 @@ fn stt_display_name(config: &RekodyConfig) -> String {
     }
 }
 
-fn format_activation_mode(mode: &str) -> &str {
+fn format_activation_mode(mode: &str) -> String {
     match mode.to_lowercase().as_str() {
-        "toggle" => "toggle — tap ⌥ + space to start/stop",
-        "push_to_talk" | "ptt" | "hold" => "push-to-talk — hold ⌥ + space",
-        _ => "both — hold ⌥ + space to talk, quick-tap for hands-free",
+        "toggle" => format!("toggle — tap {TRIGGER_LABEL} to start/stop"),
+        "push_to_talk" | "ptt" | "hold" => format!("push-to-talk — hold {TRIGGER_LABEL}"),
+        _ => format!("both — hold {TRIGGER_LABEL} to talk, quick-tap for hands-free"),
     }
 }
 
@@ -2330,7 +2342,7 @@ impl Ui {
         };
         let trigger = match config.trigger_key.to_lowercase().as_str() {
             "fn_key" | "fn" => "🌐 fn".to_string(),
-            _ => "⌥ + space".to_string(),
+            _ => TRIGGER_LABEL.to_string(),
         };
         let chip_list = [(true, engine), (false, cleanup), (false, trigger)];
 
@@ -2352,10 +2364,10 @@ impl Ui {
             env!("CARGO_PKG_VERSION"),
         );
         println!();
-        println!("  {DIM}ready — hold ⌥ + space to talk · quick-tap for hands-free{RESET}");
+        println!("  {DIM}ready — hold {TRIGGER_LABEL} to talk · quick-tap for hands-free{RESET}");
         println!();
         println!(
-            "  {SUBTLE}⌥ + space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+            "  {SUBTLE}{TRIGGER_LABEL} dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
             sep = sep()
         );
         println!();
@@ -2536,7 +2548,7 @@ impl Ui {
         let skill_seg = rekody_core::skill::active_name()
             .map(|n| format!("◆ {n} · "))
             .unwrap_or_default();
-        let right_plain = format!("{skill_seg}release ⌥ + space · {words:>3} words");
+        let right_plain = format!("{skill_seg}release {TRIGGER_LABEL} · {words:>3} words");
         let left_w = wave_w + if wave_w > 0 { 2 } else { 0 } + verb.chars().count();
         let mut footer = String::new();
         let mut footer_w = left_w;

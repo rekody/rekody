@@ -534,7 +534,7 @@ pub fn run_onboarding() -> Result<()> {
     println!("  {}", console::style("Hotkey").bold());
     println!(
         "    hold {} to talk · quick-tap for hands-free",
-        console::style("⌥ + space").cyan()
+        console::style(crate::TRIGGER_LABEL).cyan()
     );
     let trigger_key: &str = "option_space";
 
@@ -543,7 +543,7 @@ pub fn run_onboarding() -> Result<()> {
     // a voice app never writes recordings to disk without the user saying yes.
     let save_training_data: bool = confirm(
         "Build a local fine-tuning dataset as you dictate? \
-         (saves audio + transcripts to ~/.local/share/rekody — never leaves your Mac)",
+         (saves audio + transcripts locally — never leaves this device)",
     )
     .initial_value(true)
     .interact()

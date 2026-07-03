@@ -10,6 +10,16 @@ pub use rekody_hotkey::{ActivationMode, HotkeyConfig, HotkeyEvent, TriggerKey};
 pub use rekody_inject::InjectionMethod;
 pub use rekody_stt::WhisperModel;
 
+/// Human-readable label for the dictation trigger, per platform. macOS uses
+/// ⌥+Space; on Windows ⌥Space is unavailable (Alt+Space opens the window menu,
+/// Win+Space switches input methods), so the keyboard hook uses Ctrl+Space.
+/// Use this anywhere trigger keys are shown to the user so help/onboarding/the
+/// live pill all name the key that actually works on the running platform.
+#[cfg(target_os = "windows")]
+pub const TRIGGER_LABEL: &str = "Ctrl + space";
+#[cfg(not(target_os = "windows"))]
+pub const TRIGGER_LABEL: &str = "⌥ + space";
+
 pub mod bench;
 pub mod command_mode;
 pub mod config_tui;
