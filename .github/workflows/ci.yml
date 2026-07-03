@@ -188,3 +188,20 @@ jobs:
           & $exe --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "rekody --help failed (exit $LASTEXITCODE)" }
           Write-Host "rekody.exe built in release and runs"
+      # Publish the release binary as a CI artifact so a real rekody.exe can be
+      # pulled into the local Win11 VM for Tier-3 end-to-end testing (audio →
+      # STT → inject) — no public release and no code signing needed for
+      # internal validation. This is NOT a distribution channel; the tagged
+      # release flow (release.yml) stays macOS-only until the VM pass signs off.
+      - name: Package rekody.exe for VM testing
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/rekody.exe dist/
+          if (Test-Path README.md) { Copy-Item README.md dist/ }
+      - name: Upload rekody.exe artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rekody-windows-x86_64
+          path: dist/
+          retention-days: 14
