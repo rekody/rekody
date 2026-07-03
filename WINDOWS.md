@@ -34,12 +34,16 @@ resolved positively.
 ## What's left for a beta-usable Windows CLI
 
 **Phase 1 (before beta):**
-- [ ] Release build + smoke-run in CI (`cargo build --release`, then `rekody.exe
+- [x] Release build + smoke-run in CI (`cargo build --release`, then `rekody.exe
       --version` / `--help` exit 0) — proves the shippable artifact builds and runs.
-- [ ] Package `rekody.exe` as a release asset (zip) and wire it into `release.yml`.
-- [ ] `install.ps1` (PowerShell `irm | iex`) mirroring `install.sh`.
+- [x] Publish `rekody.exe` as a CI artifact (`rekody-windows-x86_64`) so it can be
+      pulled into the VM without a public release.
 - [ ] Tier-3: local Win11 VM end-to-end dictation (audio → STT → inject) on a real
-      desktop. **This is the gate before shipping to Windows beta users.**
+      desktop. **This is the gate before shipping to Windows beta users.** See the
+      runbook below.
+- [ ] (post-VM) Package `rekody.exe` as a release asset (zip) + wire into
+      `release.yml`, and add `install.ps1` (PowerShell `irm | iex`) mirroring
+      `install.sh`. Held until the VM pass signs off.
 
 **Phase 2 (post-beta polish):**
 - [ ] `command_mode` (PowerShell copy/paste) and `context` (active-app detection)
@@ -50,6 +54,42 @@ resolved positively.
       the Windows hook ignores `trigger_key` (hardcoded Ctrl+Space).
 - [ ] Clip playback for `rekody fix --play` (currently macOS-only; honest
       "not supported yet" message elsewhere).
+
+## Tier-3 VM end-to-end runbook
+
+The CI runtime tests already prove the hook fires and injection lands headlessly.
+The VM test proves the parts CI can't: **real WASAPI mic capture**, **the STT
+models loading and transcribing on Windows**, and **the full daemon loop** (hold
+Ctrl+Space → speak → text appears in the focused app). This is the macOS-parity
+"does it actually dictate" test.
+
+**Setup (once):**
+1. VMware Fusion (free for personal use) → Windows 11 VM. Give it 4+ CPUs / 8 GB;
+   STT is CPU-bound.
+2. Get `rekody.exe` into the VM: open any green `windows-spike` CI run → Summary →
+   Artifacts → download **`rekody-windows-x86_64`**, unzip. (Or `cargo build
+   --release -p rekody-core` inside the VM.)
+3. Audio input: install **VB-CABLE** (virtual audio cable). Set "CABLE Output" as
+   the default recording device so TTS played to "CABLE Input" reaches rekody's
+   mic. Alternatively just use the VM's real mic and speak.
+
+**Test pass:**
+4. `rekody setup` → walk onboarding. Confirm: no `x-apple://` URLs, no "macOS
+   dialog" text, hotkey named **Ctrl+Space**, an API key persists (this exercises
+   the `keyring` Windows Credential Manager backend — the one runtime unknown).
+5. `rekody doctor` → STT/config/training-data sections render; System section
+   shows the "not available on this platform" line (expected, not an error).
+6. Open Notepad, focus it. Start the daemon (`rekody`). **Hold Ctrl+Space**, speak
+   a sentence (or play TTS into CABLE), release. Verify the transcript is injected
+   into Notepad.
+7. Repeat with a **quick-tap** (hands-free latch) and confirm the pill hint reads
+   "Ctrl + space", then tap again to stop.
+8. Sanity: `rekody fix 1` shows the last clip's transcript; `--play` prints the
+   honest "not supported on this platform yet" line (no crash).
+
+**Pass criteria:** steps 4–7 work end to end with correct text and correct
+Ctrl+Space wording; no panic, no macOS-only text, key persists. Log anything that
+fails here — those become the pre-beta fix list.
 
 ## Open decisions (need Tony)
 
