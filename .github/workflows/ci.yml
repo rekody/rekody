@@ -133,3 +133,10 @@ jobs:
             cargo run -q -p rekody-hotkey --example win_hook_check
             if ($LASTEXITCODE -ne 0) { throw "win_hook_check FAILED for mode '$m'" }
           }
+      # STT C-deps on Windows (the biggest port unknown): whisper.cpp via
+      # whisper-rs-sys (cmake/MSVC) + onnxruntime via ort/parakeet-rs.
+      - name: Spike — build rekody-stt (whisper.cpp + onnxruntime) on Windows
+        run: cargo build -p rekody-stt --features nemotron
+      # The full daemon binary — surfaces any remaining rekody-core mac gating.
+      - name: Spike — build the rekody-core binary on Windows
+        run: cargo build -p rekody-core
