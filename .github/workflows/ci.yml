@@ -133,6 +133,15 @@ jobs:
             cargo run -q -p rekody-hotkey --example win_hook_check
             if ($LASTEXITCODE -ne 0) { throw "win_hook_check FAILED for mode '$m'" }
           }
+      # Runtime harness for text injection: create a real EDIT control, run the
+      # public inject_text (clipboard + SendInput Ctrl+V), and read the control
+      # back to prove the transcript actually lands in a focused Win32 app —
+      # the injection analog of the hotkey hook test above.
+      - name: Runtime test — Windows text injection
+        shell: pwsh
+        run: |
+          cargo run -q -p rekody-inject --example win_inject_check
+          if ($LASTEXITCODE -ne 0) { throw "win_inject_check FAILED (exit $LASTEXITCODE)" }
       # STT C-deps on Windows (the biggest port unknown): whisper.cpp via
       # whisper-rs-sys (cmake/MSVC) + onnxruntime via ort/parakeet-rs.
       - name: Spike — build rekody-stt (whisper.cpp + onnxruntime) on Windows
