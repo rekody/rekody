@@ -20,7 +20,7 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2.0.20
         with:
           command: check advisories bans licenses sources
@@ -28,7 +28,7 @@ jobs:
   check:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # Toolchain (pinned version + rustfmt/clippy) comes from rust-toolchain.toml
       # so CI and local dev run the identical clippy ruleset. `rustup show`
@@ -49,7 +49,7 @@ jobs:
           echo "XCODE_BUILD=$(xcodebuild -version 2>/dev/null | tr '\n' '-' | tr -d ' ')" >> "$GITHUB_ENV"
 
       - name: Cache cargo registry and target
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -117,7 +117,7 @@ jobs:
   windows-spike:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: rustup show
       # Surface the runner image version into the job env — `${{ env.ImageVersion }}`
       # is empty in a `key:` expression (runner-injected vars aren't in the `env`
@@ -130,7 +130,7 @@ jobs:
           $ver = if ($env:ImageVersion) { $env:ImageVersion } else { "unknown" }
           echo "IMAGE_VER=$ver" >> $env:GITHUB_ENV
       - name: Cache cargo
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -200,7 +200,7 @@ jobs:
           Copy-Item target/release/rekody.exe dist/
           if (Test-Path README.md) { Copy-Item README.md dist/ }
       - name: Upload rekody.exe artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rekody-windows-x86_64
           path: dist/
