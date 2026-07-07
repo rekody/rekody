@@ -15,6 +15,16 @@
   --color-hairline: rgba(15, 23, 23, 0.08);
   --color-hairline-soft: rgba(15, 23, 23, 0.05);
 
+  /* Brand v2 state colors ("Mineral, not monotone" board): moss = trust/local/
+     success, amber = waiting/trial/progress only — product state, never
+     decoration. teal-bright is the approved teal for ink backgrounds (from the
+     mobile/marketing boards) — plain --color-teal fails contrast on ink. */
+  --color-teal-bright: #3FA9B4;
+  --color-moss: #7B8F67;
+  --color-moss-tint: #E8EDE0;
+  --color-amber: #C4933F;
+  --color-amber-soft: rgba(196, 147, 63, 0.12);
+
   --font-serif: "Fraunces", "Source Serif 4", ui-serif, Georgia, serif;
   --font-serif-body: "Source Serif 4", ui-serif, Georgia, serif;
   --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
