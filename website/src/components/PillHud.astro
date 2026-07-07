@@ -1,0 +1,56 @@
+---
+// macOS floating pill HUD — DOM rebuild of the real rekody pill (replaces
+// hud-pill.png). Dark capsule: state dot + timer, live waveform, streaming
+// tail with cursor. Animations honor prefers-reduced-motion.
+const bars = [6, 11, 18, 9, 14, 22, 16, 8, 12, 19, 24, 15, 7, 13, 20, 10];
+---
+
+<div class="pill" role="img" aria-label="rekody desktop HUD pill: recording timer, live waveform, and words streaming in as you speak">
+  <span class="dot"></span>
+  <span class="timer">0:06</span>
+  <span class="wave" aria-hidden="true">
+    {bars.map((h, i) => (
+      <span class="bar" style={`--h:${h}px; --i:${i};`}></span>
+    ))}
+  </span>
+  <span class="tail">…push the design review to after<span class="caret"></span></span>
+</div>
+
+<style>
+  .pill {
+    --c-ink: #0B1111;
+    --c-cream: #FBFAF4;
+    --c-teal: #7FC9D3;
+    --c-teal-deep: #20808D;
+    --c-red: #D96459;
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--c-ink);
+    border: 1px solid rgba(251, 250, 244, 0.1);
+    border-radius: 999px;
+    padding: 11px 20px;
+    box-shadow: 0 18px 44px -18px rgba(15, 23, 23, 0.6);
+    font-family: var(--font-mono);
+    max-width: 100%;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c-red); flex-shrink: 0; animation: pulse 1.6s ease-in-out infinite; }
+  .timer { font-size: 13px; font-weight: 600; color: var(--c-cream); flex-shrink: 0; }
+  .wave { display: inline-flex; align-items: center; gap: 2px; height: 24px; flex-shrink: 0; }
+  .bar {
+    width: 3px; border-radius: 1.5px; height: var(--h);
+    background: linear-gradient(to top, var(--c-teal-deep), var(--c-teal));
+    animation: wave 1.2s ease-in-out infinite;
+    animation-delay: calc(var(--i) * -0.07s);
+    transform-origin: center bottom;
+  }
+  .tail { font-size: 12.5px; color: rgba(251, 250, 244, 0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .caret { display: inline-block; width: 6px; height: 13px; margin-left: 2px; vertical-align: text-bottom; background: var(--c-teal); animation: blink 1s step-start infinite; }
+
+  @keyframes wave { 0%, 100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bar, .caret, .dot { animation: none; }
+    .bar { transform: scaleY(0.7); }
+  }
+</style>

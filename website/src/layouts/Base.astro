@@ -61,7 +61,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
     <link rel="icon" type="image/png" href="/icon.png?v=4" sizes="1024x1024" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/icon.png?v=4" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
 
     <!-- JSON-LD: SoftwareApplication -->
     <script type="application/ld+json" set:html={JSON.stringify({
@@ -97,5 +97,32 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
   <body>
     <slot />
     <Analytics />
+
+    <!-- Scroll-reveal: below-fold sections fade up once on enter. JS-driven
+         (no-JS sees everything), reduced-motion disabled, one-shot. -->
+    <script is:inline>
+      (() => {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        if (!('IntersectionObserver' in window)) return;
+        const io = new IntersectionObserver((entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) { e.target.classList.add('reveal-in'); io.unobserve(e.target); }
+          }
+        }, { threshold: 0.1, rootMargin: '0px 0px -8% 0px' });
+        const fold = window.innerHeight * 0.88;
+        document.querySelectorAll('section').forEach((el) => {
+          if (el.getBoundingClientRect().top < fold) return; // already visible — never hide
+          el.classList.add('reveal-init');
+          io.observe(el);
+        });
+      })();
+    </script>
+    <style is:global>
+      .reveal-init { opacity: 0; transform: translateY(22px); will-change: opacity, transform; }
+      .reveal-in { opacity: 1; transform: none; transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1); }
+      @media (prefers-reduced-motion: reduce) {
+        .reveal-init, .reveal-in { opacity: 1; transform: none; transition: none; }
+      }
+    </style>
   </body>
 </html>

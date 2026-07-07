@@ -1,6 +1,9 @@
 ---
-// Streaming + HUD showcase: the live console screenshot and the desktop
-// pill preview, with the latency claim that differentiates rekody.
+// Streaming + HUD showcase: the live console and the desktop pill preview,
+// both rendered as DOM (ConsoleCard / PillHud) — retina-sharp, animated,
+// honestly labeled. Replaces the stale cli-streaming.png / hud-pill.png.
+import ConsoleCard from './ConsoleCard.astro';
+import PillHud from './PillHud.astro';
 ---
 
 <section class="streaming" id="streaming">
@@ -13,7 +16,7 @@
       final text lands at your cursor ~100ms after you release the key.
     </p>
     <figure class="shot">
-      <img src="/cli-streaming.png" alt="rekody live console — words streaming in while dictating, with live waveform and timer" loading="lazy" />
+      <ConsoleCard />
       <figcaption>The live console: words appear as you speak, older lines scroll away.</figcaption>
     </figure>
     <div class="hud-teaser">
@@ -26,7 +29,7 @@
           screen shares. The open-source daemon already speaks to it.
         </p>
       </div>
-      <img class="hud-pill" src="/hud-pill.png" alt="rekody desktop HUD pill — recording timer, live waveform, streaming words" loading="lazy" />
+      <div class="hud-pill-wrap"><PillHud /></div>
     </div>
   </div>
 </section>
@@ -39,11 +42,10 @@
   .display em { color: var(--color-teal); }
   .lede { font-size: 17px; line-height: 1.6; color: var(--color-ink-mute); max-width: 640px; margin: 0; }
   .shot { margin: 24px 0 0; }
-  .shot img { width: 100%; border-radius: 14px; box-shadow: 0 24px 60px rgba(15, 23, 23, 0.18); }
   .shot figcaption { font-family: var(--font-mono); font-size: 12px; color: var(--color-ink-faint); margin-top: 12px; text-align: center; }
   .hud-teaser { display: flex; align-items: center; gap: 40px; margin-top: 48px; padding: 32px; border: 1px solid var(--color-hairline); border-radius: 16px; background: var(--color-cream); flex-wrap: wrap; }
   .hud-copy { flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 10px; }
   .hud-copy h3 { margin: 0; font-size: 24px; }
   .hud-copy p { margin: 0; color: var(--color-ink-mute); line-height: 1.55; }
-  .hud-pill { flex: 1; min-width: 280px; max-width: 420px; }
+  .hud-pill-wrap { flex: 1; min-width: 280px; display: flex; justify-content: center; }
 </style>
