@@ -9,6 +9,7 @@
 //! clients are dropped) and every failure path logs and continues.
 
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
@@ -221,6 +222,7 @@ pub fn spawn_helper(socket_path: &Path) -> std::io::Result<Option<HelperHandle>>
 /// sent through [`HudServer::send`]. Writes never block the caller: client
 /// sockets are non-blocking and any client whose write fails (including
 /// `WouldBlock`, i.e. a stalled helper) is dropped.
+#[cfg(unix)]
 pub struct HudServer {
     clients: Arc<Mutex<Vec<UnixStream>>>,
     shutdown: Arc<AtomicBool>,
@@ -228,6 +230,7 @@ pub struct HudServer {
     helper: Mutex<Option<HelperHandle>>,
 }
 
+#[cfg(unix)]
 impl HudServer {
     /// Bind the listener and start the accept loop. Creates parent
     /// directories and removes a stale socket file before binding. Each new
@@ -341,6 +344,7 @@ impl HudServer {
     }
 }
 
+#[cfg(unix)]
 impl Drop for HudServer {
     fn drop(&mut self) {
         self.send(&HudEvent::Bye);
@@ -352,6 +356,28 @@ impl Drop for HudServer {
         }
         let _ = std::fs::remove_file(&self.socket_path);
     }
+}
+
+// ── Non-unix (Windows): no HUD pill in the Phase-1 CLI ───────────────────────
+//
+// The HUD IPC is a unix domain socket; the pill is a separate native app that
+// doesn't exist on Windows yet. This no-op keeps the daemon's HUD code paths
+// compiling — the daemon just runs headless (dictation still works fully).
+// `new` fails so callers fall through to "HUD off" exactly like a missing
+// helper on macOS.
+#[cfg(not(unix))]
+pub struct HudServer;
+
+#[cfg(not(unix))]
+impl HudServer {
+    pub fn new(_socket_path: &Path, _position: &str) -> anyhow::Result<Self> {
+        anyhow::bail!("the HUD pill is not available on this platform")
+    }
+    pub fn client_count(&self) -> usize {
+        0
+    }
+    pub fn attach_helper(&self, _handle: HelperHandle) {}
+    pub fn send(&self, _event: &HudEvent) {}
 }
 
 #[cfg(test)]

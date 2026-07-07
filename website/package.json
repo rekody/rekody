@@ -10,17 +10,20 @@
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
-    "astro": "^6.1.10"
+    "astro": "^6.4.8"
   },
   "devDependencies": {
     "@astrojs/sitemap": "^3.7.2",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.2.1",
-    "tailwindcss": "^4.2.1"
+    "tailwindcss": "^4.2.1",
+    "vite": "^7.3.6"
   },
   "pnpm": {
     "overrides": {
-      "esbuild": ">=0.28.1"
+      "esbuild": ">=0.28.1",
+      "vite": ">=7.3.5 <8",
+      "js-yaml": ">=4.2.0 <5"
     }
   }
 }

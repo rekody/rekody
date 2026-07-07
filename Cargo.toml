@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.12"
+version = "0.5.13"
 edition = "2024"
 license = "MIT"
 authors = ["Tony Kipkemboi"]
@@ -33,5 +33,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 thiserror = "2"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 clap = { version = "4", features = ["derive"] }

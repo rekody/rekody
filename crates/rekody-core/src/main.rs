@@ -15,7 +15,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use rekody_core::onboarding;
-use rekody_core::{Pipeline, RekodyConfig, load_config};
+use rekody_core::{Pipeline, RekodyConfig, TRIGGER_LABEL, load_config};
 
 // ── CLI definition ─────────────────────────────────────────────────────────
 
@@ -282,16 +282,28 @@ fn cmd_fix(text: Option<String>, n: usize, play: bool) -> Result<()> {
     println!("  {BRAND}│{RESET}");
 
     if play {
-        println!("  {BRAND}│{RESET}   {DIM}playing clip…{RESET}");
-        let status = std::process::Command::new("afplay")
-            .arg(&pair.audio_path)
-            .status();
-        if !status.map(|s| s.success()).unwrap_or(false) {
-            println!(
-                "  {BRAND}│{RESET}   {WARN}couldn't play {}{RESET}",
-                pair.audio_path.display()
-            );
+        #[cfg(target_os = "macos")]
+        {
+            println!("  {BRAND}│{RESET}   {DIM}playing clip…{RESET}");
+            let status = std::process::Command::new("afplay")
+                .arg(&pair.audio_path)
+                .status();
+            if !status.map(|s| s.success()).unwrap_or(false) {
+                println!(
+                    "  {BRAND}│{RESET}   {WARN}couldn't play {}{RESET}",
+                    pair.audio_path.display()
+                );
+            }
         }
+        // Clip playback isn't wired up off macOS yet — say so plainly rather
+        // than shelling out to a player that isn't there. The transcript is
+        // already shown above, which is what `fix` actually needs.
+        #[cfg(not(target_os = "macos"))]
+        println!(
+            "  {BRAND}│{RESET}   {DIM}clip playback isn't supported on this platform yet — \
+             the clip is at {}{RESET}",
+            pair.audio_path.display()
+        );
     }
 
     let new_text = match text {
@@ -1333,6 +1345,53 @@ async fn cmd_changelog(all: bool) -> Result<()> {
     Ok(())
 }
 
+/// Look up the expected SHA-256 for `filename` in a `SHA256SUMS` body.
+///
+/// Lines follow the `shasum`/`sha256sum` format: `<hex>␠␠<filename>` (two
+/// spaces for binary mode, but we tolerate any whitespace and a leading `*`).
+/// SHA256SUMS lists every release asset, so we match only the file we
+/// downloaded. Returns the lowercased hex digest, or `None` if not listed.
+fn sha256sums_lookup(sums: &str, filename: &str) -> Option<String> {
+    for line in sums.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let hash = parts.next()?;
+        // The name field may carry a leading `*` (binary-mode marker).
+        let name = parts.next()?.trim_start_matches('*');
+        if name == filename {
+            return Some(hash.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+/// Compute the SHA-256 of a file by shelling out to `shasum -a 256`
+/// (falling back to `sha256sum`), mirroring `install.sh`. Returns the
+/// lowercased hex digest, or `None` if neither tool is available or the
+/// command fails. We shell out rather than pull in a new crate so the
+/// updater matches the install script byte-for-byte and adds no deps.
+fn sha256_of_file(path: &std::path::Path) -> Option<String> {
+    fn run(cmd: &str, args: &[&str], path: &std::path::Path) -> Option<String> {
+        let out = std::process::Command::new(cmd)
+            .args(args)
+            .arg(path)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let stdout = String::from_utf8(out.stdout).ok()?;
+        stdout
+            .split_whitespace()
+            .next()
+            .map(|s| s.to_ascii_lowercase())
+    }
+    run("shasum", &["-a", "256"], path).or_else(|| run("sha256sum", &[], path))
+}
+
 async fn cmd_update(check_only: bool) -> Result<()> {
     const CURRENT: &str = env!("CARGO_PKG_VERSION");
     const REPO: &str = "rekody/rekody";
@@ -1492,11 +1551,71 @@ async fn cmd_update(check_only: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Unpack into a temp dir
+    // Stage the download into a temp dir before touching anything on disk.
     let tmp = std::env::temp_dir().join(format!("rekody-update-{latest_tag}"));
     std::fs::create_dir_all(&tmp)?;
     let tarball_path = tmp.join(&tarball);
     std::fs::write(&tarball_path, &bytes)?;
+
+    // Verify the tarball against the published SHA256SUMS BEFORE extracting.
+    // A MITM or a compromised mirror could otherwise serve a tampered binary;
+    // SECURITY.md scopes "update mechanism integrity" and "tampered tarballs,
+    // checksums" as in-scope, and install.sh already verifies this way. We fail
+    // closed: every published release ships a SHA256SUMS, so a missing or
+    // unmatched checksum means something is wrong and we must not install.
+    let sums_url = format!("https://github.com/{REPO}/releases/download/v{latest_tag}/SHA256SUMS");
+    print!("  Verifying checksum… ");
+    let sums_resp = client.get(&sums_url).send().await?;
+    if !sums_resp.status().is_success() {
+        println!("{}", style("failed").red());
+        println!(
+            "  {} Could not fetch SHA256SUMS (HTTP {}) — refusing to install an unverified binary.",
+            style("✗").red(),
+            sums_resp.status()
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Ok(());
+    }
+    let sums_text = sums_resp.text().await?;
+    let expected = match sha256sums_lookup(&sums_text, &tarball) {
+        Some(h) => h,
+        None => {
+            println!("{}", style("failed").red());
+            println!(
+                "  {} {} is not listed in SHA256SUMS — refusing to install an unverified binary.",
+                style("✗").red(),
+                tarball
+            );
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Ok(());
+        }
+    };
+
+    let actual = match sha256_of_file(&tarball_path) {
+        Some(h) => h,
+        None => {
+            println!("{}", style("failed").red());
+            println!(
+                "  {} Could not compute SHA-256 (need `shasum` or `sha256sum` on PATH) — refusing to install an unverified binary.",
+                style("✗").red()
+            );
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Ok(());
+        }
+    };
+
+    if !actual.eq_ignore_ascii_case(&expected) {
+        println!("{}", style("failed").red());
+        println!(
+            "  {} Checksum mismatch — aborting for safety. The download may be corrupt or tampered with.",
+            style("✗").red()
+        );
+        println!("    Expected: {expected}");
+        println!("    Got:      {actual}");
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Ok(());
+    }
+    println!("{}", style("ok").green());
 
     let status = std::process::Command::new("tar")
         .args([
@@ -1945,11 +2064,11 @@ fn stt_display_name(config: &RekodyConfig) -> String {
     }
 }
 
-fn format_activation_mode(mode: &str) -> &str {
+fn format_activation_mode(mode: &str) -> String {
     match mode.to_lowercase().as_str() {
-        "toggle" => "toggle — tap ⌥ + space to start/stop",
-        "push_to_talk" | "ptt" | "hold" => "push-to-talk — hold ⌥ + space",
-        _ => "both — hold ⌥ + space to talk, quick-tap for hands-free",
+        "toggle" => format!("toggle — tap {TRIGGER_LABEL} to start/stop"),
+        "push_to_talk" | "ptt" | "hold" => format!("push-to-talk — hold {TRIGGER_LABEL}"),
+        _ => format!("both — hold {TRIGGER_LABEL} to talk, quick-tap for hands-free"),
     }
 }
 
@@ -2223,7 +2342,7 @@ impl Ui {
         };
         let trigger = match config.trigger_key.to_lowercase().as_str() {
             "fn_key" | "fn" => "🌐 fn".to_string(),
-            _ => "⌥ + space".to_string(),
+            _ => TRIGGER_LABEL.to_string(),
         };
         let chip_list = [(true, engine), (false, cleanup), (false, trigger)];
 
@@ -2245,10 +2364,10 @@ impl Ui {
             env!("CARGO_PKG_VERSION"),
         );
         println!();
-        println!("  {DIM}ready — hold ⌥ + space to talk · quick-tap for hands-free{RESET}");
+        println!("  {DIM}ready — hold {TRIGGER_LABEL} to talk · quick-tap for hands-free{RESET}");
         println!();
         println!(
-            "  {SUBTLE}⌥ + space dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+            "  {SUBTLE}{TRIGGER_LABEL} dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
             sep = sep()
         );
         println!();
@@ -2429,7 +2548,7 @@ impl Ui {
         let skill_seg = rekody_core::skill::active_name()
             .map(|n| format!("◆ {n} · "))
             .unwrap_or_default();
-        let right_plain = format!("{skill_seg}release ⌥ + space · {words:>3} words");
+        let right_plain = format!("{skill_seg}release {TRIGGER_LABEL} · {words:>3} words");
         let left_w = wave_w + if wave_w > 0 { 2 } else { 0 } + verb.chars().count();
         let mut footer = String::new();
         let mut footer_w = left_w;
@@ -2999,5 +3118,47 @@ impl tracing::field::Visit for EventVisitor {
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
         self.fields
             .insert(field.name().to_string(), format!("{:.1}", value));
+    }
+}
+
+#[cfg(test)]
+mod update_checksum_tests {
+    use super::sha256sums_lookup;
+
+    // Shape of a real rekody SHA256SUMS asset: two-space separator,
+    // one line per release tarball.
+    const SUMS: &str = "\
+abc123def4567890000000000000000000000000000000000000000000000000  rekody-0.5.13-macos-aarch64.tar.gz
+fedc000000000000000000000000000000000000000000000000000000000000  rekody-0.5.13-macos-x86_64.tar.gz
+";
+
+    #[test]
+    fn matches_the_requested_file_only() {
+        assert_eq!(
+            sha256sums_lookup(SUMS, "rekody-0.5.13-macos-aarch64.tar.gz").as_deref(),
+            Some("abc123def4567890000000000000000000000000000000000000000000000000")
+        );
+        assert_eq!(
+            sha256sums_lookup(SUMS, "rekody-0.5.13-macos-x86_64.tar.gz").as_deref(),
+            Some("fedc000000000000000000000000000000000000000000000000000000000000")
+        );
+    }
+
+    #[test]
+    fn missing_file_returns_none() {
+        assert_eq!(
+            sha256sums_lookup(SUMS, "rekody-0.5.13-linux-aarch64.tar.gz"),
+            None
+        );
+    }
+
+    #[test]
+    fn tolerates_binary_marker_and_blank_lines() {
+        let sums = "\n# comment\nDEAD00000000000000000000000000000000000000000000000000000000BEEF *rekody-0.5.99-macos-aarch64.tar.gz\n";
+        assert_eq!(
+            sha256sums_lookup(sums, "rekody-0.5.99-macos-aarch64.tar.gz").as_deref(),
+            // lookup lowercases the digest for case-insensitive comparison
+            Some("dead00000000000000000000000000000000000000000000000000000000beef")
+        );
     }
 }

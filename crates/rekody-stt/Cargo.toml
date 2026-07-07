@@ -1,5 +1,6 @@
 [package]
 name = "rekody-stt"
+publish = false        # internal app crate — never published to crates.io
 description = "Speech-to-text engines for rekody (local Whisper + cloud)"
 version.workspace = true
 edition.workspace = true

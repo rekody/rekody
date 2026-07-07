@@ -10,6 +10,16 @@ pub use rekody_hotkey::{ActivationMode, HotkeyConfig, HotkeyEvent, TriggerKey};
 pub use rekody_inject::InjectionMethod;
 pub use rekody_stt::WhisperModel;
 
+/// Human-readable label for the dictation trigger, per platform. macOS uses
+/// ⌥+Space; on Windows ⌥Space is unavailable (Alt+Space opens the window menu,
+/// Win+Space switches input methods), so the keyboard hook uses Ctrl+Space.
+/// Use this anywhere trigger keys are shown to the user so help/onboarding/the
+/// live pill all name the key that actually works on the running platform.
+#[cfg(target_os = "windows")]
+pub const TRIGGER_LABEL: &str = "Ctrl + space";
+#[cfg(not(target_os = "windows"))]
+pub const TRIGGER_LABEL: &str = "⌥ + space";
+
 pub mod bench;
 pub mod command_mode;
 pub mod config_tui;
@@ -706,31 +716,38 @@ impl Pipeline {
         // via save_training_data = false). ~320KB per 5s of speech.
         let mut utterance_samples: Vec<f32> = Vec::new();
 
+        // Release tail: when the key is released, audio for the last word(s)
+        // is still draining through the capture pipeline (cpal callback →
+        // resampler → tap). Cutting the mic instantly drops it. Instead we
+        // keep capturing for a short window, let the pipeline empty, THEN
+        // stop + flush. `stop_deadline` is the absolute time to do that.
+        const RELEASE_TAIL: std::time::Duration = std::time::Duration::from_millis(180);
+        let mut stop_deadline: Option<tokio::time::Instant> = None;
+
         loop {
             tokio::select! {
                 hotkey_event = hotkey_rx.recv() => {
                     match hotkey_event {
                         Some(HotkeyEvent::RecordStart) => {
-                            tracing::info!(source = "hotkey", "recording started");
-                            recording = true;
-                            utterance_samples.clear();
-                            audio_capture.start_recording();
+                            if stop_deadline.take().is_some() {
+                                // Re-pressed within the release tail — the mic
+                                // never stopped, so treat it as the same
+                                // utterance (forgives a brief accidental lift).
+                                tracing::debug!("recording resumed within release tail");
+                            } else {
+                                tracing::info!(source = "hotkey", "recording started");
+                                recording = true;
+                                utterance_samples.clear();
+                                audio_capture.start_recording();
+                            }
                         }
                         Some(HotkeyEvent::RecordStop) => {
-                            tracing::info!(source = "hotkey", "recording stopped");
-                            audio_capture.stop_recording();
-                            // Forward whatever the tap already queued, then
-                            // flush the utterance.
-                            while let Ok(chunk) = live_rx.try_recv() {
-                                if self.config.save_training_data {
-                                    utterance_samples.extend_from_slice(&chunk);
-                                }
-                                let _ = stream_tx.send(streaming::StreamMsg::Samples(chunk));
-                            }
-                            recording = false;
-                            if stream_tx.send(streaming::StreamMsg::Flush).is_err() {
-                                anyhow::bail!("nemotron engine thread died");
-                            }
+                            // Don't cut the mic yet — the last word(s) may still
+                            // be draining through the pipeline. Keep capturing
+                            // for RELEASE_TAIL, then stop + flush (deadline
+                            // branch below). The tap keeps forwarding meanwhile.
+                            stop_deadline =
+                                Some(tokio::time::Instant::now() + RELEASE_TAIL);
                         }
                         Some(HotkeyEvent::RecordLatched) => {
                             // Display-only: recording already runs; tells the
@@ -751,6 +768,29 @@ impl Pipeline {
                             tracing::warn!("hotkey channel closed, shutting down");
                             break;
                         }
+                    }
+                }
+
+                // Release tail elapsed: the pipeline has drained, so stop the
+                // mic, sweep up any final chunks, and flush the utterance.
+                () = async {
+                    match stop_deadline {
+                        Some(d) => tokio::time::sleep_until(d).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    tracing::info!(source = "hotkey", "recording stopped");
+                    audio_capture.stop_recording();
+                    while let Ok(chunk) = live_rx.try_recv() {
+                        if self.config.save_training_data {
+                            utterance_samples.extend_from_slice(&chunk);
+                        }
+                        let _ = stream_tx.send(streaming::StreamMsg::Samples(chunk));
+                    }
+                    recording = false;
+                    stop_deadline = None;
+                    if stream_tx.send(streaming::StreamMsg::Flush).is_err() {
+                        anyhow::bail!("nemotron engine thread died");
                     }
                 }
 

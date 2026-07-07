@@ -1,5 +1,6 @@
 [package]
 name = "rekody-audio"
+publish = false        # internal app crate — never published to crates.io
 description = "Audio capture, resampling, and VAD for rekody"
 version.workspace = true
 edition.workspace = true

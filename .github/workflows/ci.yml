@@ -14,26 +14,60 @@ permissions:
   contents: read
 
 jobs:
+  # Supply-chain gate: scans Cargo.lock for security advisories, disallowed
+  # licenses, banned/duplicate crates, and unknown sources (config: deny.toml).
+  # Reads the lockfile only — no compilation — so it runs fast on Ubuntu.
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2.0.20
+        with:
+          command: check advisories bans licenses sources
+
   check:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       # Toolchain (pinned version + rustfmt/clippy) comes from rust-toolchain.toml
       # so CI and local dev run the identical clippy ruleset. `rustup show`
       # installs the pinned channel and its components.
       - run: rustup show
 
+      # Surface the toolchain fingerprint into the job env so the cache key can
+      # reference it. `ImageVersion` is a runner-injected env var — it is NOT in
+      # the `env` context at expression-eval time, so `${{ env.ImageVersion }}`
+      # in a `key:` silently resolves to an empty string (the caches ended up
+      # keyed `macOS--cargo-<hash>`, one shared bucket). Echoing it (plus the
+      # exact Xcode build) into $GITHUB_ENV here makes it visible to later
+      # steps' expressions. The Xcode build id is what actually determines the
+      # clang resource-dir path baked into whisper.cpp's cached cmake artifacts.
+      - name: Resolve toolchain cache key
+        run: |
+          echo "IMAGE_VER=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+          echo "XCODE_BUILD=$(xcodebuild -version 2>/dev/null | tr '\n' '-' | tr -d ' ')" >> "$GITHUB_ENV"
+
       - name: Cache cargo registry and target
-        uses: actions/cache@v4
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/Library/Caches/ort.pyke.io
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # ort.pyke.io: the `ort` crate downloads onnxruntime prebuilts there
+          # and cached target/ link args reference that absolute path — restoring
+          # target without it is the other half of the intermittent linker flake.
+          # IMAGE_VER + XCODE_BUILD in the key: when the runner image (and its
+          # Xcode/clang) changes, build a fresh cache instead of restoring a
+          # `target/` whose cached C/C++ artifacts (whisper.cpp via cmake) baked
+          # in the old Xcode's clang resource-dir path — the cause of the
+          # intermittent `ld: library 'clang_rt.osx' not found` /
+          # `search path .../clang/NN/lib/darwin not found` linker failures.
+          key: ${{ runner.os }}-${{ env.IMAGE_VER }}-${{ env.XCODE_BUILD }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-${{ env.IMAGE_VER }}-${{ env.XCODE_BUILD }}-cargo-
 
       - run: cargo fmt --check
       - run: cargo clippy --workspace -- -D warnings
@@ -76,3 +110,98 @@ jobs:
 
           [ $FAIL -eq 0 ] && echo "OK: all filename patterns are consistent"
           exit $FAIL
+
+  # Windows port spike: build the portable crates + the new Windows keyboard
+  # hook (rekody-hotkey) on a real Windows runner. The STT crate (whisper.cpp +
+  # onnxruntime C deps) and rekody-core are gated/ported in a later step.
+  windows-spike:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: rustup show
+      # Surface the runner image version into the job env — `${{ env.ImageVersion }}`
+      # is empty in a `key:` expression (runner-injected vars aren't in the `env`
+      # context), which collapsed the cache to one `Windows--cargo-<hash>` bucket
+      # shared across image/MSVC-toolchain versions. Key on the real image version
+      # so a toolchain bump rebuilds the whisper.cpp/onnxruntime C artifacts fresh.
+      - name: Resolve toolchain cache key
+        shell: pwsh
+        run: |
+          $ver = if ($env:ImageVersion) { $env:ImageVersion } else { "unknown" }
+          echo "IMAGE_VER=$ver" >> $env:GITHUB_ENV
+      - name: Cache cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ env.IMAGE_VER }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.IMAGE_VER }}-cargo-
+      - name: Build portable crates + Windows hotkey hook
+        run: cargo build -p rekody-hotkey -p rekody-inject -p rekody-audio -p rekody-llm
+      - name: Clippy the Windows hotkey hook
+        run: cargo clippy -p rekody-hotkey --all-targets -- -D warnings
+      # Runtime harness: actually RUN the hook on real Windows and drive it with
+      # synthesized Ctrl+Space (SendInput). The Windows analog of the macOS
+      # keysim test — proves the WH_KEYBOARD_LL hook fires and the activation
+      # state machine emits the right events for every mode.
+      - name: Runtime test — Windows keyboard hook
+        shell: pwsh
+        run: |
+          cargo build -p rekody-hotkey --example win_hook_check
+          foreach ($m in @("ptt","toggle","both","deadman")) {
+            Write-Host "===== REKODY_TEST_MODE=$m ====="
+            $env:REKODY_TEST_MODE = $m
+            cargo run -q -p rekody-hotkey --example win_hook_check
+            if ($LASTEXITCODE -ne 0) { throw "win_hook_check FAILED for mode '$m'" }
+          }
+      # Runtime harness for text injection: create a real EDIT control, run the
+      # public inject_text (clipboard + SendInput Ctrl+V), and read the control
+      # back to prove the transcript actually lands in a focused Win32 app —
+      # the injection analog of the hotkey hook test above.
+      - name: Runtime test — Windows text injection
+        shell: pwsh
+        run: |
+          cargo run -q -p rekody-inject --example win_inject_check
+          if ($LASTEXITCODE -ne 0) { throw "win_inject_check FAILED (exit $LASTEXITCODE)" }
+      # STT C-deps on Windows (the biggest port unknown): whisper.cpp via
+      # whisper-rs-sys (cmake/MSVC) + onnxruntime via ort/parakeet-rs.
+      - name: Spike — build rekody-stt (whisper.cpp + onnxruntime) on Windows
+        run: cargo build -p rekody-stt --features nemotron
+      # The full daemon binary — surfaces any remaining rekody-core mac gating.
+      - name: Spike — build the rekody-core binary on Windows
+        run: cargo build -p rekody-core
+      # Prove the *shippable* artifact: a release build produces rekody.exe and
+      # the binary actually runs (clap init + static setup) without crashing.
+      # --version / --help short-circuit before the daemon starts, so this is a
+      # safe smoke test in headless CI.
+      - name: Spike — release build + smoke-run rekody.exe
+        shell: pwsh
+        run: |
+          cargo build --release -p rekody-core
+          $exe = "target/release/rekody.exe"
+          if (!(Test-Path $exe)) { throw "rekody.exe was not produced" }
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "rekody --version failed (exit $LASTEXITCODE)" }
+          & $exe --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "rekody --help failed (exit $LASTEXITCODE)" }
+          Write-Host "rekody.exe built in release and runs"
+      # Publish the release binary as a CI artifact so a real rekody.exe can be
+      # pulled into the local Win11 VM for Tier-3 end-to-end testing (audio →
+      # STT → inject) — no public release and no code signing needed for
+      # internal validation. This is NOT a distribution channel; the tagged
+      # release flow (release.yml) stays macOS-only until the VM pass signs off.
+      - name: Package rekody.exe for VM testing
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/rekody.exe dist/
+          if (Test-Path README.md) { Copy-Item README.md dist/ }
+      - name: Upload rekody.exe artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rekody-windows-x86_64
+          path: dist/
+          retention-days: 14
