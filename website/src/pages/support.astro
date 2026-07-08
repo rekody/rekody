@@ -1,0 +1,108 @@
+---
+import Base from '../layouts/Base.astro';
+import LegalPage from '../components/LegalPage.astro';
+
+const toc = [
+  { id: 'setup',      label: 'Set up the keyboard' },
+  { id: 'dictate',    label: 'How to dictate' },
+  { id: 'full-access', label: 'Why Full Access' },
+  { id: 'data',       label: 'Your data' },
+  { id: 'troubleshooting', label: 'Troubleshooting' },
+  { id: 'contact',    label: 'Contact' },
+];
+
+const title = 'Support — rekody';
+const description = 'How to set up and use the rekody keyboard for iPhone, plus answers to common questions.';
+---
+
+<Base title={title} description={description}>
+  <LegalPage
+    eyebrow="Support"
+    title="Help with rekody."
+    updated="July 8, 2026"
+    summary="rekody is a voice keyboard for iPhone. Speak, and it types the words where your cursor is. Everything runs on your device."
+    toc={toc}
+  >
+    <section id="setup">
+      <h2>Set up the keyboard</h2>
+      <p>Two things turn rekody on. The app walks you through both the first time you open it.</p>
+      <ol>
+        <li>Open <strong>Settings › General › Keyboard › Keyboards › Add New Keyboard</strong> and choose <strong>Rekody</strong>.</li>
+        <li>Tap <strong>Rekody</strong> in that list and turn on <strong>Allow Full Access</strong>.</li>
+      </ol>
+      <p>
+        Now in any app, tap the globe on your keyboard to switch to rekody. You'll see the teal talk bar.
+      </p>
+    </section>
+
+    <section id="dictate">
+      <h2>How to dictate</h2>
+      <ol>
+        <li>Tap the teal <strong>talk bar</strong>. rekody opens and starts listening.</li>
+        <li>Speak. Your words appear live as you talk.</li>
+        <li>Stop talking, or tap <strong>Stop</strong>. rekody finishes on its own after a short pause.</li>
+        <li>Go back to your app. rekody types the text the moment the keyboard returns.</li>
+      </ol>
+      <p>
+        You can glance back to your app while you're still talking. The live words follow you in the Dynamic
+        Island and the keyboard bar, and you can stop right from there.
+      </p>
+      <div class="callout">
+        <p>
+          The first time you dictate, rekody downloads the on-device voice model, about 1.1 GB. Stay on Wi-Fi
+          for that one download. After that, dictation works fully offline.
+        </p>
+      </div>
+    </section>
+
+    <section id="full-access">
+      <h2>Why Full Access</h2>
+      <p>
+        iOS only lets a keyboard place text into another app once you turn on <strong>Allow Full Access</strong>.
+        rekody uses it for exactly that. It does not send your audio or your words anywhere, because rekody has
+        no server to send them to. Everything happens on your iPhone.
+      </p>
+    </section>
+
+    <section id="data">
+      <h2>Your data</h2>
+      <p>
+        Your audio never leaves your iPhone. Your dictation history is stored locally in the app, and you can
+        delete any entry, or all of them, at any time. There are no accounts and no tracking. For the full
+        picture, see the <a href="/privacy">privacy page</a>.
+      </p>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <h3>The text didn't get typed</h3>
+      <p>
+        Make sure <strong>Allow Full Access</strong> is on for rekody in Settings › General › Keyboard ›
+        Keyboards › Rekody. Without it, iOS blocks the keyboard from placing text.
+      </p>
+      <h3>rekody won't record</h3>
+      <p>
+        Check that microphone access is on in <strong>Settings › Rekody</strong>. The app shows a reminder if
+        it's off.
+      </p>
+      <h3>The talk bar is greyed out</h3>
+      <p>
+        rekody turns itself off in password and other secure fields on purpose. Switch to a normal text field
+        and it comes back.
+      </p>
+      <h3>Dictation seems stuck the first time</h3>
+      <p>
+        That's the one-time model download finishing. Keep the app open on Wi-Fi. Your words are captured while
+        it loads, so nothing you say is lost.
+      </p>
+    </section>
+
+    <section id="contact">
+      <h2>Contact</h2>
+      <p>
+        Email <a href="mailto:support@rekody.com">support@rekody.com</a>. Tell us your iPhone model and iOS
+        version and we'll help.
+      </p>
+    </section>
+  </LegalPage>
+</Base>

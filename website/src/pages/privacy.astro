@@ -4,54 +4,83 @@ import LegalPage from '../components/LegalPage.astro';
 
 const toc = [
   { id: 'short-version', label: 'The short version' },
-  { id: 'on-your-mac',   label: 'Everything runs on your Mac' },
+  { id: 'on-your-iphone', label: 'On your iPhone' },
+  { id: 'on-your-mac',   label: 'On your Mac' },
   { id: 'cloud-engines', label: 'If you opt into cloud engines' },
   { id: 'website',       label: 'This website' },
   { id: 'contact',       label: 'Questions' },
 ];
 
 const title = 'Privacy — rekody';
-const description = 'rekody is an open-source CLI that runs entirely on your Mac. It has no accounts or telemetry, and we don\'t run servers.';
+const description = 'rekody runs on your own device. No accounts, no telemetry, no servers. Your voice never reaches us.';
 ---
 
 <Base title={title} description={description}>
   <LegalPage
     eyebrow="Privacy"
-    title="Everything stays on your Mac."
-    updated="May 30, 2026"
-    summary="rekody is open-source software that runs entirely on your Mac. There are no accounts or telemetry, and we don't run servers. We can't see your data because it never reaches us."
+    title="Your voice stays on your device."
+    updated="July 8, 2026"
+    summary="rekody runs on your own device. There are no accounts, no telemetry, and no servers. We can't see your data because it never reaches us."
     toc={toc}
   >
     <section id="short-version">
       <h2>The short version</h2>
       <p>
-        rekody is a free, MIT-licensed CLI (<a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>).
-        It has no sign-up and no analytics inside the app, and it never checks in with a license server. Every line of code that touches
-        your audio is open for inspection.
+        rekody turns your speech into text on the device in your hand. It has no sign-up, no analytics inside
+        the app, and it never checks in with a license server. We don't run servers that could receive your
+        audio, so your words have nowhere to go but into the app you're typing in.
       </p>
     </section>
 
-    <section id="on-your-mac">
-      <h2>Everything runs on your Mac</h2>
+    <section id="on-your-iphone">
+      <h2>On your iPhone</h2>
       <p>
-        Audio capture, voice detection, transcription, cleanup, and typing the text at your cursor all happen
-        on your device. With the default on-device engine — or the on-device Apple Intelligence cleanup —
-        <strong>nothing leaves your machine at all</strong>.
+        The rekody keyboard app records only while you dictate, transcribes on the device with an on-device
+        speech model, and places the finished text where your cursor is. <strong>Your audio never leaves your
+        iPhone.</strong>
+      </p>
+      <ul>
+        <li>The speech model is downloaded once and runs fully offline. No audio or transcript is ever uploaded.</li>
+        <li>Your dictation history is a local file inside the app. It stays on your iPhone, and you can delete any entry, or all of them, at any time.</li>
+        <li>There are no accounts, no sign-in, and no analytics or tracking. rekody asks for no personal information.</li>
+      </ul>
+      <h3>Why the keyboard asks for Full Access</h3>
+      <p>
+        iOS only lets a keyboard place text into another app once you turn on <strong>Allow Full Access</strong>.
+        rekody uses it for exactly that, and for the small shared container that hands your finished words from
+        the app to the keyboard. It does not use Full Access to send anything off your device, because rekody has
+        no server to send it to.
+      </p>
+      <div class="callout">
+        <p>
+          rekody is off in password and other secure fields by design. It won't offer to dictate where iOS marks
+          the input as secure.
+        </p>
+      </div>
+    </section>
+
+    <section id="on-your-mac">
+      <h2>On your Mac</h2>
+      <p>
+        rekody for Mac is a free, MIT-licensed tool (<a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>).
+        Audio capture, voice detection, transcription, cleanup, and typing the text at your cursor all happen on
+        your device. With the default on-device engine, or the on-device Apple Intelligence cleanup,
+        <strong>nothing leaves your machine</strong>.
       </p>
       <ul>
         <li>Your dictation history is a local file: <code>~/.config/rekody/history.json</code>. Delete it whenever you like.</li>
         <li>API keys you add are stored in the macOS Keychain, never in plaintext on disk.</li>
-        <li>The only network calls the app makes by itself are checking GitHub for new releases when you run <code>rekody update</code>.</li>
+        <li>The only network call the app makes on its own is checking GitHub for new releases when you run <code>rekody update</code>.</li>
       </ul>
     </section>
 
     <section id="cloud-engines">
       <h2>If you opt into cloud engines</h2>
       <p>
-        You can optionally configure cloud speech-to-text or LLM providers (Deepgram, Groq, OpenAI, Anthropic, and others)
-        using <strong>your own API keys</strong>. When you do, your audio or text goes directly from your Mac to that
-        provider under their terms — there is no rekody server in the middle, because we don't run any.
-        Prefer to stay fully local? Use local Whisper plus Apple's on-device model or Ollama, and nothing is sent anywhere.
+        On Mac, you can optionally configure cloud speech-to-text or LLM providers (Deepgram, Groq, OpenAI,
+        Anthropic, and others) using <strong>your own API keys</strong>. When you do, your audio or text goes
+        directly from your Mac to that provider under their terms. There is no rekody server in the middle,
+        because we don't run any. The iPhone app is on-device only and has no cloud engines.
       </p>
     </section>
 
@@ -66,9 +95,10 @@ const description = 'rekody is an open-source CLI that runs entirely on your Mac
     <section id="contact">
       <h2>Questions</h2>
       <p>
-        Open an issue or discussion on <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">GitHub</a>.
-        For security reports, please use a <a href="https://github.com/rekody/rekody/security/advisories/new" target="_blank" rel="noopener noreferrer">private security advisory</a> —
-        details in <a href="https://github.com/rekody/rekody/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">SECURITY.md</a>.
+        Email <a href="mailto:hi@rekody.com">hi@rekody.com</a>, or open an issue on
+        <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">GitHub</a> for the Mac tool.
+        For security reports, email <a href="mailto:security@rekody.com">security@rekody.com</a> or use a
+        <a href="https://github.com/rekody/rekody/security/advisories/new" target="_blank" rel="noopener noreferrer">private security advisory</a>.
       </p>
     </section>
   </LegalPage>
