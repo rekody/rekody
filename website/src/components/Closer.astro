@@ -1,6 +1,7 @@
 ---
-// Closer — the second ask, at peak conviction. id="install" keeps every
-// existing Download anchor working (nav, hero, use-cases CTA).
+// Closer — the second ask, at peak conviction. Two tracks, two audiences:
+// the Mac app (direct DMG download) and the open-source CLI via Homebrew.
+// id="install" keeps existing anchors working (footer Install link).
 ---
 
 <section id="install" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline);">
@@ -9,14 +10,14 @@
     <h2 class="display" style="font-size:clamp(40px,5.5vw,64px); line-height:1.08;">Ready in about a minute.</h2>
 
     <p class="text-[16px]" style="color:var(--color-ink-mute);">
-      <span class="font-mono" style="color:var(--color-ink);">brew install rekody</span> — then hold
+      Download the app, drag it to Applications, then hold
       <span class="key">⌥</span> <span class="key">Space</span> and say something.
     </p>
 
     <div class="flex flex-wrap items-center justify-center gap-4 pt-1.5">
-      <a href="https://github.com/rekody/rekody/releases/latest" target="_blank" rel="noopener noreferrer" class="pill pill-dark" style="padding:0.9rem 1.9rem; font-size:16px; gap:0.6rem;">
+      <a href="https://github.com/rekody/rekody-app/releases/latest/download/Rekody.dmg" class="pill pill-dark" style="padding:0.9rem 1.9rem; font-size:16px; gap:0.6rem;">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702"/></svg>
-        Download for Mac
+        Download for Mac — free
       </a>
       <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer" class="pill pill-ghost" style="padding:0.85rem 1.6rem; font-size:15px;">
         View source on GitHub
@@ -24,8 +25,38 @@
     </div>
 
     <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">
+      macOS 13+ &middot; Apple Silicon &middot; auto-updates &middot; free
+    </p>
+
+    <div class="hairline w-24 my-2"></div>
+
+    <p class="text-[15px]" style="color:var(--color-ink-mute);">
+      Live in the terminal? The open-source CLI installs with Homebrew and also runs on Intel Macs.
+    </p>
+
+    <button id="closer-brew-copy" class="pill pill-ghost font-mono" style="padding:0.85rem 1.5rem; font-size:13px;" data-cmd="brew install rekody/rekody/rekody">
+      <span id="closer-brew-label">$ brew install rekody/rekody/rekody</span>
+    </button>
+
+    <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">
       Runs on-device by default. Cloud engines are optional and labeled.
       Prefer curl, make, or cargo? <a href="https://github.com/rekody/rekody#install" class="underline underline-offset-2" style="color:var(--color-ink-mute);">See the README</a>.
     </p>
   </div>
 </section>
+
+<script>
+  // Copy the brew command; brief confirmation swap (mirrors the hero button).
+  const btn = document.getElementById('closer-brew-copy') as HTMLButtonElement | null;
+  const label = document.getElementById('closer-brew-label');
+  btn?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(btn?.dataset.cmd ?? 'brew install rekody/rekody/rekody');
+      if (label) {
+        const prev = label.textContent;
+        label.textContent = '✓ copied';
+        setTimeout(() => { if (label) label.textContent = prev; }, 1400);
+      }
+    } catch { /* clipboard unavailable — leave the command visible to select */ }
+  });
+</script>
