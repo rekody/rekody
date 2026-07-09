@@ -66,3 +66,12 @@ That covers steps 2–5 of the rollback checklist (tag, GH release, tap, verify)
 - **`crates/rekody-core/src/history_tui.rs` is the gold-standard UI reference and must not be modified**, even for no-visual-change refactors. Duplicate its palette into other files rather than refactoring it into a shared module.
 - Website lives at `website/`, deploys via Vercel, uses pnpm + Astro 5. (A Bun + Astro 6 migration was attempted and rolled back on 2026-05-26; do not re-attempt without explicit ask.)
 - **Rust toolchain is pinned in `rust-toolchain.toml`** (channel + clippy/rustfmt + cross-compile targets). CI and `release.yml` use `rustup show` to honor it, NOT `dtolnay/rust-toolchain@stable` — that floated and caused local clippy to pass while CI failed on a newer lint. To bump Rust: edit the channel in `rust-toolchain.toml` AND run `rustup update` locally so both move together. Don't reintroduce `@stable`.
+
+## Brand & marketing site (decided 2026-07-09)
+
+- **Naming:** "Rekody" (capital R) in ALL prose and marketing copy. Lowercase `rekody` only for: the logo/wordmark, CLI commands (`brew install rekody`, `rekody update`), URLs, and crate names.
+- **Color:** pure white (#FFFFFF) page grounds + #FAFAFA section bands — never warm cream page backgrounds. Cream #FBFAF4 (`--color-paper`) lives only inside dark surfaces (pill, receipt card) and the app-icon glyph.
+- **HUD/pill representations anywhere** (site, mocks, demos) must animate: moving waveform bars + blinking caret (and ideally a ticking timer), all guarded by `prefers-reduced-motion`. Never render the pill frozen. Match the real `PillView.swift` anatomy (hands-free state: app icon → hollow teal circle + teal timer → "tap ⌥ + space to stop" → waveform → dim→bright transcript tail → caret).
+- **Claims must be repo-verified before publishing.** Current truths: latency ~100ms after release (measured ~55ms streaming tail, `streaming.rs`); "0 network calls" is runtime-scoped — models download once at setup, updates are manual; binary is ~35 MB unstripped (the old "5 MB" claim was false — never resurrect it).
+- **Do not market**: multilingual/100+ languages (until Whisper multilingual is tested and first-class) or Windows (until a public installable artifact ships — see WINDOWS.md gate).
+- The landing page design source of truth is the "Direction A3 — Pure White" board in the Paper file "Rekody Branding" (app.paper.design/file/01KX3G2BD3FVCSY3ETHKXH8XR3, page "website").
