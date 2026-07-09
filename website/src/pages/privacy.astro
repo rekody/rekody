@@ -11,8 +11,8 @@ const toc = [
   { id: 'contact',       label: 'Questions' },
 ];
 
-const title = 'Privacy — rekody';
-const description = 'rekody runs on your own device. No accounts, no telemetry, no servers. Your voice never reaches us.';
+const title = 'Privacy — Rekody';
+const description = 'Rekody runs on your own device. No accounts, no telemetry, no servers. Your voice never reaches us.';
 ---
 
 <Base title={title} description={description}>
@@ -20,13 +20,13 @@ const description = 'rekody runs on your own device. No accounts, no telemetry, 
     eyebrow="Privacy"
     title="Your voice stays on your device."
     updated="July 8, 2026"
-    summary="rekody runs on your own device. There are no accounts, no telemetry, and no servers. We can't see your data because it never reaches us."
+    summary="Rekody runs on your own device. There are no accounts, no telemetry, and no servers. We can't see your data because it never reaches us."
     toc={toc}
   >
     <section id="short-version">
       <h2>The short version</h2>
       <p>
-        rekody turns your speech into text on the device in your hand. It has no sign-up, no analytics inside
+        Rekody turns your speech into text on the device in your hand. It has no sign-up, no analytics inside
         the app, and it never checks in with a license server. We don't run servers that could receive your
         audio, so your words have nowhere to go but into the app you're typing in.
       </p>
@@ -35,25 +35,25 @@ const description = 'rekody runs on your own device. No accounts, no telemetry, 
     <section id="on-your-iphone">
       <h2>On your iPhone</h2>
       <p>
-        The rekody keyboard app records only while you dictate, transcribes on the device with an on-device
+        The Rekody keyboard app records only while you dictate, transcribes on the device with an on-device
         speech model, and places the finished text where your cursor is. <strong>Your audio never leaves your
         iPhone.</strong>
       </p>
       <ul>
         <li>The speech model is downloaded once and runs fully offline. No audio or transcript is ever uploaded.</li>
         <li>Your dictation history is a local file inside the app. It stays on your iPhone, and you can delete any entry, or all of them, at any time.</li>
-        <li>There are no accounts, no sign-in, and no analytics or tracking. rekody asks for no personal information.</li>
+        <li>There are no accounts, no sign-in, and no analytics or tracking. Rekody asks for no personal information.</li>
       </ul>
       <h3>Why the keyboard asks for Full Access</h3>
       <p>
         iOS only lets a keyboard place text into another app once you turn on <strong>Allow Full Access</strong>.
-        rekody uses it for exactly that, and for the small shared container that hands your finished words from
-        the app to the keyboard. It does not use Full Access to send anything off your device, because rekody has
+        Rekody uses it for exactly that, and for the small shared container that hands your finished words from
+        the app to the keyboard. It does not use Full Access to send anything off your device, because Rekody has
         no server to send it to.
       </p>
       <div class="callout">
         <p>
-          rekody is off in password and other secure fields by design. It won't offer to dictate where iOS marks
+          Rekody is off in password and other secure fields by design. It won't offer to dictate where iOS marks
           the input as secure.
         </p>
       </div>
@@ -62,7 +62,7 @@ const description = 'rekody runs on your own device. No accounts, no telemetry, 
     <section id="on-your-mac">
       <h2>On your Mac</h2>
       <p>
-        rekody for Mac is a free, MIT-licensed tool (<a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>).
+        Rekody for Mac is a free, MIT-licensed tool (<a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>).
         Audio capture, voice detection, transcription, cleanup, and typing the text at your cursor all happen on
         your device. With the default on-device engine, or the on-device Apple Intelligence cleanup,
         <strong>nothing leaves your machine</strong>.
@@ -79,7 +79,7 @@ const description = 'rekody runs on your own device. No accounts, no telemetry, 
       <p>
         On Mac, you can optionally configure cloud speech-to-text or LLM providers (Deepgram, Groq, OpenAI,
         Anthropic, and others) using <strong>your own API keys</strong>. When you do, your audio or text goes
-        directly from your Mac to that provider under their terms. There is no rekody server in the middle,
+        directly from your Mac to that provider under their terms. There is no Rekody server in the middle,
         because we don't run any. The iPhone app is on-device only and has no cloud engines.
       </p>
     </section>

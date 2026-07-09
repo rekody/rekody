@@ -1,262 +1,136 @@
 ---
-import Lettermark from './Lettermark.astro';
+// Hero — "You talk. It types." + the live HUD pill (hands-free state),
+// mirroring the native PillView.swift anatomy: target-app icon, hollow teal
+// circle + teal timer, stop hint, amplitude-ramped waveform, dim→bright
+// transcript tail, blinking caret.
+
+// Waveform bars: [height(px), amplitude-ramp color] — quiet→loud teal ramp.
+const bars: [number, string][] = [
+  [4, '#20808D'], [7, '#2FA3B3'], [12, '#2FA3B3'], [18, '#7FD4DE'],
+  [22, '#7FD4DE'], [16, '#4FB8C5'], [10, '#2FA3B3'], [14, '#4FB8C5'],
+  [20, '#7FD4DE'], [17, '#4FB8C5'], [9, '#2FA3B3'], [13, '#4FB8C5'],
+  [6, '#20808D'], [11, '#2FA3B3'], [5, '#20808D'],
+];
+
+// "lands at your cursor in" — typing-heavy apps (marks from Simple Icons, MIT).
+const apps = [
+  { name: 'Gmail', fg: '#EA4335', d: 'M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z' },
+  { name: 'Google Docs', fg: '#4285F4', d: 'M14.727 6.727H14V0H4.91c-.905 0-1.637.732-1.637 1.636v20.728c0 .904.732 1.636 1.636 1.636h14.182c.904 0 1.636-.732 1.636-1.636V6.727h-6zm-.545 10.455H7.091v-1.364h7.09v1.364zm2.727-3.273H7.091v-1.364h9.818v1.364zm0-3.273H7.091V9.273h9.818v1.363zM14.727 6h6l-6-6v6z' },
+  { name: 'LinkedIn', fg: '#0A66C2', d: 'M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.225 0z' },
+  { name: 'Linear', fg: '#5E6AD2', d: 'M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z' },
+];
+
+// Notion mark for the pill's target-app badge (Simple Icons, MIT).
+const notionD = 'M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.981-.7-2.055-.607L3.01 2.295c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.167V6.354c0-.606-.233-.933-.748-.887l-15.177.887c-.56.047-.747.327-.747.933zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952L12.21 19s0 .84-1.168.84l-3.222.186c-.093-.186 0-.653.327-.746l.84-.233V9.854L7.822 9.76c-.094-.42.14-1.026.793-1.073l3.456-.233 4.764 7.279v-6.44l-1.215-.139c-.093-.514.28-.887.747-.933zM1.936 1.035l13.31-.98c1.634-.14 2.055-.047 3.082.7l4.249 2.986c.7.513.934.653.934 1.213v16.378c0 1.026-.373 1.634-1.68 1.726l-15.458.934c-.98.047-1.448-.093-1.962-.747l-3.129-4.06c-.56-.747-.793-1.306-.793-1.96V2.667c0-.839.374-1.54 1.447-1.632z';
 ---
 
-<section id="hero" class="relative shader-hero overflow-hidden">
-  <div class="grain"></div>
+<section id="hero" class="pt-16" style="background:#FFFFFF;">
+  <div class="max-w-6xl mx-auto px-6 pt-20 md:pt-24 pb-16 md:pb-20 flex flex-col items-center text-center gap-7">
 
-  <div class="relative max-w-6xl mx-auto px-6 pt-32 pb-32 grid lg:grid-cols-[1.1fr_1fr] gap-16 items-center">
+    <!-- Eyebrow -->
+    <p class="flex items-center gap-2.5 font-mono text-[12px] uppercase" style="color:var(--color-ink-faint); letter-spacing:0.16em;">
+      <span class="inline-block w-[7px] h-[7px] rounded-full" style="background:var(--color-teal);" aria-hidden="true"></span>
+      Free &middot; Open source &middot; macOS
+    </p>
 
-    <!-- Left: copy -->
-    <div class="relative z-10">
-      <!-- Eyebrow -->
-      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-8" style="background:rgba(251,250,244,0.6); border:1px solid var(--color-hairline);">
-        <span class="relative inline-flex h-2 w-2">
-          <span class="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style="background:var(--color-teal);"></span>
-          <span class="relative inline-flex rounded-full h-2 w-2" style="background:var(--color-teal);"></span>
-        </span>
-        <span class="text-[11px] font-mono uppercase" style="color:var(--color-ink-mute); letter-spacing:0.08em;">Voice dictation · macOS · open source</span>
-      </div>
+    <!-- Headline -->
+    <h1 class="display" style="font-size:clamp(52px,8.5vw,104px);">
+      You talk. <span class="display-italic" style="color:var(--color-teal);">It types.</span>
+    </h1>
 
-      <!-- Headline -->
-      <h1 class="display mb-6" style="font-size:clamp(48px, 7.5vw, 96px);">
-        Speak.
-        <span class="display-italic" style="color:var(--color-teal);">Release.</span>
-        <br/>
-        Done.
-      </h1>
+    <!-- Subhead -->
+    <p class="max-w-[640px] text-[17px] md:text-[19px]" style="color:var(--color-ink-mute); line-height:1.6;">
+      Free, open-source dictation for your Mac. Hold <span class="key">⌥</span> <span class="key">Space</span> and speak.
+      Let go, and the text lands at your cursor in any app. It all runs on your machine.
+    </p>
 
-      <!-- Deck -->
-      <p class="body-serif mb-10 max-w-xl" style="font-size:19px; line-height:1.55;">
-        Open-source macOS voice dictation. Hold <span class="key">⌥</span> + <span class="key">Space</span>, speak, release — first words appear <strong style="color:var(--color-ink); font-weight:500;">while you're still talking</strong>, final text lands at your cursor in <em>any app</em> ~100ms after release. On-device by default.
-      </p>
-
-      <!-- CTAs -->
-      <div class="flex flex-wrap items-center gap-3 mb-6">
-        <a
-          href="#install"
-          class="pill pill-dark"
-          style="padding:0.75rem 1.25rem; font-size:14px;"
-        >
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          Download for Mac
-        </a>
-
-        <button
-          id="hero-install-btn"
-          class="pill pill-ghost group"
-          style="padding:0.75rem 1.125rem; font-size:13px;"
-          aria-label="Copy install command"
-        >
-          <span class="font-mono text-[11px]" style="color:var(--color-ink-faint);">$</span>
-          <code class="font-mono text-[12px]" style="color:var(--color-ink-soft);">curl … | bash</code>
-          <span id="hero-copy-icon" style="color:var(--color-ink-faint);">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-            </svg>
-          </span>
-        </button>
-      </div>
-      <p id="hero-copy-feedback" class="text-xs transition-opacity duration-300 opacity-0 mb-2" style="color:var(--color-teal);">✓ Copied to clipboard</p>
-
-      <!-- Trust line -->
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px]" style="color:var(--color-ink-faint);">
-        <span>macOS 13+</span>
-        <span aria-hidden="true">·</span>
-        <span>Apple Silicon &amp; Intel</span>
-        <span aria-hidden="true">·</span>
-        <span>MIT License</span>
-        <span aria-hidden="true">·</span>
-        <span>No telemetry</span>
-      </div>
+    <!-- CTAs -->
+    <div class="flex flex-wrap items-center justify-center gap-4 pt-1">
+      <a href="#install" class="pill pill-dark" style="padding:0.9rem 1.9rem; font-size:16px; gap:0.6rem;">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702"/></svg>
+        Download for Mac — free
+      </a>
+      <button id="hero-brew-copy" class="pill pill-ghost font-mono" style="padding:0.85rem 1.5rem; font-size:14px;" data-cmd="brew install rekody">
+        <span id="hero-brew-label">$ brew install rekody</span>
+      </button>
     </div>
 
-    <!-- Right: inline mock demo card -->
-    <div id="demo" class="relative z-10 scroll-mt-24">
-      <div class="relative rounded-3xl overflow-hidden" style="background:#FFFFFF; border:1px solid var(--color-hairline); box-shadow: 0 30px 80px -30px rgba(15,23,23,0.25), 0 8px 20px -10px rgba(15,23,23,0.08);">
+    <!-- Trust line -->
+    <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">
+      macOS 13+ &middot; Apple Silicon &amp; Intel &middot; no account &middot; no telemetry
+    </p>
 
-        <!-- Window chrome -->
-        <div class="flex items-center gap-1.5 px-4 py-3 border-b" style="border-color:var(--color-hairline-soft);">
-          <span class="w-2.5 h-2.5 rounded-full" style="background:#F4C3B8;"></span>
-          <span class="w-2.5 h-2.5 rounded-full" style="background:#F4E4B8;"></span>
-          <span class="w-2.5 h-2.5 rounded-full" style="background:#C8E0C8;"></span>
-          <div class="ml-auto flex items-center gap-1.5">
-            <Lettermark size={14} inkColor="var(--color-ink-faint)" hideDot />
-            <span class="text-[10px] font-mono uppercase" style="color:var(--color-ink-faint); letter-spacing:0.08em;">rekody</span>
-          </div>
-        </div>
-
-        <!-- Body -->
-        <div class="p-6">
-          <!-- Recording row -->
-          <div class="is-recording flex items-center gap-3 mb-5">
-            <div class="flex items-center gap-1.5">
-              <span class="key key-dark">⌥</span>
-              <span style="color:var(--color-ink-faint);">+</span>
-              <span class="key key-dark">Space</span>
-            </div>
-            <div class="flex items-end gap-[3px] h-6" aria-hidden="true">
-              {Array.from({length: 14}).map(() => (
-                <span class="wave-bar" style="height:100%;"></span>
-              ))}
-            </div>
-            <div class="ml-auto flex items-center gap-2">
-              <span class="listening-pulse" role="img" aria-label="Listening">
-                <span></span><span></span><span></span>
-              </span>
-              <span class="text-[11px] font-mono uppercase" style="color:var(--color-teal); letter-spacing:0.08em;">Listening</span>
-            </div>
-          </div>
-
-          <!-- Transcript -->
-          <div class="rounded-xl p-4 mb-4" style="background:#FBFAF4; border:1px solid var(--color-hairline-soft);">
-            <p class="body-serif" style="font-size:17px; color:var(--color-ink); line-height:1.55;">
-              Flag the TP53 variant for tumor board — it's classified as <em class="hero-polish" aria-label="likely pathogenic."><span id="hero-polish-done"></span><span id="hero-polish-caret" class="hero-caret" aria-hidden="true">|</span><span id="hero-polish-pending" class="hero-polish-pending">likely pathogenic.</span></em>
-            </p>
-          </div>
-
-          <!-- Meta -->
-          <div class="flex items-center justify-between text-[11px] font-mono" style="color:var(--color-ink-faint);">
-            <div class="flex items-center gap-3">
-              <span>Nemotron · streaming</span>
-              <span aria-hidden="true">·</span>
-              <span>on-device · en</span>
-            </div>
-            <span style="color:var(--color-teal);">~100ms</span>
-          </div>
-
-          <!-- Target app strip -->
-          <div class="mt-5 pt-5 border-t flex items-center gap-3" style="border-color:var(--color-hairline-soft);">
-            <span class="text-[11px] font-mono uppercase" style="color:var(--color-ink-faint); letter-spacing:0.08em;">Inject at cursor →</span>
-            <div class="flex items-center gap-2 text-[11px]" style="color:var(--color-ink-mute);">
-              <span class="px-2 py-0.5 rounded" style="background:var(--color-hairline-soft);">Notion</span>
-              <span class="px-2 py-0.5 rounded" style="background:var(--color-hairline-soft);">Slack</span>
-              <span class="px-2 py-0.5 rounded" style="background:var(--color-hairline-soft);">VS Code</span>
-              <span class="px-2 py-0.5 rounded" style="background:var(--color-hairline-soft);">Terminal</span>
-            </div>
-          </div>
-        </div>
+    <!-- Live HUD pill -->
+    <div id="demo" class="flex flex-col items-center gap-6 pt-4 w-full">
+      <div
+        class="hud-live inline-flex items-center gap-4 rounded-full px-5 py-[11px] max-w-full overflow-hidden"
+        style="background:#0D1414; border:1px solid rgba(47,163,179,0.4); box-shadow:0 30px 80px -30px rgba(15,23,23,0.35);"
+        role="img"
+        aria-label="The Rekody pill recording hands-free: timer, live waveform, and words appearing as you speak"
+      >
+        <!-- Target app badge -->
+        <span class="flex items-center justify-center w-5 h-5 rounded-[5px] shrink-0" style="background:#FFFFFF;">
+          <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="#111111" aria-hidden="true"><path d={notionD} /></svg>
+        </span>
+        <!-- State: hollow circle + teal timer + stop hint -->
+        <span class="flex items-center gap-1.5 shrink-0">
+          <span class="inline-block w-[9px] h-[9px] rounded-full" style="border:1.5px solid #2FA3B3;" aria-hidden="true"></span>
+          <span id="hud-timer" class="font-mono font-bold text-[13px]" style="color:#2FA3B3;">0:07</span>
+          <span class="hidden sm:inline text-[11px] font-medium pl-1 whitespace-nowrap" style="color:rgba(251,250,244,0.55);">tap ⌥ + space to stop</span>
+        </span>
+        <!-- Waveform -->
+        <span class="flex items-center gap-[2px] shrink-0" aria-hidden="true">
+          {bars.map(([h, c]) => (
+            <span class="hud-bar" style={`height:${h}px; background:${c};`}></span>
+          ))}
+        </span>
+        <!-- Live transcript tail + caret -->
+        <span class="hidden md:flex items-center gap-[5px] min-w-0">
+          <span class="text-[12px] whitespace-nowrap truncate">
+            <span style="color:#5E6E6E;">…and the words land </span><span style="color:#FBFAF4;">as I say them</span>
+          </span>
+          <span class="hud-caret inline-block w-[7px] h-[15px] rounded-[3px] shrink-0" style="background:#7FD4DE;" aria-hidden="true"></span>
+        </span>
       </div>
 
-      <!-- Floating label -->
-      <div class="hidden sm:flex absolute -bottom-4 -left-4 items-center gap-2 px-3 py-2 rounded-full" style="background:var(--color-ink); color:var(--color-cream); font-size:12px; box-shadow:0 10px 30px -10px rgba(15,23,23,0.4);">
-        <span class="w-1.5 h-1.5 rounded-full" style="background:var(--color-teal);"></span>
-        Non-interactive preview
+      <!-- Landing strip -->
+      <div class="flex flex-wrap items-center justify-center gap-3">
+        <span class="font-mono text-[12px]" style="color:var(--color-ink-faint);">lands at your cursor in</span>
+        {apps.map(a => (
+          <span class="app-ios-tile flex items-center justify-center w-[30px] h-[30px] rounded-lg" style="background:#FFFFFF; border:1px solid rgba(15,23,23,0.1);" title={a.name}>
+            <svg viewBox="0 0 24 24" class="w-4 h-4" fill={a.fg} aria-label={a.name}><path d={a.d} /></svg>
+          </span>
+        ))}
+        <span class="font-mono text-[12px]" style="color:var(--color-ink-faint);">…or anywhere else you type</span>
+        <span class="font-mono text-[12px]" style="color:var(--color-teal);">~100ms</span>
       </div>
     </div>
   </div>
-
-  <!-- Hairline at bottom of hero -->
-  <div class="relative hairline"></div>
 </section>
 
 <script>
-  const btn = document.getElementById('hero-install-btn');
-  const feedback = document.getElementById('hero-copy-feedback');
-  const icon = document.getElementById('hero-copy-icon');
-  const CMD = 'curl -fsSL https://raw.githubusercontent.com/rekody/rekody/main/install.sh | bash';
-
+  // Copy the brew command; brief confirmation swap.
+  const btn = document.getElementById('hero-brew-copy') as HTMLButtonElement | null;
+  const label = document.getElementById('hero-brew-label');
   btn?.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(CMD);
-      if (icon) icon.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="#20808D" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>`;
-      feedback?.classList.replace('opacity-0', 'opacity-100');
-      setTimeout(() => {
-        if (icon) icon.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>`;
-        feedback?.classList.replace('opacity-100', 'opacity-0');
-      }, 2000);
-    } catch {}
+      await navigator.clipboard.writeText(btn?.dataset.cmd ?? 'brew install rekody');
+      if (label) {
+        const prev = label.textContent;
+        label.textContent = '✓ copied';
+        setTimeout(() => { if (label) label.textContent = prev; }, 1400);
+      }
+    } catch { /* clipboard unavailable — leave the command visible to select */ }
   });
 
-  // Ghost-text autocomplete loop: reveal the phrase char-by-char from a faded ghost.
-  // Total width stays constant (done + pending = full phrase), so no container reflow.
-  const polishDone    = document.getElementById('hero-polish-done');
-  const polishPending = document.getElementById('hero-polish-pending');
-  const polishCaret   = document.getElementById('hero-polish-caret');
-  const PHRASE = 'likely pathogenic.';
-  const TYPE_MS  = 90;
-  const HOLD_MS  = 2600;
-  const CLEAR_MS = 650;
-  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  function setPolish(done: number) {
-    if (polishDone)    polishDone.textContent    = PHRASE.slice(0, done);
-    if (polishPending) polishPending.textContent = PHRASE.slice(done);
-  }
-
-  if (polishDone && polishPending && !reduceMotion) {
-    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-    (async () => {
-      await sleep(800);
-      while (true) {
-        setPolish(0);
-        for (let i = 1; i <= PHRASE.length; i++) {
-          setPolish(i);
-          await sleep(TYPE_MS);
-        }
-        polishCaret?.classList.add('hero-caret-hidden');
-        await sleep(HOLD_MS);
-        polishCaret?.classList.remove('hero-caret-hidden');
-        await sleep(CLEAR_MS);
-      }
-    })();
-  } else {
-    setPolish(PHRASE.length);
-    polishCaret?.classList.add('hero-caret-hidden');
+  // Tick the pill timer like a real recording (paused under reduced motion).
+  const timer = document.getElementById('hud-timer');
+  if (timer && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    let s = 7;
+    setInterval(() => {
+      s = (s + 1) % 3600;
+      const m = Math.floor(s / 60);
+      timer.textContent = `${m}:${String(s % 60).padStart(2, '0')}`;
+    }, 1000);
   }
 </script>
-
-<style>
-  /* Done + pending always sum to the full phrase, so total width is constant
-     and no container reflow happens as characters "type in." */
-  .hero-polish {
-    color: var(--color-teal);
-    font-style: italic;
-    white-space: nowrap;
-  }
-  .hero-polish-pending { opacity: 0.3; }
-
-  .hero-caret {
-    display: inline-block;
-    width: 1px;
-    margin-left: 1px;
-    font-style: normal;
-    font-weight: 300;
-    color: var(--color-teal);
-    animation: hero-caret-blink 1s steps(1, end) infinite;
-  }
-  .hero-caret-hidden { opacity: 0; animation: none; }
-  @keyframes hero-caret-blink {
-    0%, 49%  { opacity: 1; }
-    50%, 100% { opacity: 0; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .hero-caret { animation: none; opacity: 0; }
-  }
-
-  .listening-pulse {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-  }
-  .listening-pulse > span {
-    width: 5px;
-    height: 5px;
-    border-radius: 9999px;
-    background: var(--color-teal);
-    animation: listening-pulse-fade 1.2s ease-in-out infinite;
-  }
-  .listening-pulse > span:nth-child(2) { animation-delay: 0.15s; }
-  .listening-pulse > span:nth-child(3) { animation-delay: 0.3s; }
-  @keyframes listening-pulse-fade {
-    0%, 100% { opacity: 0.25; transform: scale(0.85); }
-    50%      { opacity: 1;    transform: scale(1); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .listening-pulse > span { animation: none; opacity: 0.8; }
-  }
-</style>

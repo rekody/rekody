@@ -10,8 +10,8 @@ export interface Props {
 }
 
 const {
-  title = 'rekody — Voice Dictation for Everyone',
-  description = 'Open-source macOS voice dictation. Hold ⌥ + Space, speak, release — first words appear while you\'re still talking, final text lands ~100ms after release. On-device by default (NVIDIA Nemotron streaming, English), 100+ languages via Whisper.',
+  title = 'Rekody — You talk. It types.',
+  description = 'Free, open-source voice dictation for macOS. Hold ⌥ Space and speak; the text lands at your cursor in any app about 100ms after you release. On-device by default — no account, no analytics, no audio stored.',
   ogImage = '/og.png',
   faqSchema,
 } = Astro.props;
@@ -31,14 +31,14 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="author" content="Tony Kipkemboi" />
-    <meta name="theme-color" content="#FBFAF4" />
+    <meta name="theme-color" content="#FFFFFF" />
 
     <!-- Robots -->
     <meta name="robots" content="index, follow, max-image-preview:large" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="rekody" />
+    <meta property="og:site_name" content="Rekody" />
     <meta property="og:locale" content="en_US" />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:title" content={title} />
@@ -46,7 +46,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
     <meta property="og:image" content={ogImageUrl} />
     <meta property="og:image:width" content="2400" />
     <meta property="og:image:height" content="1260" />
-    <meta property="og:image:alt" content="rekody — Voice dictation for everyone. Speak. Release. Done." />
+    <meta property="og:image:alt" content="Rekody — You talk. It types." />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -55,7 +55,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
-    <meta name="twitter:image:alt" content="rekody — Voice dictation for everyone. Speak. Release. Done." />
+    <meta name="twitter:image:alt" content="Rekody — You talk. It types." />
 
     <!-- Favicons -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
@@ -67,7 +67,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
     <script type="application/ld+json" set:html={JSON.stringify({
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
-      "name": "rekody",
+      "name": "Rekody",
       "applicationCategory": "UtilitiesApplication",
       "operatingSystem": "macOS",
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
