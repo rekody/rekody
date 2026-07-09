@@ -1,0 +1,27 @@
+---
+// Stat band — three verified numbers + the scoping caption.
+// ~100ms: measured ~55ms streaming-tail (streaming.rs), quoted conservatively.
+// 0 network calls: runtime dictation path; models download once at setup.
+// ~35 MB: actual release binary size (unstripped), vs ~250 MB Electron apps.
+const stats = [
+  { value: '~100ms', label: 'Key release → final text', teal: false },
+  { value: '0',      label: 'Network calls while dictating', teal: true },
+  { value: '~35 MB', label: 'One native binary, not Electron', teal: false },
+];
+---
+
+<section aria-label="Rekody by the numbers" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline); border-bottom:1px solid var(--color-hairline);">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="grid grid-cols-1 sm:grid-cols-3">
+      {stats.map((s, i) => (
+        <div class={`flex flex-col items-center gap-2 py-10 sm:py-11 px-6 ${i > 0 ? 'border-t sm:border-t-0 sm:border-l' : ''}`} style="border-color:var(--color-hairline);">
+          <span class="display" style={`font-size:clamp(34px,3.5vw,44px); ${s.teal ? 'color:var(--color-teal);' : ''}`}>{s.value}</span>
+          <span class="font-mono text-[11px] sm:text-[12px] uppercase text-center" style="color:var(--color-ink-faint); letter-spacing:0.1em;">{s.label}</span>
+        </div>
+      ))}
+    </div>
+    <p class="font-mono text-[11px] text-center pb-6" style="color:var(--color-ink-faint);">
+      Measured on the default on-device engine. Speech models download once at setup; dictation itself never touches the network.
+    </p>
+  </div>
+</section>

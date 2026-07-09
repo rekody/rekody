@@ -4,13 +4,13 @@ import { version } from '../lib/version';
 
 const links = [
   { label: 'How it works', href: '/#how-it-works' },
+  { label: 'Privacy',      href: '/#privacy' },
   { label: 'Use cases',    href: '/use-cases' },
   { label: 'Open source',  href: '/open-source' },
-  { label: 'Install',      href: '/#install' },
 ];
 ---
 
-<nav id="navbar" class="fixed top-0 left-0 right-0 z-50" style="background:rgba(251,250,244,0.82); border-bottom:1px solid var(--color-hairline); backdrop-filter:saturate(1.2) blur(14px); -webkit-backdrop-filter:saturate(1.2) blur(14px);">
+<nav id="navbar" class="fixed top-0 left-0 right-0 z-50" style="background:rgba(255,255,255,0.85); border-bottom:1px solid var(--color-hairline); backdrop-filter:saturate(1.2) blur(14px); -webkit-backdrop-filter:saturate(1.2) blur(14px);">
   <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
 
     <!-- Wordmark -->
@@ -66,7 +66,7 @@ const links = [
   <div
     id="nav-drawer"
     class="hidden md:hidden"
-    style="border-top:1px solid var(--color-hairline); background:#FBFAF4;"
+    style="border-top:1px solid var(--color-hairline); background:#FFFFFF;"
   >
     <div class="max-w-6xl mx-auto px-6 py-3 flex flex-col gap-1">
       {links.map(l => (

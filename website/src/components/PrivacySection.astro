@@ -1,0 +1,39 @@
+---
+// Privacy — the claim once (headline), the proof in the receipt card.
+const rows = [
+  { label: 'Analytics events',   value: '0' },
+  { label: 'Audio saved to disk', value: '0 bytes' },
+  { label: 'Account required',   value: 'no' },
+  { label: 'Cloud sync',         value: 'never' },
+  { label: 'Update checks',      value: 'manual' },
+];
+---
+
+<section id="privacy" style="background:#FFFFFF; border-top:1px solid var(--color-hairline);">
+  <div class="max-w-6xl mx-auto px-6 py-20 md:py-24 grid lg:grid-cols-[1.1fr_400px] gap-12 lg:gap-20 items-center">
+
+    <div class="flex flex-col gap-5">
+      <p class="font-mono text-[12px] uppercase" style="color:var(--color-teal); letter-spacing:0.16em;">Privacy</p>
+      <h2 class="display" style="font-size:clamp(38px,4.8vw,56px); line-height:1.1;">Nothing leaves your Mac.</h2>
+      <p class="text-[17px] max-w-[480px]" style="color:var(--color-ink-mute); line-height:1.65;">
+        Transcription happens on your machine. No account, no analytics, no audio saved.
+        There is no Rekody server your voice could be sent to.
+      </p>
+      <p class="text-[15px]" style="color:var(--color-ink-faint);">
+        The code is <a href="https://github.com/rekody/rekody/blob/main/LICENSE" class="underline decoration-[rgba(32,128,141,0.35)] underline-offset-2" style="color:var(--color-ink-mute);">MIT-licensed on GitHub</a>, so you don't have to take our word for it.
+      </p>
+    </div>
+
+    <div class="rounded-3xl p-8 md:p-9 w-full" style="background:var(--color-ink); box-shadow:0 30px 80px -30px rgba(15,23,23,0.35);">
+      <p class="font-mono text-[12px] uppercase pb-3.5" style="color:rgba(251,250,244,0.5); letter-spacing:0.14em;">Data sent to us</p>
+      <dl>
+        {rows.map(r => (
+          <div class="flex items-center justify-between py-3" style="border-top:1px solid rgba(251,250,244,0.09);">
+            <dt class="text-[14px]" style="color:rgba(251,250,244,0.6);">{r.label}</dt>
+            <dd class="font-mono text-[14px] font-medium" style="color:var(--color-paper);">{r.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  </div>
+</section>
