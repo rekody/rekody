@@ -6,33 +6,38 @@ const cols = [
   {
     title: 'Product',
     links: [
-      { label: 'How it works', href: '/#how-it-works' },
-      { label: 'Privacy',      href: '/#privacy' },
-      { label: 'Use cases',    href: '/use-cases' },
-      { label: 'Open source',  href: '/open-source' },
-      { label: 'Install',      href: '/#install' },
+      { label: 'How it works',      href: '/#how-it-works' },
+      { label: 'Use cases',         href: '/use-cases' },
+      { label: 'Download for Mac',  href: 'https://github.com/rekody/rekody-app/releases/latest/download/Rekody.dmg' },
+      { label: 'Install the CLI',   href: '/#install' },
     ],
   },
   {
-    title: 'Source',
+    title: 'Open source',
     links: [
       { label: 'GitHub',       href: 'https://github.com/rekody/rekody', external: true },
-      { label: 'Releases',     href: 'https://github.com/rekody/rekody/releases', external: true },
-      { label: 'Changelog',    href: 'https://github.com/rekody/rekody/blob/main/CHANGELOG.md', external: true },
+      { label: 'Issues',       href: 'https://github.com/rekody/rekody/issues', external: true },
+      { label: 'Discussions',  href: 'https://github.com/rekody/rekody/discussions', external: true },
       { label: 'Contributing', href: 'https://github.com/rekody/rekody/blob/main/CONTRIBUTING.md', external: true },
+      { label: 'Changelog',    href: 'https://github.com/rekody/rekody/blob/main/CHANGELOG.md', external: true },
     ],
   },
   {
-    title: 'Project',
+    title: 'Support & legal',
     links: [
-      { label: 'Privacy',     href: '/privacy' },
       { label: 'Support',     href: '/support' },
+      { label: 'Privacy',     href: '/privacy' },
       { label: 'Security',    href: 'https://github.com/rekody/rekody/blob/main/SECURITY.md', external: true },
-      { label: 'Issues',      href: 'https://github.com/rekody/rekody/issues', external: true },
-      { label: 'Discussions', href: 'https://github.com/rekody/rekody/discussions', external: true },
+      { label: 'EULA',        href: 'https://github.com/rekody/rekody-app/blob/main/EULA.md', external: true },
       { label: 'MIT License', href: 'https://github.com/rekody/rekody/blob/main/LICENSE', external: true },
     ],
   },
+];
+
+const social = [
+  { label: 'GitHub',       href: 'https://github.com/rekody' },
+  { label: 'LinkedIn',     href: 'https://www.linkedin.com/company/rekody/' },
+  { label: 'Hugging Face', href: 'https://huggingface.co/Rekody' },
 ];
 ---
 
@@ -51,6 +56,17 @@ const cols = [
         <p class="body-serif max-w-sm" style="font-size:14px;">
           Free, open-source voice dictation for macOS. Hold <span class="key">⌥</span> + <span class="key">Space</span> anywhere; text lands at your cursor in any app. On-device by default.
         </p>
+        <div class="flex items-center gap-4 mt-5">
+          {social.map(s => (
+            <a
+              href={s.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-[13px] font-mono transition-colors"
+              style="color:var(--color-ink-mute);"
+            >{s.label}</a>
+          ))}
+        </div>
       </div>
 
       {cols.map(c => (

@@ -3,12 +3,11 @@ import Base from '../layouts/Base.astro';
 import LegalPage from '../components/LegalPage.astro';
 
 const toc = [
-  { id: 'short-version', label: 'The short version' },
-  { id: 'on-your-iphone', label: 'On your iPhone' },
-  { id: 'on-your-mac',   label: 'On your Mac' },
-  { id: 'cloud-engines', label: 'If you opt into cloud engines' },
-  { id: 'website',       label: 'This website' },
-  { id: 'contact',       label: 'Questions' },
+  { id: 'short-version',  label: 'The short version' },
+  { id: 'on-your-device', label: 'On your device' },
+  { id: 'cloud-engines',  label: 'If you opt into cloud engines' },
+  { id: 'website',        label: 'This website' },
+  { id: 'contact',        label: 'Questions' },
 ];
 
 const title = 'Privacy — Rekody';
@@ -19,76 +18,64 @@ const description = 'Rekody runs on your own device. No accounts, no telemetry, 
   <LegalPage
     eyebrow="Privacy"
     title="Your voice stays on your device."
-    updated="July 8, 2026"
+    updated="July 10, 2026"
     summary="Rekody runs on your own device. There are no accounts, no telemetry, and no servers. We can't see your data because it never reaches us."
     toc={toc}
   >
     <section id="short-version">
       <h2>The short version</h2>
       <p>
-        Rekody turns your speech into text on the device in your hand. It has no sign-up, no analytics inside
-        the app, and it never checks in with a license server. We don't run servers that could receive your
-        audio, so your words have nowhere to go but into the app you're typing in.
+        Rekody turns your speech into text on the device in front of you. It has no sign-up,
+        no analytics inside the app, and it never checks in with a license server. We don't
+        run servers that could receive your audio, so your words have nowhere to go but into
+        the app you're typing in.
       </p>
     </section>
 
-    <section id="on-your-iphone">
-      <h2>On your iPhone</h2>
+    <section id="on-your-device">
+      <h2>On your device</h2>
       <p>
-        The Rekody keyboard app records only while you dictate, transcribes on the device with an on-device
-        speech model, and places the finished text where your cursor is. <strong>Your audio never leaves your
-        iPhone.</strong>
+        Rekody records only while you dictate, transcribes with an on-device speech model,
+        and places the finished text where your cursor is. <strong>Your audio never leaves
+        your device.</strong>
       </p>
       <ul>
         <li>The speech model is downloaded once and runs fully offline. No audio or transcript is ever uploaded.</li>
-        <li>Your dictation history is a local file inside the app. It stays on your iPhone, and you can delete any entry, or all of them, at any time.</li>
+        <li>Your dictation history is a local file on your device. You can delete any entry, or all of them, at any time.</li>
         <li>There are no accounts, no sign-in, and no analytics or tracking. Rekody asks for no personal information.</li>
+        <li>If you add API keys for optional cloud engines, they're stored in your system's keychain, never in plaintext on disk.</li>
+        <li>The only network calls Rekody makes on its own are update checks against GitHub releases.</li>
       </ul>
-      <h3>Why the keyboard asks for Full Access</h3>
-      <p>
-        iOS only lets a keyboard place text into another app once you turn on <strong>Allow Full Access</strong>.
-        Rekody uses it for exactly that, and for the small shared container that hands your finished words from
-        the app to the keyboard. It does not use Full Access to send anything off your device, because Rekody has
-        no server to send it to.
-      </p>
       <div class="callout">
         <p>
-          Rekody is off in password and other secure fields by design. It won't offer to dictate where iOS marks
-          the input as secure.
+          Rekody is off in password and other secure fields by design. It won't offer to
+          dictate where the system marks the input as secure.
         </p>
       </div>
-    </section>
-
-    <section id="on-your-mac">
-      <h2>On your Mac</h2>
       <p>
-        Rekody for Mac is a free app built on an open-source, MIT-licensed core (<a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>).
-        Audio capture, voice detection, transcription, cleanup, and typing the text at your cursor all happen on
-        your device. With the default on-device engine, or the on-device Apple Intelligence cleanup,
-        <strong>nothing leaves your machine</strong>.
+        Rekody's dictation engine is open source
+        (<a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">github.com/rekody/rekody</a>,
+        MIT), so you don't have to take our word for any of this.
       </p>
-      <ul>
-        <li>Your dictation history is a local file: <code>~/.config/rekody/history.json</code>. Delete it whenever you like.</li>
-        <li>API keys you add are stored in the macOS Keychain, never in plaintext on disk.</li>
-        <li>The only network calls the app makes on its own are update checks against GitHub releases — automatic for the Mac app, and on demand for the CLI when you run <code>rekody update</code>.</li>
-      </ul>
     </section>
 
     <section id="cloud-engines">
       <h2>If you opt into cloud engines</h2>
       <p>
-        On Mac, you can optionally configure cloud speech-to-text or LLM providers (Deepgram, Groq, OpenAI,
-        Anthropic, and others) using <strong>your own API keys</strong>. When you do, your audio or text goes
-        directly from your Mac to that provider under their terms. There is no Rekody server in the middle,
-        because we don't run any. The iPhone app is on-device only and has no cloud engines.
+        Where Rekody offers optional cloud speech-to-text or LLM engines, you configure them
+        yourself with <strong>your own API keys</strong>. When you do, your audio or text goes
+        directly from your device to that provider under their terms. There is no Rekody
+        server in the middle, because we don't run any. If you never add a key, nothing is
+        ever sent.
       </p>
     </section>
 
     <section id="website">
       <h2>This website</h2>
       <p>
-        rekody.com is a static site. It uses privacy-friendly, cookie-less analytics (Vercel Analytics) for
-        anonymous page-view counts. No tracking cookies, no ad pixels, no fingerprinting.
+        rekody.com is a static site. It uses privacy-friendly, cookie-less analytics (Vercel
+        Analytics) for anonymous page-view counts. No tracking cookies, no ad pixels, no
+        fingerprinting.
       </p>
     </section>
 
@@ -96,7 +83,7 @@ const description = 'Rekody runs on your own device. No accounts, no telemetry, 
       <h2>Questions</h2>
       <p>
         Email <a href="mailto:hi@rekody.com">hi@rekody.com</a>, or open an issue on
-        <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">GitHub</a> for the Mac tool.
+        <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer">GitHub</a>.
         For security reports, email <a href="mailto:security@rekody.com">security@rekody.com</a> or use a
         <a href="https://github.com/rekody/rekody/security/advisories/new" target="_blank" rel="noopener noreferrer">private security advisory</a>.
       </p>
