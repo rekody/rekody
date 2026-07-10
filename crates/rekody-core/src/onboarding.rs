@@ -355,7 +355,7 @@ pub fn run_onboarding() -> Result<()> {
             .item("tiny", "Tiny (75 MB)", "fastest — basic accuracy")
             .item("small", "Small (250 MB)", "balanced")
             .item("medium", "Medium (750 MB)", "better accuracy")
-            .item("large", "Large (1.5 GB)", "best accuracy")
+            .item("large", "Large (3.1 GB)", "best accuracy")
             .initial_value("turbo")
             .interact()
             .map_err(|e| anyhow::anyhow!(e))?
@@ -381,9 +381,13 @@ pub fn run_onboarding() -> Result<()> {
             "ggml-large-v3-turbo-q5_0.bin",
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         ),
+        // Upstream renamed the un-versioned large model: ggml-large.bin is gone
+        // (404) and the current release is ggml-large-v3.bin. We download v3 but
+        // keep the local filename `ggml-large.bin`, which is what the engine
+        // (rekody-stt `WhisperModel::Large`) loads from disk.
         "large" => (
             "ggml-large.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large.bin",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
         ),
         _ => (
             "ggml-tiny.bin",
@@ -809,6 +813,8 @@ const EXPECTED_CHECKSUMS: &[(&str, &str)] = &[
     ),
     ("ggml-medium.bin", ""),
     ("ggml-large-v3-turbo-q5_0.bin", ""),
+    // Local name for the "large" model; the file content is upstream
+    // ggml-large-v3.bin (saved-as — see the download table in run_onboarding).
     ("ggml-large.bin", ""),
 ];
 
@@ -966,9 +972,14 @@ fn coreml_archive_for(size: &str) -> Option<(&'static str, &'static str)> {
             "ggml-large-v3-turbo-encoder.mlmodelc",
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
         )),
+        // Upstream renamed the un-versioned large encoder: the old
+        // ggml-large-encoder.mlmodelc.zip is gone (404); fetch the v3 archive.
+        // The local directory name stays `ggml-large-encoder.mlmodelc` because
+        // whisper.cpp derives it from the model filename (`ggml-large.bin`) —
+        // ensure_coreml_encoder renames the extracted dir to match.
         "large" => Some((
             "ggml-large-encoder.mlmodelc",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-encoder.mlmodelc.zip",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-encoder.mlmodelc.zip",
         )),
         _ => None,
     }
@@ -1024,6 +1035,33 @@ fn ensure_coreml_encoder(whisper_size: &str, model_dir: &std::path::Path) -> Res
             archive_path.display()
         );
     }
+
+    // The archive's root directory is named after the upstream file (URL
+    // basename minus ".zip"), which can differ from the local name whisper.cpp
+    // expects — e.g. ggml-large-v3-encoder.mlmodelc.zip extracts to
+    // ggml-large-v3-encoder.mlmodelc, but next to ggml-large.bin the encoder
+    // must be ggml-large-encoder.mlmodelc. Rename when they differ.
+    let extracted_name = archive_url
+        .rsplit('/')
+        .next()
+        .and_then(|f| f.strip_suffix(".zip"))
+        .unwrap_or(mlmodelc_name);
+    if extracted_name != mlmodelc_name && !mlmodelc_path.exists() {
+        let extracted_path = model_dir.join(extracted_name);
+        if extracted_path.exists() {
+            std::fs::rename(&extracted_path, &mlmodelc_path)
+                .context("failed to rename extracted Core ML encoder")?;
+        }
+    }
+    if !mlmodelc_path.exists() {
+        sp.stop("Core ML encoder missing after unzip");
+        anyhow::bail!(
+            "expected {} after extracting {}, but it was not created",
+            mlmodelc_path.display(),
+            archive_path.display()
+        );
+    }
+
     sp.stop(format!(
         "Core ML encoder ready at {}",
         mlmodelc_path.display()
