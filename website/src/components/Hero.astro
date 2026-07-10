@@ -34,8 +34,8 @@ const notionD = 'M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047
     </p>
 
     <!-- Headline -->
-    <h1 class="display" style="font-size:clamp(52px,8.5vw,104px);">
-      You talk. <span class="display-italic" style="color:var(--color-teal);">It types.</span>
+    <h1 class="display" style="font-size:clamp(44px,8.5vw,104px);">
+      You talk. <span class="display-italic block sm:inline" style="color:var(--color-teal);">It types.</span>
     </h1>
 
     <!-- Subhead -->
@@ -45,13 +45,13 @@ const notionD = 'M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047
     </p>
 
     <!-- CTAs -->
-    <div class="flex flex-wrap items-center justify-center gap-4 pt-1">
-      <a href="https://github.com/rekody/rekody-app/releases/latest/download/Rekody.dmg" class="pill pill-dark" style="padding:0.9rem 1.9rem; font-size:16px; gap:0.6rem;">
+    <div class="flex w-full max-w-[400px] sm:max-w-none sm:w-auto flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 pt-1">
+      <a href="https://github.com/rekody/rekody-app/releases/latest/download/Rekody.dmg" class="pill pill-dark justify-center" style="padding:0.9rem 1.9rem; font-size:16px; gap:0.6rem;">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702"/></svg>
         Download for Mac — free
       </a>
-      <button id="hero-brew-copy" class="pill pill-ghost font-mono" style="padding:0.85rem 1.5rem; font-size:13px;" data-cmd="brew install rekody/rekody/rekody">
-        <span id="hero-brew-label">$ brew install rekody/rekody/rekody</span>
+      <button id="hero-brew-copy" class="pill pill-ghost font-mono justify-center" style="padding:0.85rem 1.5rem; font-size:13px;" data-cmd="brew install rekody/rekody/rekody">
+        <span aria-hidden="true" style="color:var(--color-teal);">$</span><span id="hero-brew-label">brew install rekody/rekody/rekody</span>
       </button>
     </div>
 
@@ -63,29 +63,34 @@ const notionD = 'M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047
     <!-- Live HUD pill -->
     <div id="demo" class="flex flex-col items-center gap-6 pt-4 w-full">
       <div
-        class="hud-live inline-flex items-center gap-4 rounded-full px-5 py-[11px] max-w-full overflow-hidden"
+        class="hud-live flex w-full max-w-[420px] md:w-auto md:max-w-full flex-col md:flex-row md:items-center gap-3 md:gap-4 rounded-[22px] md:rounded-full px-5 py-3.5 md:py-[11px] overflow-hidden"
         style="background:#0D1414; border:1px solid rgba(47,163,179,0.4); box-shadow:0 30px 80px -30px rgba(15,23,23,0.35);"
         role="img"
         aria-label="The Rekody pill recording hands-free: timer, live waveform, and words appearing as you speak"
       >
-        <!-- Target app badge -->
-        <span class="flex items-center justify-center w-5 h-5 rounded-[5px] shrink-0" style="background:#FFFFFF;">
-          <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="#111111" aria-hidden="true"><path d={notionD} /></svg>
+        <!-- Row 1 on mobile (badge + state + waveform); flattens into the single pill row on md+ -->
+        <span class="flex items-center justify-between gap-3 md:contents">
+          <span class="flex items-center gap-3 md:gap-4 md:contents">
+            <!-- Target app badge -->
+            <span class="flex items-center justify-center w-5 h-5 rounded-[5px] shrink-0" style="background:#FFFFFF;">
+              <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="#111111" aria-hidden="true"><path d={notionD} /></svg>
+            </span>
+            <!-- State: hollow circle + teal timer + stop hint -->
+            <span class="flex items-center gap-1.5 shrink-0">
+              <span class="inline-block w-[9px] h-[9px] rounded-full" style="border:1.5px solid #2FA3B3;" aria-hidden="true"></span>
+              <span id="hud-timer" class="font-mono font-bold text-[13px]" style="color:#2FA3B3;">0:07</span>
+              <span class="hud-stop-hint text-[11px] font-medium pl-1 whitespace-nowrap" style="color:rgba(251,250,244,0.55);">tap ⌥ + space to stop</span>
+            </span>
+          </span>
+          <!-- Waveform -->
+          <span class="flex items-center gap-[2px] shrink-0" aria-hidden="true">
+            {bars.map(([h, c]) => (
+              <span class="hud-bar" style={`height:${h}px; background:${c};`}></span>
+            ))}
+          </span>
         </span>
-        <!-- State: hollow circle + teal timer + stop hint -->
-        <span class="flex items-center gap-1.5 shrink-0">
-          <span class="inline-block w-[9px] h-[9px] rounded-full" style="border:1.5px solid #2FA3B3;" aria-hidden="true"></span>
-          <span id="hud-timer" class="font-mono font-bold text-[13px]" style="color:#2FA3B3;">0:07</span>
-          <span class="hidden sm:inline text-[11px] font-medium pl-1 whitespace-nowrap" style="color:rgba(251,250,244,0.55);">tap ⌥ + space to stop</span>
-        </span>
-        <!-- Waveform -->
-        <span class="flex items-center gap-[2px] shrink-0" aria-hidden="true">
-          {bars.map(([h, c]) => (
-            <span class="hud-bar" style={`height:${h}px; background:${c};`}></span>
-          ))}
-        </span>
-        <!-- Live transcript tail + caret -->
-        <span class="hidden md:flex items-center gap-[5px] min-w-0">
+        <!-- Row 2 on mobile (live transcript tail + caret, under a hairline); inline on md+ -->
+        <span class="flex items-center gap-[5px] min-w-0 pt-2.5 md:contents" style="border-top:1px solid rgba(251,250,244,0.12);">
           <span class="text-[12px] whitespace-nowrap truncate">
             <span style="color:#5E6E6E;">…and the words land </span><span style="color:#FBFAF4;">as I say them</span>
           </span>
@@ -94,19 +99,29 @@ const notionD = 'M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047
       </div>
 
       <!-- Landing strip -->
-      <div class="flex flex-wrap items-center justify-center gap-3">
-        <span class="font-mono text-[12px]" style="color:var(--color-ink-faint);">lands at your cursor in</span>
-        {apps.map(a => (
-          <span class="app-ios-tile flex items-center justify-center w-[30px] h-[30px] rounded-lg" style="background:#FFFFFF; border:1px solid rgba(15,23,23,0.1);" title={a.name}>
-            <svg viewBox="0 0 24 24" class="w-4 h-4" fill={a.fg} aria-label={a.name}><path d={a.d} /></svg>
-          </span>
-        ))}
-        <span class="font-mono text-[12px]" style="color:var(--color-ink-faint);">…or anywhere else you type</span>
-        <span class="font-mono text-[12px]" style="color:var(--color-teal);">~100ms</span>
+      <div class="flex flex-col sm:flex-row sm:flex-wrap items-center justify-center gap-2.5 sm:gap-3">
+        <span class="flex items-center gap-2.5 sm:gap-3 sm:contents">
+          <span class="font-mono text-[12px]" style="color:var(--color-ink-faint);">lands at your cursor in</span>
+          {apps.map(a => (
+            <span class="app-ios-tile flex items-center justify-center w-[30px] h-[30px] rounded-lg" style="background:#FFFFFF; border:1px solid rgba(15,23,23,0.1);" title={a.name}>
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill={a.fg} aria-label={a.name}><path d={a.d} /></svg>
+            </span>
+          ))}
+        </span>
+        <span class="flex items-center gap-2.5 sm:gap-3 sm:contents">
+          <span class="font-mono text-[12px]" style="color:var(--color-ink-faint);">…or anywhere else you type</span>
+          <span class="font-mono text-[12px]" style="color:var(--color-teal);">~100ms</span>
+        </span>
       </div>
     </div>
   </div>
 </section>
+
+<style>
+  /* Stop hint: hidden only on the very narrowest phones (<380px) where pill row 1 runs out of room. */
+  .hud-stop-hint { display: none; }
+  @media (min-width: 380px) { .hud-stop-hint { display: inline; } }
+</style>
 
 <script>
   // Copy the brew command; brief confirmation swap.
