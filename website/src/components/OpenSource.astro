@@ -1,80 +1,19 @@
 ---
 import { version } from '../lib/version';
-
-const crates = [
-  {
-    name: 'rekody-core',
-    role: 'Orchestrator',
-    body: 'Ties the pipeline together. State machine, config loading, logging, error surface. Every other crate plugs in here.',
-  },
-  {
-    name: 'rekody-audio',
-    role: 'Capture + VAD',
-    body: 'cpal-based microphone capture, rubato resampling to 16kHz mono, RMS voice activity detection. Zero allocations on the hot path.',
-  },
-  {
-    name: 'rekody-stt',
-    role: 'Transcription',
-    body: 'Speech-to-text adapters. Whisper tiny runs locally out of the box. Cloud providers (Deepgram, AssemblyAI, Groq) plug in as drop-in backends.',
-  },
-  {
-    name: 'rekody-llm',
-    role: 'Post-processing',
-    body: 'Cleanup pass — punctuation, capitalization, filler removal. 11 providers with automatic failover and streaming support. Skipped entirely in fast mode.',
-  },
-  {
-    name: 'rekody-inject',
-    role: 'Cursor delivery',
-    body: 'Types the text where your cursor is. Uses the macOS Accessibility API with a clipboard-paste fallback for apps that block synthetic keystrokes.',
-  },
-  {
-    name: 'rekody-hotkey',
-    role: 'Global shortcut',
-    body: 'Push-to-talk listener built on CGEventTap. Reassignable. Works system-wide, survives app switches, releases cleanly on shutdown.',
-  },
-];
-
-const tabs = [
-  {
-    id: 'brew',
-    label: 'brew',
-    recommended: true,
-    lines: [
-      { tokens: [ {c:'cmd', t:'brew'}, {c:'flag', t:' install'}, {c:'str', t:' rekody/rekody/rekody'} ] },
-    ],
-    note: '— auto-taps + installs. Updates via <code>brew upgrade rekody</code>.',
-  },
-  {
-    id: 'source',
-    label: 'from source',
-    recommended: false,
-    lines: [
-      { tokens: [ {c:'cmd', t:'git'}, {c:'flag', t:' clone'}, {c:'url', t:' https://github.com/rekody/rekody.git'} ] },
-      { tokens: [ {c:'cmd', t:'cd'}, {c:'str', t:' rekody'}, {c:'flag', t:' && '}, {c:'cmd', t:'make'}, {c:'str', t:' install'} ] },
-    ],
-    note: '— builds from source. Requires the Rust stable toolchain.',
-  },
-  {
-    id: 'cargo',
-    label: 'cargo',
-    recommended: false,
-    lines: [
-      { tokens: [ {c:'cmd', t:'cargo'}, {c:'flag', t:' install --git'}, {c:'url', t:' https://github.com/rekody/rekody'}, {c:'str', t:' rekody-core'} ] },
-    ],
-    note: '— installs into <code>~/.cargo/bin</code>. Rust users only.',
-  },
-];
 ---
 
-<!-- Hero -->
+<!-- Hero — honest boundary: open engine, closed-source free app shell (matches EULA §3) -->
 <section class="relative pt-14 pb-20" style="background:var(--color-cream);">
   <div class="max-w-4xl mx-auto px-6 text-center">
     <p class="text-[11px] font-mono uppercase mb-5" style="color:var(--color-teal); letter-spacing:0.16em;">— Open source</p>
     <h1 class="display mb-6" style="font-size:clamp(44px, 6.2vw, 76px); line-height:1.02;">
-      Rekody is <em style="font-style:italic; color:var(--color-teal);">open</em>, <br/>all the way down.
+      The engine is <em style="font-style:italic; color:var(--color-teal);">open</em>.
     </h1>
     <p class="body-serif max-w-2xl mx-auto" style="font-size:18px; color:var(--color-ink-soft);">
-      Every line of the dictation engine is on GitHub under MIT. Six small Rust crates, one CLI binary, no hidden runtime. Read it, audit it, fork it, run it — forever, for free.
+      Everything that hears you, transcribes you, and types for you — six Rust crates and the
+      <code class="font-mono text-[15px]">rekody</code> CLI — is on GitHub under MIT.
+      The free Mac app is a closed-source shell on the same engine, so the code that touches
+      your voice is code you can read.
     </p>
 
     <div class="flex flex-wrap items-center justify-center gap-2 mt-8">
@@ -85,208 +24,104 @@ const tabs = [
       <a href="https://github.com/rekody/rekody/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="pill pill-ghost" style="padding:0.625rem 1rem;">
         Read the MIT license
       </a>
-      <span class="font-mono text-[11px] ml-2" style="color:var(--color-ink-faint);">v{version} · MIT · Rust 2024</span>
+      <span class="font-mono text-[11px] ml-2" style="color:var(--color-ink-faint);">v{version} · MIT · Rust</span>
     </div>
   </div>
 </section>
 
-<!-- Crates grid -->
-<section class="relative py-20" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline);">
-  <div class="max-w-6xl mx-auto px-6">
-    <div class="mb-12 max-w-2xl">
-      <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-ink-faint); letter-spacing:0.14em;">— The workspace</p>
-      <h2 class="display mb-4" style="font-size:clamp(32px, 4vw, 48px);">Six crates. One binary.</h2>
-      <p class="body-serif" style="font-size:16px; color:var(--color-ink-soft);">
-        Each crate has one job and a small surface area. Swap a backend, fork a piece, or read the whole thing in an afternoon.
+<!-- What's open + the license, in one band -->
+<section class="relative py-20" style="background:var(--color-ink); color:var(--color-cream);">
+  <div class="max-w-4xl mx-auto px-6">
+    <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-teal-bright); letter-spacing:0.14em;">— The workspace</p>
+    <h2 class="display mb-6" style="font-size:clamp(32px, 4vw, 48px); color:var(--color-cream);">Six crates. One binary.</h2>
+    <div class="body-serif space-y-4 max-w-2xl" style="font-size:16px; color:rgba(251,250,244,0.78); line-height:1.7;">
+      <p>
+        Each crate has one job: microphone capture and voice detection, on-device Whisper
+        transcription (offline, out of the box), optional bring-your-own-key cloud engines,
+        the global push-to-talk hotkey, cursor-level text injection, and the orchestrator
+        that ties them together. TOML config. No telemetry.
+      </p>
+      <p>
+        The license is MIT — nothing fancy. Use it at work, fork it, bundle it with a
+        closed-source product; the only requirement is keeping the copyright notice.
+      </p>
+      <p>
+        Rather than us describing the code, read it — the workspace is small enough for an
+        afternoon.
       </p>
     </div>
-
-    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {crates.map(c => (
-        <a
-          href={`https://github.com/rekody/rekody/tree/main/crates/${c.name}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="crate-card group block rounded-xl p-6 transition-all"
-          style="background:#FFFFFF; border:1px solid var(--color-hairline);"
-        >
-          <div class="flex items-baseline justify-between mb-2 gap-3">
-            <code class="font-mono text-[14px]" style="color:var(--color-ink);">{c.name}</code>
-            <span class="text-[10px] font-mono uppercase" style="color:var(--color-teal); letter-spacing:0.12em;">{c.role}</span>
-          </div>
-          <p class="body-serif text-[14px]" style="color:var(--color-ink-soft); line-height:1.55;">{c.body}</p>
-          <span class="inline-flex items-center gap-1 mt-4 text-[12px] font-mono" style="color:var(--color-ink-mute);">
-            View source
-            <svg class="w-3 h-3 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-          </span>
-        </a>
-      ))}
-    </div>
+    <a href="https://github.com/rekody/rekody/tree/main/crates" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 mt-8 text-[14px] font-mono" style="color:var(--color-teal-bright);">
+      Browse the crates
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </a>
   </div>
 </section>
 
 <!-- Install the CLI -->
 <section class="relative py-20" style="background:var(--color-cream);">
-  <div class="max-w-4xl mx-auto px-6">
-    <div class="text-center mb-12">
+  <div class="max-w-3xl mx-auto px-6">
+    <div class="text-center mb-10">
       <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-teal); letter-spacing:0.14em;">— Install the CLI</p>
-      <h2 class="display mb-4" style="font-size:clamp(32px, 4vw, 48px);">Every path installs the same binary.</h2>
+      <h2 class="display mb-4" style="font-size:clamp(32px, 4vw, 48px);">One command.</h2>
       <p class="body-serif max-w-xl mx-auto" style="font-size:16px; color:var(--color-ink-soft);">
-        There's no installer and no account — nothing is fetched at launch. The binary is ~5MB, the Whisper tiny model is ~75MB, and everything stays on your machine.
+        No installer, no account. The binary is ~35&nbsp;MB, and the on-device Whisper model
+        (~75&nbsp;MB) downloads once at setup — after that, dictation runs offline.
       </p>
     </div>
 
-    <div class="rounded-2xl overflow-hidden" style="background:var(--color-cream-warm); border:1px solid var(--color-hairline); box-shadow:0 24px 60px -30px rgba(15,23,23,0.18);">
-      <div class="flex items-center gap-1 px-4 pt-4 pb-0 overflow-x-auto scrollbar-none">
-        {tabs.map((t, i) => (
-          <button
-            data-os-tab={t.id}
-            class="os-tab inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full text-[13px] font-mono whitespace-nowrap shrink-0 transition-colors"
-            data-active={i === 0 ? 'true' : 'false'}
-          >
-            <span class="os-tab-dot w-1.5 h-1.5 rounded-full" style="background:var(--color-teal);"></span>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div class="px-4 pb-4">
-        {tabs.map((t, i) => (
-          <div data-os-panel={t.id} class={i !== 0 ? 'hidden' : ''}>
-            <div class="rounded-xl mt-3" style="background:#FFFFFF; border:1px solid var(--color-hairline-soft);">
-              <div class="flex items-start gap-4 px-5 py-4">
-                <span class="tok-prompt font-mono text-sm shrink-0 mt-0.5">$</span>
-                <pre class="font-mono text-[14px] leading-[1.65] overflow-x-auto flex-1 m-0">{t.lines.map(line => (
-                  <div>{line.tokens.map(tok => <span class={`tok-${tok.c}`}>{tok.t}</span>)}</div>
-                ))}</pre>
-                <button
-                  data-os-copy={t.id}
-                  class="shrink-0 mt-0.5 pill pill-ghost"
-                  style="padding:0.4rem 0.7rem; font-size:12px;"
-                  aria-label={`Copy ${t.label} command`}
-                >
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                  </svg>
-                  Copy
-                </button>
-              </div>
-              <p class="px-5 pb-4 text-[13px] body-serif italic" style="color:var(--color-ink-faint);" set:html={t.note}></p>
-            </div>
-          </div>
-        ))}
+    <div class="rounded-xl" style="background:#FFFFFF; border:1px solid var(--color-hairline); box-shadow:0 24px 60px -30px rgba(15,23,23,0.18);">
+      <div class="flex items-start gap-4 px-5 py-4">
+        <span class="tok-prompt font-mono text-sm shrink-0 mt-0.5">$</span>
+        <pre class="font-mono text-[14px] leading-[1.65] overflow-x-auto flex-1 m-0"><span class="tok-cmd">brew</span><span class="tok-flag"> install</span><span class="tok-str"> rekody/rekody/rekody</span></pre>
+        <button
+          id="os-brew-copy"
+          class="shrink-0 mt-0.5 pill pill-ghost"
+          style="padding:0.4rem 0.7rem; font-size:12px;"
+          aria-label="Copy the brew install command"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+          Copy
+        </button>
       </div>
     </div>
 
-    <p class="text-center mt-6 text-[12px] font-mono" style="color:var(--color-ink-mute);">
-      macOS 13+ · Apple Silicon · Intel · Accessibility + Microphone permissions
+    <p class="text-center mt-6 text-[13px] body-serif" style="color:var(--color-ink-mute);">
+      Prefer building from source, cargo, or the curl installer? Every path is in the
+      <a href="https://github.com/rekody/rekody#install" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2" style="color:var(--color-ink);">README</a>.
     </p>
-  </div>
-</section>
-
-<!-- Why MIT -->
-<section class="relative py-20" style="background:var(--color-ink); color:var(--color-cream);">
-  <div class="max-w-4xl mx-auto px-6">
-    <div class="grid md:grid-cols-[1fr_380px] gap-12 items-start">
-      <div>
-        <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-teal-bright); letter-spacing:0.14em;">— The license</p>
-        <h2 class="display mb-6" style="font-size:clamp(32px, 4vw, 48px); color:var(--color-cream);">It's MIT — nothing fancy.</h2>
-        <div class="body-serif space-y-4" style="font-size:16px; color:rgba(251,250,244,0.78); line-height:1.7;">
-          <p>
-            Use it at work. Fork it for your own thing. Bundle it with a closed-source product. Rip out the hotkey crate and drop it in a different app. We don't ask.
-          </p>
-          <p>
-            The only thing MIT requires is that you keep the copyright notice. That's it — no viral terms or redistribution clauses.
-          </p>
-          <p>
-            The bar we set for ourselves: the CLI is, and always will be, good enough to use on its own. If it ever stops being that, MIT means you can take it somewhere better.
-          </p>
-        </div>
-      </div>
-
-      <aside class="rounded-xl p-6" style="background:rgba(251,250,244,0.06); border:1px solid rgba(251,250,244,0.1);">
-        <p class="text-[11px] font-mono uppercase mb-3" style="color:var(--color-teal-bright); letter-spacing:0.14em;">— What's in the box</p>
-        <ul class="space-y-2.5 text-[14px]" style="color:rgba(251,250,244,0.82); font-family:var(--font-serif);">
-          <li class="flex items-start gap-2"><span style="color:var(--color-teal-bright);">✓</span> Microphone capture + VAD</li>
-          <li class="flex items-start gap-2"><span style="color:var(--color-teal-bright);">✓</span> Local Whisper tiny (runs offline)</li>
-          <li class="flex items-start gap-2"><span style="color:var(--color-teal-bright);">✓</span> Bring-your-own-key cloud STT + LLM</li>
-          <li class="flex items-start gap-2"><span style="color:var(--color-teal-bright);">✓</span> Global push-to-talk hotkey</li>
-          <li class="flex items-start gap-2"><span style="color:var(--color-teal-bright);">✓</span> Cursor-level text injection</li>
-          <li class="flex items-start gap-2"><span style="color:var(--color-teal-bright);">✓</span> 100+ language support (model-dependent)</li>
-          <li class="flex items-start gap-2"><span style="color:var(--color-teal-bright);">✓</span> TOML config, no telemetry</li>
-        </ul>
-      </aside>
-    </div>
+    <p class="text-center mt-3 text-[12px] font-mono" style="color:var(--color-ink-mute);">
+      macOS 13+ · Apple Silicon &amp; Intel · Accessibility + Microphone permissions
+    </p>
   </div>
 </section>
 
 <!-- Contribute -->
-<section class="relative py-20" style="background:var(--color-cream-warm);">
-  <div class="max-w-4xl mx-auto px-6 text-center">
+<section class="relative py-20" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline);">
+  <div class="max-w-3xl mx-auto px-6 text-center">
     <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-teal); letter-spacing:0.14em;">— Contribute</p>
     <h2 class="display mb-4" style="font-size:clamp(32px, 4vw, 48px);">Issues, PRs, and opinions welcome.</h2>
-    <p class="body-serif max-w-xl mx-auto mb-10" style="font-size:16px; color:var(--color-ink-soft);">
-      The repo is small and the surface area is small. Bug reports with repro steps get triaged quickly. Good PRs get merged.
+    <p class="body-serif max-w-xl mx-auto" style="font-size:16px; color:var(--color-ink-soft);">
+      The repo is small and so is the team. Bug reports with what you ran and what happened
+      help most, and tight diffs are the fastest way to a merge. Start with an
+      <a href="https://github.com/rekody/rekody/issues" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2" style="color:var(--color-ink);">issue</a>,
+      read <a href="https://github.com/rekody/rekody/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2" style="color:var(--color-ink);">CONTRIBUTING</a>,
+      or bring design questions to
+      <a href="https://github.com/rekody/rekody/discussions" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2" style="color:var(--color-ink);">Discussions</a>.
     </p>
-
-    <div class="grid sm:grid-cols-3 gap-4 text-left">
-      <a href="https://github.com/rekody/rekody/issues" target="_blank" rel="noopener noreferrer" class="block rounded-xl p-6 transition-all" style="background:#FFFFFF; border:1px solid var(--color-hairline);">
-        <p class="font-mono text-[12px] mb-2" style="color:var(--color-teal); letter-spacing:0.08em;">FILE AN ISSUE</p>
-        <p class="body-serif text-[14px]" style="color:var(--color-ink-soft); line-height:1.55;">Something broken? Something missing? Tell us — ideally with what you ran and what happened.</p>
-      </a>
-      <a href="https://github.com/rekody/rekody/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer" class="block rounded-xl p-6 transition-all" style="background:#FFFFFF; border:1px solid var(--color-hairline);">
-        <p class="font-mono text-[12px] mb-2" style="color:var(--color-teal); letter-spacing:0.08em;">SEND A PR</p>
-        <p class="body-serif text-[14px]" style="color:var(--color-ink-soft); line-height:1.55;">Read CONTRIBUTING, run the tests, keep the diff tight. Small PRs get merged fast.</p>
-      </a>
-      <a href="https://github.com/rekody/rekody/discussions" target="_blank" rel="noopener noreferrer" class="block rounded-xl p-6 transition-all" style="background:#FFFFFF; border:1px solid var(--color-hairline);">
-        <p class="font-mono text-[12px] mb-2" style="color:var(--color-teal); letter-spacing:0.08em;">DISCUSS</p>
-        <p class="body-serif text-[14px]" style="color:var(--color-ink-soft); line-height:1.55;">Design questions, roadmap thoughts, "should Rekody do X?" — Discussions is the right room.</p>
-      </a>
-    </div>
-
   </div>
 </section>
 
-<style>
-  .crate-card:hover { border-color: var(--color-teal); box-shadow: 0 8px 24px -16px rgba(32,128,141,0.3); transform: translateY(-1px); }
-  .os-tab { color: var(--color-ink-mute); background: transparent; border: 1px solid transparent; }
-  .os-tab:hover { color: var(--color-ink); background: rgba(15,23,23,0.04); }
-  .os-tab[data-active="true"] { color: var(--color-ink); background: #FFFFFF; border-color: var(--color-hairline); }
-  .os-tab .os-tab-dot { display: none; }
-  .os-tab[data-active="true"] .os-tab-dot { display: inline-block; }
-</style>
-
 <script>
-  const osTabs   = document.querySelectorAll<HTMLButtonElement>('.os-tab');
-  const osPanels = document.querySelectorAll<HTMLElement>('[data-os-panel]');
-
-  osTabs.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const target = btn.dataset.osTab!;
-      osTabs.forEach(b => b.setAttribute('data-active', 'false'));
-      btn.setAttribute('data-active', 'true');
-      osPanels.forEach(p => p.classList.add('hidden'));
-      document.querySelector<HTMLElement>(`[data-os-panel="${target}"]`)?.classList.remove('hidden');
-    });
-  });
-
-  const osCopyIcon  = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy`;
-  const osCheckIcon = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied`;
-
-  const osCmds: Record<string, string> = {
-    brew:   'brew install rekody/rekody/rekody',
-    source: 'git clone https://github.com/rekody/rekody.git\ncd rekody && make install',
-    cargo:  'cargo install --git https://github.com/rekody/rekody rekody-core',
-  };
-
-  document.querySelectorAll<HTMLButtonElement>('[data-os-copy]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.osCopy!;
-      try {
-        await navigator.clipboard.writeText(osCmds[id] ?? '');
-        btn.innerHTML = osCheckIcon;
-        setTimeout(() => { btn.innerHTML = osCopyIcon; }, 1800);
-      } catch {}
-    });
+  const copyBtn = document.getElementById('os-brew-copy');
+  const copyIcon  = copyBtn?.innerHTML ?? '';
+  const checkIcon = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied`;
+  copyBtn?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText('brew install rekody/rekody/rekody');
+      copyBtn.innerHTML = checkIcon;
+      setTimeout(() => { copyBtn.innerHTML = copyIcon; }, 1800);
+    } catch {}
   });
 </script>
