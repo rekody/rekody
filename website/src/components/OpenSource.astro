@@ -30,11 +30,11 @@ import { version } from '../lib/version';
 </section>
 
 <!-- What's open + the license, in one band -->
-<section class="relative py-20" style="background:var(--color-ink); color:var(--color-cream);">
+<section class="relative py-20" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline); border-bottom:1px solid var(--color-hairline);">
   <div class="max-w-4xl mx-auto px-6">
-    <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-teal-bright); letter-spacing:0.14em;">— The workspace</p>
-    <h2 class="display mb-6" style="font-size:clamp(32px, 4vw, 48px); color:var(--color-cream);">Six crates. One binary.</h2>
-    <div class="body-serif space-y-4 max-w-2xl" style="font-size:16px; color:rgba(251,250,244,0.78); line-height:1.7;">
+    <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-teal); letter-spacing:0.14em;">— The workspace</p>
+    <h2 class="display mb-6" style="font-size:clamp(32px, 4vw, 48px);">Six crates. One binary.</h2>
+    <div class="body-serif space-y-4 max-w-2xl" style="font-size:16px; color:var(--color-ink-soft); line-height:1.7;">
       <p>
         Each crate has one job: microphone capture and voice detection, on-device Whisper
         transcription (offline, out of the box), optional bring-your-own-key cloud engines,
@@ -50,7 +50,7 @@ import { version } from '../lib/version';
         afternoon.
       </p>
     </div>
-    <a href="https://github.com/rekody/rekody/tree/main/crates" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 mt-8 text-[14px] font-mono" style="color:var(--color-teal-bright);">
+    <a href="https://github.com/rekody/rekody/tree/main/crates" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 mt-8 text-[14px] font-mono" style="color:var(--color-teal);">
       Browse the crates
       <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
     </a>
@@ -69,22 +69,10 @@ import { version } from '../lib/version';
       </p>
     </div>
 
-    <div class="rounded-xl" style="background:#FFFFFF; border:1px solid var(--color-hairline); box-shadow:0 24px 60px -30px rgba(15,23,23,0.18);">
-      <div class="flex items-start gap-4 px-5 py-4">
-        <span class="tok-prompt font-mono text-sm shrink-0 mt-0.5">$</span>
-        <pre class="font-mono text-[14px] leading-[1.65] overflow-x-auto flex-1 m-0"><span class="tok-cmd">brew</span><span class="tok-flag"> install</span><span class="tok-str"> rekody/rekody/rekody</span></pre>
-        <button
-          id="os-brew-copy"
-          class="shrink-0 mt-0.5 pill pill-ghost"
-          style="padding:0.4rem 0.7rem; font-size:12px;"
-          aria-label="Copy the brew install command"
-        >
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-          </svg>
-          Copy
-        </button>
-      </div>
+    <div class="flex justify-center">
+      <button id="os-brew-copy" class="pill pill-ghost font-mono justify-center w-full max-w-[400px] sm:w-auto" style="padding:0.9rem 1.6rem; font-size:14px;" data-cmd="brew install rekody/rekody/rekody" aria-label="Copy the brew install command">
+        <span aria-hidden="true" style="color:var(--color-teal);">$</span><span id="os-brew-label">brew install rekody/rekody/rekody</span>
+      </button>
     </div>
 
     <p class="text-center mt-6 text-[13px] body-serif" style="color:var(--color-ink-mute);">
@@ -114,14 +102,17 @@ import { version } from '../lib/version';
 </section>
 
 <script>
-  const copyBtn = document.getElementById('os-brew-copy');
-  const copyIcon  = copyBtn?.innerHTML ?? '';
-  const checkIcon = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied`;
-  copyBtn?.addEventListener('click', async () => {
+  // Copy the brew command; brief confirmation swap (same chip pattern as the landing page).
+  const btn = document.getElementById('os-brew-copy') as HTMLButtonElement | null;
+  const label = document.getElementById('os-brew-label');
+  btn?.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText('brew install rekody/rekody/rekody');
-      copyBtn.innerHTML = checkIcon;
-      setTimeout(() => { copyBtn.innerHTML = copyIcon; }, 1800);
-    } catch {}
+      await navigator.clipboard.writeText(btn?.dataset.cmd ?? 'brew install rekody/rekody/rekody');
+      if (label) {
+        const prev = label.textContent;
+        label.textContent = '✓ copied';
+        setTimeout(() => { if (label) label.textContent = prev; }, 1400);
+      }
+    } catch { /* clipboard unavailable — leave the command visible to select */ }
   });
 </script>
