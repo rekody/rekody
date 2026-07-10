@@ -75,3 +75,10 @@ That covers steps 2–5 of the rollback checklist (tag, GH release, tap, verify)
 - **Claims must be repo-verified before publishing.** Current truths: latency ~100ms after release (measured ~55ms streaming tail, `streaming.rs`); "0 network calls" is runtime-scoped — models download once at setup, updates are manual; binary is ~35 MB unstripped (the old "5 MB" claim was false — never resurrect it).
 - **Do not market**: multilingual/100+ languages (until Whisper multilingual is tested and first-class) or Windows (until a public installable artifact ships — see WINDOWS.md gate).
 - The landing page design source of truth is the "Direction A3 — Pure White" board in the Paper file "Rekody Branding" (app.paper.design/file/01KX3G2BD3FVCSY3ETHKXH8XR3, page "website").
+
+## Benchmark publishing policy (decided 2026-07-10)
+
+- Public benchmarks (rekody.com or any marketing surface) never include artifacts from individuals' accounts (e.g. third-party quantizations). Those are internal references only.
+- Compare only against widely recognized models users know (whisper-large-v3, large-v3-turbo today; add others as rekody's lineup grows).
+- Numbers must come from rekody-bench runs with the leaderboard-pinned methodology (normalizer + datasets), and only after the calibration gate passes.
+- Benchmark visuals for the site are a deliberate design task, not an afterthought.
