@@ -364,36 +364,7 @@ pub fn run_onboarding() -> Result<()> {
         "tiny"
     };
 
-    let (whisper_file, whisper_url) = match whisper_size {
-        "tiny" => (
-            "ggml-tiny.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-        ),
-        "small" => (
-            "ggml-small.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-        ),
-        "medium" => (
-            "ggml-medium.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-        ),
-        "turbo" => (
-            "ggml-large-v3-turbo-q5_0.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
-        ),
-        // Upstream renamed the un-versioned large model: ggml-large.bin is gone
-        // (404) and the current release is ggml-large-v3.bin. We download v3 but
-        // keep the local filename `ggml-large.bin`, which is what the engine
-        // (rekody-stt `WhisperModel::Large`) loads from disk.
-        "large" => (
-            "ggml-large.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
-        ),
-        _ => (
-            "ggml-tiny.bin",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-        ),
-    };
+    let (whisper_file, whisper_remote) = whisper_download_spec(whisper_size);
 
     // --- Download model (only for local STT) -----------------------------
     if stt_engine == "local" {
@@ -410,11 +381,16 @@ pub fn run_onboarding() -> Result<()> {
         } else {
             std::fs::create_dir_all(&model_dir).context("failed to create model directory")?;
 
-            download_model(whisper_url, &model_path).context("failed to download Whisper model")?;
-
-            // Verify checksum (warning only — does not block).
-            let expected = expected_checksum_for(whisper_file);
-            verify_model_checksum(model_path.to_str().unwrap_or(""), expected);
+            // Rekody model mirror first, upstream whisper.cpp as fallback; the
+            // pinned checksum is enforced on whichever source serves the file.
+            let (primary_url, fallback_url) = whisper_asset_urls(whisper_remote);
+            download_with_fallback(
+                &primary_url,
+                &fallback_url,
+                &model_path,
+                expected_checksum_for(whisper_file),
+            )
+            .context("failed to download Whisper model")?;
         }
 
         // Apple Silicon: fetch the matching Core ML encoder so whisper.cpp can
@@ -790,39 +766,155 @@ fn download_model(url: &str, dest: &std::path::Path) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Whisper model sources (Rekody mirror first, upstream fallback)
+// ---------------------------------------------------------------------------
+
+/// Rekody's own model mirror on Hugging Face. Tried first for every whisper
+/// artifact so availability stays under Rekody's control — an upstream rename
+/// or removal (like the ggml-large.bin one) cannot break onboarding.
+const REKODY_WHISPER_BASE: &str =
+    "https://huggingface.co/Rekody/rekody-models/resolve/main/whisper";
+
+/// Upstream whisper.cpp model repo, kept as the fallback source.
+const UPSTREAM_WHISPER_BASE: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+
+/// Build the `(primary, fallback)` download URLs for a whisper artifact.
+///
+/// Both repos serve the artifact under the same `remote_file` name; only the
+/// base path differs.
+fn whisper_asset_urls(remote_file: &str) -> (String, String) {
+    (
+        format!("{REKODY_WHISPER_BASE}/{remote_file}"),
+        format!("{UPSTREAM_WHISPER_BASE}/{remote_file}"),
+    )
+}
+
+/// Download `url` to `dest`, then enforce the expected SHA-256.
+///
+/// On a checksum mismatch the corrupt file is deleted before returning an
+/// error, so nothing unverified is left on disk for the engine (or a retry)
+/// to pick up.
+fn download_verified(url: &str, dest: &std::path::Path, expected_sha256: &str) -> Result<()> {
+    download_model(url, dest)?;
+    if !verify_model_checksum(dest.to_str().unwrap_or(""), expected_sha256) {
+        let _ = std::fs::remove_file(dest);
+        anyhow::bail!("SHA-256 checksum mismatch for {}", dest.display());
+    }
+    Ok(())
+}
+
+/// Download a whisper artifact from the Rekody model mirror, falling back to
+/// upstream whisper.cpp when the mirror fails for any reason: non-2xx status,
+/// network error, or checksum mismatch. Both attempts verify against
+/// `expected_sha256` (see [`download_verified`]), and the source that served
+/// the file is echoed so it is always clear where the bytes came from.
+fn download_with_fallback(
+    primary_url: &str,
+    fallback_url: &str,
+    dest: &std::path::Path,
+    expected_sha256: &str,
+) -> Result<()> {
+    match download_verified(primary_url, dest, expected_sha256) {
+        Ok(()) => {
+            println!(
+                "  {} Downloaded from the Rekody model mirror.",
+                console::style("✓").green().bold()
+            );
+            Ok(())
+        }
+        Err(primary_err) => {
+            tracing::warn!("Rekody model mirror failed for {primary_url}: {primary_err:#}");
+            println!(
+                "  {}  Rekody model mirror unavailable; falling back to upstream whisper.cpp...",
+                console::style("⚠").yellow().bold()
+            );
+            download_verified(fallback_url, dest, expected_sha256)?;
+            println!(
+                "  {} Downloaded from upstream whisper.cpp.",
+                console::style("✓").green().bold()
+            );
+            Ok(())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Checksum verification
 // ---------------------------------------------------------------------------
 
-// Known SHA-256 checksums for whisper.cpp GGML models from HuggingFace.
-// These may change when models are updated — verify at:
-//   https://huggingface.co/ggerganov/whisper.cpp/tree/main
+// Known SHA-256 checksums for whisper model artifacts, keyed by the LOCAL
+// filename the artifact is saved as. The Rekody model mirror
+// (Rekody/rekody-models) and upstream ggerganov/whisper.cpp serve identical
+// bytes, so one hash covers both sources. Where the local name differs from
+// the upstream one (the "large" family), the hash is of the upstream v3
+// content that gets saved under the engine's expected local name.
 //
-// To obtain a fresh checksum:
+// To refresh after an upstream model update:
 //   shasum -a 256 ggml-tiny.bin    (macOS)
 //   sha256sum ggml-tiny.bin        (Linux)
 //
-// Last verified: 2026-04-10
+// Last verified: 2026-07-10
 const EXPECTED_CHECKSUMS: &[(&str, &str)] = &[
+    // GGML model weights
     (
         "ggml-tiny.bin",
-        "", // fill in after downloading and hashing
+        "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+    ),
+    (
+        "ggml-tiny.en.bin",
+        "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
     ),
     (
         "ggml-small.bin",
-        "", // fill in after downloading and hashing
+        "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
     ),
-    ("ggml-medium.bin", ""),
-    ("ggml-large-v3-turbo-q5_0.bin", ""),
+    (
+        "ggml-medium.bin",
+        "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
+    ),
+    (
+        "ggml-large-v3-turbo-q5_0.bin",
+        "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    ),
     // Local name for the "large" model; the file content is upstream
-    // ggml-large-v3.bin (saved-as — see the download table in run_onboarding).
-    ("ggml-large.bin", ""),
+    // ggml-large-v3.bin (saved-as — see whisper_download_spec).
+    (
+        "ggml-large.bin",
+        "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2",
+    ),
+    // Core ML encoder archives (Apple Silicon), keyed by the local zip name
+    // `<mlmodelc_dir>.zip` that ensure_coreml_encoder downloads to.
+    (
+        "ggml-tiny-encoder.mlmodelc.zip",
+        "c88cbd2648e1f5415092bcf5256add463a0f19943e6938f46e8d4ffdebd47739",
+    ),
+    (
+        "ggml-small-encoder.mlmodelc.zip",
+        "de43fb9fed471e95c19e60ae67575c2bf09e8fb607016da171b06ddad313988b",
+    ),
+    (
+        "ggml-medium-encoder.mlmodelc.zip",
+        "79b0b8d436d47d3f24dd3afc91f19447dd686a4f37521b2f6d9c30a642133fbd",
+    ),
+    (
+        "ggml-large-v3-turbo-encoder.mlmodelc.zip",
+        "84bedfe895bd7b5de6e8e89a0803dfc5addf8c0c5bc4c937451716bf7cf7988a",
+    ),
+    // Local name for the "large" encoder archive; the content is upstream
+    // ggml-large-v3-encoder.mlmodelc.zip (saved-as, mirroring ggml-large.bin).
+    (
+        "ggml-large-encoder.mlmodelc.zip",
+        "47837be7594a29429ec08620043390c4d6d467f8bd362df09e9390ace76a55a4",
+    ),
 ];
 
 /// Verify the SHA-256 checksum of a downloaded file.
 ///
 /// Uses `shasum -a 256` on macOS or `sha256sum` on Linux.
-/// Returns `true` if the computed hash matches `expected_sha256`,
-/// or if `expected_sha256` is empty (skipped).
+/// Returns `false` only on a definite mismatch — callers treat that as
+/// "delete the file and try another source". An empty `expected_sha256`
+/// skips verification, and a missing hashing tool warns without blocking
+/// (there is no evidence of corruption in either case).
 fn verify_model_checksum(path: &str, expected_sha256: &str) -> bool {
     if expected_sha256.is_empty() {
         println!("  Checksum verification skipped (no expected hash configured).");
@@ -847,20 +939,22 @@ fn verify_model_checksum(path: &str, expected_sha256: &str) -> bool {
                 println!("  WARNING: SHA-256 checksum mismatch!");
                 println!("    Expected: {}", expected_sha256);
                 println!("    Actual:   {}", actual_hash);
-                println!("    The model file may have been updated upstream.");
-                println!("    If you trust the source, you can ignore this warning.");
                 false
             }
         }
         _ => {
             println!("  WARNING: Could not compute SHA-256 checksum (shasum/sha256sum not found).");
-            println!("  You can verify manually with: shasum -a 256 {}", path);
-            false
+            println!(
+                "  Proceeding unverified. Check manually with: shasum -a 256 {}",
+                path
+            );
+            true
         }
     }
 }
 
-/// Look up the expected checksum for a given whisper model filename.
+/// Look up the expected checksum for a whisper artifact by its LOCAL filename
+/// (model `.bin` or Core ML encoder `.zip`). Empty string when unpinned.
 fn expected_checksum_for(filename: &str) -> &'static str {
     EXPECTED_CHECKSUMS
         .iter()
@@ -929,6 +1023,29 @@ fn resolve_model_dir() -> PathBuf {
         })
 }
 
+/// Map a whisper model size to `(local_file, remote_file)`.
+///
+/// `local_file` is the on-disk name the engine loads (and the key into
+/// EXPECTED_CHECKSUMS); `remote_file` is the artifact name in both the
+/// Rekody model mirror and upstream whisper.cpp. They differ only for
+/// "large": upstream renamed the un-versioned large model (ggml-large.bin
+/// is gone, the current release is ggml-large-v3.bin), so we download the
+/// v3 content but keep the local filename `ggml-large.bin`, which is what
+/// the engine (rekody-stt `WhisperModel::Large`) loads from disk.
+fn whisper_download_spec(size: &str) -> (&'static str, &'static str) {
+    match size {
+        "tiny" => ("ggml-tiny.bin", "ggml-tiny.bin"),
+        "small" => ("ggml-small.bin", "ggml-small.bin"),
+        "medium" => ("ggml-medium.bin", "ggml-medium.bin"),
+        "turbo" => (
+            "ggml-large-v3-turbo-q5_0.bin",
+            "ggml-large-v3-turbo-q5_0.bin",
+        ),
+        "large" => ("ggml-large.bin", "ggml-large-v3.bin"),
+        _ => ("ggml-tiny.bin", "ggml-tiny.bin"),
+    }
+}
+
 /// Map a whisper model size string to its GGML filename.
 #[allow(dead_code)]
 fn whisper_file_name(size: &str) -> &str {
@@ -952,25 +1069,29 @@ fn whisper_file_name(size: &str) -> &str {
 // faster than Metal-only inference. First use compiles the MIL bytecode into
 // `~/Library/Caches/com.apple.e5rt.e5bundlecache` (30–60 s, one-time).
 
-/// Return `(mlmodelc_dir_name, archive_url)` for the given whisper size,
-/// or `None` if no Core ML encoder is published for it.
+/// Return `(mlmodelc_dir_name, remote_archive_name)` for the given whisper
+/// size, or `None` if no Core ML encoder is published for it.
+///
+/// The remote name is the artifact in both the Rekody model mirror and
+/// upstream whisper.cpp (see whisper_asset_urls); the local dir name is what
+/// whisper.cpp derives from the model filename on disk.
 fn coreml_archive_for(size: &str) -> Option<(&'static str, &'static str)> {
     match size.to_lowercase().as_str() {
         "tiny" => Some((
             "ggml-tiny-encoder.mlmodelc",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-encoder.mlmodelc.zip",
+            "ggml-tiny-encoder.mlmodelc.zip",
         )),
         "small" => Some((
             "ggml-small-encoder.mlmodelc",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-encoder.mlmodelc.zip",
+            "ggml-small-encoder.mlmodelc.zip",
         )),
         "medium" => Some((
             "ggml-medium-encoder.mlmodelc",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-encoder.mlmodelc.zip",
+            "ggml-medium-encoder.mlmodelc.zip",
         )),
         "turbo" => Some((
             "ggml-large-v3-turbo-encoder.mlmodelc",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
+            "ggml-large-v3-turbo-encoder.mlmodelc.zip",
         )),
         // Upstream renamed the un-versioned large encoder: the old
         // ggml-large-encoder.mlmodelc.zip is gone (404); fetch the v3 archive.
@@ -979,7 +1100,7 @@ fn coreml_archive_for(size: &str) -> Option<(&'static str, &'static str)> {
         // ensure_coreml_encoder renames the extracted dir to match.
         "large" => Some((
             "ggml-large-encoder.mlmodelc",
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-encoder.mlmodelc.zip",
+            "ggml-large-v3-encoder.mlmodelc.zip",
         )),
         _ => None,
     }
@@ -990,7 +1111,7 @@ fn coreml_archive_for(size: &str) -> Option<(&'static str, &'static str)> {
 /// present on macOS) to avoid pulling a zip crate into the build.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn ensure_coreml_encoder(whisper_size: &str, model_dir: &std::path::Path) -> Result<()> {
-    let Some((mlmodelc_name, archive_url)) = coreml_archive_for(whisper_size) else {
+    let Some((mlmodelc_name, remote_zip)) = coreml_archive_for(whisper_size) else {
         return Ok(());
     };
     let mlmodelc_path = model_dir.join(mlmodelc_name);
@@ -1014,9 +1135,16 @@ fn ensure_coreml_encoder(whisper_size: &str, model_dir: &std::path::Path) -> Res
             .dim()
     );
 
-    let archive_path = model_dir.join(format!("{mlmodelc_name}.zip"));
-    download_model(archive_url, &archive_path)
-        .context("failed to download Core ML encoder archive")?;
+    let archive_file = format!("{mlmodelc_name}.zip");
+    let archive_path = model_dir.join(&archive_file);
+    let (primary_url, fallback_url) = whisper_asset_urls(remote_zip);
+    download_with_fallback(
+        &primary_url,
+        &fallback_url,
+        &archive_path,
+        expected_checksum_for(&archive_file),
+    )
+    .context("failed to download Core ML encoder archive")?;
 
     let sp = spinner();
     sp.start("Unzipping Core ML encoder...");
@@ -1036,16 +1164,12 @@ fn ensure_coreml_encoder(whisper_size: &str, model_dir: &std::path::Path) -> Res
         );
     }
 
-    // The archive's root directory is named after the upstream file (URL
-    // basename minus ".zip"), which can differ from the local name whisper.cpp
+    // The archive's root directory is named after the remote file (archive
+    // name minus ".zip"), which can differ from the local name whisper.cpp
     // expects — e.g. ggml-large-v3-encoder.mlmodelc.zip extracts to
     // ggml-large-v3-encoder.mlmodelc, but next to ggml-large.bin the encoder
     // must be ggml-large-encoder.mlmodelc. Rename when they differ.
-    let extracted_name = archive_url
-        .rsplit('/')
-        .next()
-        .and_then(|f| f.strip_suffix(".zip"))
-        .unwrap_or(mlmodelc_name);
+    let extracted_name = remote_zip.strip_suffix(".zip").unwrap_or(mlmodelc_name);
     if extracted_name != mlmodelc_name && !mlmodelc_path.exists() {
         let extracted_path = model_dir.join(extracted_name);
         if extracted_path.exists() {
@@ -1154,4 +1278,116 @@ fn has_any_provider(config: &crate::RekodyConfig) -> bool {
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every size the wizard offers must resolve to a local file with a
+    /// pinned, well-formed SHA-256 — an empty hash would silently skip
+    /// verification.
+    #[test]
+    fn every_whisper_size_has_a_pinned_checksum() {
+        for size in ["tiny", "small", "medium", "turbo", "large"] {
+            let (local, _remote) = whisper_download_spec(size);
+            let sha = expected_checksum_for(local);
+            assert_eq!(sha.len(), 64, "{local} checksum must be 64 hex chars");
+            assert!(
+                sha.chars().all(|c| c.is_ascii_hexdigit()),
+                "{local} checksum must be hex"
+            );
+        }
+    }
+
+    /// The "large" model is a save-as: local ggml-large.bin holds upstream
+    /// ggml-large-v3.bin content, so its pinned hash is the v3 hash.
+    #[test]
+    fn large_maps_local_name_to_v3_content() {
+        let (local, remote) = whisper_download_spec("large");
+        assert_eq!(local, "ggml-large.bin");
+        assert_eq!(remote, "ggml-large-v3.bin");
+        assert_eq!(
+            expected_checksum_for("ggml-large.bin"),
+            "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2"
+        );
+    }
+
+    #[test]
+    fn unknown_size_falls_back_to_tiny() {
+        assert_eq!(
+            whisper_download_spec("bogus"),
+            ("ggml-tiny.bin", "ggml-tiny.bin")
+        );
+    }
+
+    #[test]
+    fn unknown_file_has_no_checksum() {
+        assert_eq!(expected_checksum_for("ggml-nonexistent.bin"), "");
+    }
+
+    #[test]
+    fn asset_urls_prefer_rekody_mirror_then_upstream() {
+        let (primary, fallback) = whisper_asset_urls("ggml-tiny.bin");
+        assert_eq!(
+            primary,
+            "https://huggingface.co/Rekody/rekody-models/resolve/main/whisper/ggml-tiny.bin"
+        );
+        assert_eq!(
+            fallback,
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
+        );
+    }
+
+    /// Every published Core ML encoder archive must have a pinned checksum
+    /// keyed by its LOCAL zip name (`<mlmodelc_dir>.zip`).
+    #[test]
+    fn every_coreml_archive_has_a_pinned_checksum() {
+        for size in ["tiny", "small", "medium", "turbo", "large"] {
+            let (mlmodelc_name, remote_zip) =
+                coreml_archive_for(size).expect("encoder published for size");
+            assert!(remote_zip.ends_with(".zip"), "{remote_zip} must be a zip");
+            let local_zip = format!("{mlmodelc_name}.zip");
+            let sha = expected_checksum_for(&local_zip);
+            assert_eq!(sha.len(), 64, "{local_zip} checksum must be 64 hex chars");
+        }
+    }
+
+    /// The large encoder is also a save-as: the remote v3 archive lands in
+    /// the local ggml-large-encoder.mlmodelc.zip slot.
+    #[test]
+    fn large_coreml_archive_is_v3_saved_as() {
+        let (local_dir, remote_zip) = coreml_archive_for("large").unwrap();
+        assert_eq!(local_dir, "ggml-large-encoder.mlmodelc");
+        assert_eq!(remote_zip, "ggml-large-v3-encoder.mlmodelc.zip");
+        assert_eq!(
+            expected_checksum_for("ggml-large-encoder.mlmodelc.zip"),
+            "47837be7594a29429ec08620043390c4d6d467f8bd362df09e9390ace76a55a4"
+        );
+    }
+
+    /// Empty expected hash means "skip" (passes); a pinned hash is enforced:
+    /// matching passes (case-insensitively), mismatching fails.
+    #[test]
+    fn checksum_verification_enforces_non_empty_hashes() {
+        // SHA-256 of the empty file, a well-known constant.
+        const EMPTY_SHA256: &str =
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        let path = file.path().to_str().unwrap();
+
+        assert!(verify_model_checksum(path, ""), "empty hash must skip");
+        assert!(verify_model_checksum(path, EMPTY_SHA256), "match must pass");
+        assert!(
+            verify_model_checksum(path, &EMPTY_SHA256.to_uppercase()),
+            "hash comparison must be case-insensitive"
+        );
+        assert!(
+            !verify_model_checksum(
+                path,
+                "0000000000000000000000000000000000000000000000000000000000000000"
+            ),
+            "mismatch must fail"
+        );
+    }
 }
