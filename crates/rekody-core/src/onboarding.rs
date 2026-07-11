@@ -247,7 +247,7 @@ pub fn run_onboarding() -> Result<()> {
     {
         stt_select = stt_select.item(
             "nemotron",
-            "Nemotron Streaming (English)",
+            "Rekody Streaming (English)",
             "private + instant — transcribes WHILE you talk (881 MB download, English only)",
         );
     }
@@ -412,7 +412,7 @@ pub fn run_onboarding() -> Result<()> {
         }
     } // end if stt_engine == "local"
 
-    // --- Download Nemotron streaming model (3 files, ~892 MB total) -------
+    // --- Download the Rekody streaming model (3 files, ~892 MB total) -----
     #[cfg(feature = "nemotron")]
     if stt_engine == "nemotron" {
         let model_dir = resolve_model_dir().join("nemotron-en-int8");
@@ -424,18 +424,12 @@ pub fn run_onboarding() -> Result<()> {
                 sp.start(format!("Checking {file}..."));
                 sp.stop(format!("{file} already downloaded"));
             } else {
-                // Rekody streaming model first, the prior public conversion
-                // as fallback. The two sources are different conversions with
-                // different bytes, so each is verified against its own pin.
-                let (primary_url, fallback_url) = nemotron_asset_urls(file);
-                download_with_fallback(
-                    &primary_url,
-                    &fallback_url,
-                    &dest,
-                    expected_checksum_for(file),
-                    nemotron_fallback_checksum_for(file),
-                )
-                .with_context(|| format!("failed to download Nemotron {file}"))?;
+                // Rekody's published conversion is the sole source; every
+                // artifact verifies against its pinned checksum.
+                let url = format!("{REKODY_NEMOTRON_BASE}/{file}");
+                download_verified(&url, &dest, expected_checksum_for(file)).with_context(|| {
+                    format!("failed to download the Rekody streaming model {file}")
+                })?;
             }
         }
     }
@@ -865,30 +859,9 @@ fn download_with_fallback(
 const REKODY_NEMOTRON_BASE: &str =
     "https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8/resolve/main";
 
-/// The previously served public int8 conversion (of the January 2026 NVIDIA
-/// checkpoint), kept as the fallback source for unchanged resilience.
-#[cfg(feature = "nemotron")]
-const FALLBACK_NEMOTRON_BASE: &str =
-    "https://huggingface.co/lokkju/nemotron-speech-streaming-en-0.6b-int8/resolve/main";
-
 /// Files the streaming engine loads from `<models>/nemotron-en-int8/`.
 #[cfg(feature = "nemotron")]
 const NEMOTRON_FILES: &[&str] = &["encoder.onnx", "decoder_joint.onnx", "tokenizer.model"];
-
-/// Build the `(primary, fallback)` download URLs for a Nemotron artifact.
-///
-/// Both repos serve the artifact under the same name; only the base path
-/// differs. Unlike the whisper mirror, the two sources do NOT serve identical
-/// bytes (they convert different NVIDIA checkpoint revisions), so each source
-/// carries its own checksum pin: EXPECTED_CHECKSUMS for the primary,
-/// NEMOTRON_FALLBACK_CHECKSUMS for the fallback.
-#[cfg(feature = "nemotron")]
-fn nemotron_asset_urls(remote_file: &str) -> (String, String) {
-    (
-        format!("{REKODY_NEMOTRON_BASE}/{remote_file}"),
-        format!("{FALLBACK_NEMOTRON_BASE}/{remote_file}"),
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Checksum verification
@@ -899,9 +872,9 @@ fn nemotron_asset_urls(remote_file: &str) -> (String, String) {
 // (Rekody/rekody-models) and upstream ggerganov/whisper.cpp serve identical
 // bytes, so one hash covers both sources. Where the local name differs from
 // the upstream one (the "large" family), the hash is of the upstream v3
-// content that gets saved under the engine's expected local name. For
-// Nemotron artifacts these are the PRIMARY (Rekody) pins; the fallback
-// source serves different bytes (see NEMOTRON_FALLBACK_CHECKSUMS).
+// content that gets saved under the engine's expected local name. Streaming
+// artifacts pin the Rekody-published model (Rekody/rekody-streaming-en-0.6b-int8),
+// the sole source for that engine.
 //
 // To refresh after an upstream model update:
 //   shasum -a 256 ggml-tiny.bin    (macOS)
@@ -977,27 +950,6 @@ const EXPECTED_CHECKSUMS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Fallback-source SHA-256 pins for Nemotron streaming artifacts, keyed by
-/// the same local filenames as EXPECTED_CHECKSUMS. The fallback repo hosts a
-/// separate int8 conversion of an earlier (January 2026) NVIDIA checkpoint,
-/// so its encoder and decoder bytes differ from the Rekody ones; the
-/// tokenizer is unchanged between checkpoints and identical in both.
-#[cfg(feature = "nemotron")]
-const NEMOTRON_FALLBACK_CHECKSUMS: &[(&str, &str)] = &[
-    (
-        "encoder.onnx",
-        "d24be4aff18dd9d2aa3433cb89c5a457df5015abf79e06a63dde76b1cd6386bb",
-    ),
-    (
-        "decoder_joint.onnx",
-        "c86d527e4ae27251a741609eaddd4429ba5c32050e2f532cea1052d9e21f4f09",
-    ),
-    (
-        "tokenizer.model",
-        "07d4e5a63840a53ab2d4d106d2874768143fb3fbdd47938b3910d2da05bfb0a9",
-    ),
-];
-
 /// Verify the SHA-256 checksum of a downloaded file.
 ///
 /// Uses `shasum -a 256` on macOS or `sha256sum` on Linux.
@@ -1048,17 +1000,6 @@ fn verify_model_checksum(path: &str, expected_sha256: &str) -> bool {
 /// when unpinned.
 fn expected_checksum_for(filename: &str) -> &'static str {
     EXPECTED_CHECKSUMS
-        .iter()
-        .find(|(f, _)| *f == filename)
-        .map(|(_, h)| *h)
-        .unwrap_or("")
-}
-
-/// Look up the FALLBACK-source checksum for a Nemotron artifact by its local
-/// filename. Empty string when unpinned.
-#[cfg(feature = "nemotron")]
-fn nemotron_fallback_checksum_for(filename: &str) -> &'static str {
-    NEMOTRON_FALLBACK_CHECKSUMS
         .iter()
         .find(|(f, _)| *f == filename)
         .map(|(_, h)| *h)
@@ -1460,27 +1401,18 @@ mod tests {
     }
 
     /// Every Nemotron artifact must carry a well-formed pin for BOTH sources.
-    /// The sources are different conversions: encoder/decoder pins must
-    /// differ per source (a shared pin would make the fallback download
-    /// always fail verification), while the tokenizer is identical in both.
+    /// Every streaming artifact must carry a real pin for the Rekody-published
+    /// model, the engine's sole download source.
     #[cfg(feature = "nemotron")]
     #[test]
-    fn every_nemotron_file_has_per_source_checksums() {
+    fn every_nemotron_file_has_a_pinned_checksum() {
         for &file in NEMOTRON_FILES {
-            let primary = expected_checksum_for(file);
-            let fallback = nemotron_fallback_checksum_for(file);
-            for (source, sha) in [("primary", primary), ("fallback", fallback)] {
-                assert_eq!(sha.len(), 64, "{file} {source} pin must be 64 hex chars");
-                assert!(
-                    sha.chars().all(|c| c.is_ascii_hexdigit()),
-                    "{file} {source} pin must be hex"
-                );
-            }
-            if file == "tokenizer.model" {
-                assert_eq!(primary, fallback, "tokenizer is identical in both repos");
-            } else {
-                assert_ne!(primary, fallback, "{file} differs between the sources");
-            }
+            let sha = expected_checksum_for(file);
+            assert_eq!(sha.len(), 64, "{file} pin must be 64 hex chars");
+            assert!(
+                sha.chars().all(|c| c.is_ascii_hexdigit()),
+                "{file} pin must be hex"
+            );
         }
     }
 
