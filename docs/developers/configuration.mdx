@@ -1,0 +1,108 @@
+---
+title: "config.toml reference"
+description: "Every key the daemon reads, with defaults, straight from the source."
+---
+
+Configuration lives at `~/.config/rekody/config.toml`, created by the setup wizard and kept at mode `0600`.
+
+```bash
+rekody config          # interactive settings TUI
+rekody config edit     # open config.toml in $EDITOR
+rekody config path     # print the config file location
+rekody setup           # re-run the full wizard
+```
+
+Changes take effect the next time `rekody` starts.
+
+## Core keys
+
+| Key | Values | Default | What it does |
+|---|---|---|---|
+| `activation_mode` | `"both"`, `"push_to_talk"`, `"toggle"` | `"both"` | How the hotkey starts and stops recording. `both` means hold for push-to-talk and quick-tap for a hands-free latch. Unrecognized values fall back to `both`. |
+| `trigger_key` | `"option_space"`, `"fn_key"` | `"option_space"` | Which key triggers dictation. `fn_key` requires System Settings, Keyboard, "Press globe key to" set to "Do Nothing". |
+| `stt_engine` | `"nemotron"`, `"local"`, `"groq"`, `"deepgram"`, `"cohere"` | `"local"` when the key is absent | Speech-to-text backend. The setup wizard preselects `nemotron` (Rekody Streaming). See [Engines](/developers/engines). |
+| `whisper_model` | `"tiny"`, `"small"`, `"medium"`, `"turbo"`, `"large"` | `"turbo"` | Local Whisper model size. Only used when `stt_engine = "local"`. |
+| `stt_language` | BCP-47 code, e.g. `"en"` | unset (auto-detect) | Transcription language hint. Setting it slightly improves accuracy and speed when the language is known in advance. |
+| `injection_method` | `"clipboard"`, `"native"` | `"clipboard"` | How text is inserted: clipboard paste works everywhere; native sends keystrokes via CGEvent. |
+| `vad_threshold` | float, roughly `0.005` to `0.05` | `0.01` | RMS energy gate for voice activity detection. Lower is more sensitive. |
+| `record_all_audio` | `true`, `false` | `false` | Bypass VAD and capture every frame from press to release. Useful for low-energy input. |
+| `max_recording_secs` | integer seconds, `0` = unlimited | `600` | Deadman switch: the longest a single recording can run. |
+| `llm_enabled` | `true`, `false`, or omit | omitted (auto) | LLM post-processing. Auto means on for every engine except Deepgram, whose `smart_format` already produces clean output. |
+| `save_training_data` | `true`, `false` | `true` | Save each dictation's audio (FLAC) and transcript to `~/.local/share/rekody/training-data/` as a personal fine-tuning dataset. Local only. |
+| `hud` | `true`, `false`, or omit | omitted (auto) | The floating pill. Auto shows it when the `rekody-hud` helper binary is found next to the daemon (or at `$REKODY_HUD_BIN`); `false` never shows it. |
+
+## Engine-specific keys
+
+| Key | Default | What it does |
+|---|---|---|
+| `deepgram_api_key` | unset | Required when `stt_engine = "deepgram"`. Prefer the Keychain (below) over writing keys here. |
+| `cohere_stt_port` | `8099` | Port of the local Cohere STT server, when `stt_engine = "cohere"`. |
+
+## LLM providers
+
+Providers are tried in order; the first success wins, and failover is automatic. Local providers (`ollama`, `lm-studio`, `vllm`) need no API key.
+
+```toml
+[[providers]]
+name = "groq"
+api_key = "gsk_..."
+model = "openai/gpt-oss-20b"
+
+[[providers]]
+name = "ollama"            # local fallback, no key needed
+model = "llama3.2:3b"
+```
+
+Each `[[providers]]` entry takes:
+
+| Field | Required | What it does |
+|---|---|---|
+| `name` | yes | One of `apple`, `groq`, `cerebras`, `together`, `openrouter`, `fireworks`, `openai`, `anthropic`, `gemini`, `ollama`, `lm-studio`, `vllm`, or `custom`. |
+| `model` | yes | Model identifier for that provider. |
+| `api_key` | for cloud providers | Leave empty for local providers. |
+| `base_url` | only for `custom` | Any OpenAI-compatible chat completions endpoint. Presets fill this in for named providers. |
+
+<Note>
+  Older configs may contain top-level `llm_provider`, `groq_api_key`, and `cerebras_api_key` keys. They still load and are migrated into the `providers` array at startup; use `[[providers]]` for anything new.
+</Note>
+
+## API keys and the Keychain
+
+Keys belong in the macOS Keychain, not in the config file:
+
+```bash
+rekody key set deepgram     # securely prompt and save
+rekody key set groq
+rekody key list             # show which keys are stored
+rekody key delete groq
+```
+
+Keys are stored under the Keychain service `com.rekody.voice`. Agents can write one non-interactively:
+
+```bash
+security add-generic-password -s "com.rekody.voice" -a "deepgram" -w "YOUR_KEY" -U
+```
+
+## A complete example
+
+```toml
+activation_mode = "both"
+trigger_key = "option_space"
+stt_engine = "nemotron"
+injection_method = "clipboard"
+vad_threshold = 0.01
+max_recording_secs = 600
+save_training_data = true
+
+[[providers]]
+name = "apple"             # on-device cleanup, macOS 26+ with Apple Intelligence
+model = "on-device"        # fixed; the wizard writes this value
+
+[[providers]]
+name = "ollama"
+model = "llama3.2:3b"
+```
+
+<Note>
+  If this page ever drifts from the code, the config struct in `crates/rekody-core/src/lib.rs` is the source of truth.
+</Note>

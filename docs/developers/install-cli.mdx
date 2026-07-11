@@ -1,0 +1,73 @@
+---
+title: "Install the CLI"
+description: "The open-source Rekody daemon: Homebrew, one-line installer, or build from source."
+---
+
+The CLI is the open-source dictation engine at [github.com/rekody/rekody](https://github.com/rekody/rekody) (MIT). It runs as a daemon in your terminal: hold <kbd>⌥</kbd> <kbd>Space</kbd> anywhere on your desktop, speak, release, and the transcript lands at your cursor.
+
+**Requirements:** macOS, Apple Silicon or Intel.
+
+## Homebrew (recommended)
+
+```bash
+brew install rekody/rekody/rekody
+```
+
+The formula auto-taps from the `rekody/rekody` tap. Newer Homebrew versions gate third-party taps; if prompted, run:
+
+```bash
+brew trust rekody/rekody
+```
+
+<Note>
+  The tap is only needed while Rekody lives outside homebrew-core. Once it is accepted there, a plain `brew install rekody` will do.
+</Note>
+
+## One-line installer
+
+No Homebrew needed. The script detects your platform, downloads the precompiled binary, and falls back to building from source if none exists:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rekody/rekody/main/install.sh | bash
+```
+
+## Build from source
+
+```bash
+git clone https://github.com/rekody/rekody.git
+cd rekody
+make install
+```
+
+The Rust toolchain is pinned in `rust-toolchain.toml`; rustup picks it up automatically.
+
+## First run
+
+```bash
+rekody
+```
+
+The first run launches the setup wizard: pick a speech-to-text engine, optionally configure LLM cleanup, download the model, and grant the two macOS permissions (Accessibility for the hotkey and injection, Microphone to your terminal).
+
+<Note>
+  macOS attributes microphone access for CLI apps to the parent terminal, so Terminal, iTerm, Warp, or Ghostty shows up in your Microphone permission list instead of Rekody. This is a system-level design, not a bug.
+</Note>
+
+## Check the install
+
+```bash
+rekody doctor    # live connectivity check for every configured engine and provider
+rekody --version
+```
+
+`rekody doctor` probes the microphone, verifies models on disk, tests each configured provider, and reports the size of your local training dataset.
+
+## Updating
+
+```bash
+brew upgrade rekody
+# or, for non-Homebrew installs
+rekody update
+```
+
+`rekody update` downloads the latest GitHub release and verifies the tarball against the release's published `SHA256SUMS` before installing. It replaces the binary that is actually running, wherever it is installed.

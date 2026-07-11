@@ -1,0 +1,38 @@
+---
+title: "FAQ"
+description: "Short answers to the questions we hear most."
+---
+
+<AccordionGroup>
+  <Accordion title="Does my audio leave my Mac?">
+    No. Rekody transcribes with an on-device model, and we run no servers that could receive your audio. The only exception is if you deliberately configure an optional cloud engine with your own API key; then audio goes directly from your device to that provider. See [Privacy](/app/privacy).
+  </Accordion>
+
+  <Accordion title="Does Rekody work offline?">
+    Yes. Setup downloads the speech model once, and after that dictation runs fully offline. The only network calls Rekody makes on its own are update checks against GitHub releases.
+  </Accordion>
+
+  <Accordion title="Is Rekody free?">
+    The Mac app is a free download, and the dictation engine is open source under the MIT license at [github.com/rekody/rekody](https://github.com/rekody/rekody).
+  </Accordion>
+
+  <Accordion title="What languages does Rekody support?">
+    The on-device streaming model that ships with the app is English. That is what we test and stand behind today.
+  </Accordion>
+
+  <Accordion title="Is Rekody listening all the time?">
+    No. Rekody records only while you dictate: while you hold the hotkey, or between taps in hands-free mode. The pill on screen is your visible signal that a dictation is running.
+  </Accordion>
+
+  <Accordion title="Where is my data stored?">
+    On your Mac. Your history, dictionary, snippets, and correction data are local files, and you can delete any of it at any time.
+  </Accordion>
+
+  <Accordion title="Why does dictation not work in password fields?">
+    By design. Rekody turns itself off where the system marks the input as secure, so secrets never reach your transcript history.
+  </Accordion>
+</AccordionGroup>
+
+## Something else?
+
+Email [support@rekody.com](mailto:support@rekody.com), or open an issue on [GitHub](https://github.com/rekody/rekody/issues).

@@ -1,0 +1,36 @@
+---
+title: "Privacy and your data"
+description: "Rekody runs on your own device. No accounts, no telemetry, no servers."
+---
+
+## The short version
+
+Rekody turns your speech into text on the device in front of you. It has no sign-up, no analytics inside the app, and it never checks in with a license server. We do not run servers that could receive your audio, so your words have nowhere to go but into the app you are typing in.
+
+## What stays on your Mac
+
+Everything, by default. Rekody records only while you dictate, transcribes with an on-device speech model, and places the finished text where your cursor is. **Your audio never leaves your device.**
+
+- The speech model is downloaded once and runs fully offline. No audio or transcript is ever uploaded.
+- Your dictation history is a local file on your device. You can delete any entry, or all of them, at any time.
+- There are no accounts, no sign-in, and no analytics or tracking. Rekody asks for no personal information.
+- If you add API keys for optional cloud engines, they are stored in your system's keychain, never in plaintext on disk.
+- The only network calls Rekody makes on its own are update checks against GitHub releases.
+
+<Note>
+  Rekody is off in password and other secure fields by design. It will not offer to dictate where the system marks the input as secure.
+</Note>
+
+Rekody's dictation engine is open source ([github.com/rekody/rekody](https://github.com/rekody/rekody), MIT), so you do not have to take our word for any of this.
+
+## If you opt into cloud engines
+
+Where Rekody offers optional cloud speech-to-text or LLM engines, you configure them yourself with **your own API keys**. When you do, your audio or text goes directly from your device to that provider under their terms. There is no Rekody server in the middle, because we do not run any. If you never add a key, nothing is ever sent.
+
+## Your fine-tuning data
+
+Corrections you make in the [Library](/app/library) are kept with their audio on your Mac as a personal fine-tuning dataset. It exists so a model can one day be tuned to your voice. It is local data like the rest: it never leaves your machine, and deleting it is always in your hands.
+
+## Questions
+
+Email [support@rekody.com](mailto:support@rekody.com). For security reports, email [security@rekody.com](mailto:security@rekody.com) or open a [private security advisory](https://github.com/rekody/rekody/security/advisories/new) on GitHub.

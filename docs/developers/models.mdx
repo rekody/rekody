@@ -1,0 +1,57 @@
+---
+title: "Models and checksums"
+description: "Where model files come from, how every byte is verified, and which licenses apply."
+---
+
+Models install to `~/.local/share/rekody/models/` (override with `$REKODY_MODEL_DIR`). Every download is verified against a SHA-256 hash pinned in the binary; on a mismatch the file is deleted and, where a fallback source exists, the fallback is tried. Nothing unverified is left on disk.
+
+## Serving repositories
+
+| Purpose | Primary source | Fallback |
+|---|---|---|
+| Streaming model | [`Rekody/rekody-streaming-en-0.6b-int8`](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8) | none (sole source) |
+| Whisper models and Core ML encoders | [`Rekody/rekody-models`](https://huggingface.co/Rekody/rekody-models) (under `whisper/`) | upstream [`ggerganov/whisper.cpp`](https://huggingface.co/ggerganov/whisper.cpp) |
+
+The Rekody mirror is tried first for every Whisper artifact so availability stays under Rekody's control; an upstream rename or removal cannot break onboarding. Both repos serve identical bytes, so the same pinned checksum is enforced no matter which source serves the file. The daemon prints which source it downloaded from.
+
+## Streaming model files
+
+The `nemotron` engine loads three files from `models/nemotron-en-int8/`, all pinned:
+
+| File | Size | SHA-256 |
+|---|---|---|
+| `encoder.onnx` | 880 MB | `83538392358e90c40592f7cf99ee65ac7dca5d144edb999ce028c372318a5753` |
+| `decoder_joint.onnx` | 11 MB | `89cae615623e41e94cc6b428708cd1a89a22965606fe7ded814b1d8e20c87368` |
+| `tokenizer.model` | SentencePiece | `07d4e5a63840a53ab2d4d106d2874768143fb3fbdd47938b3910d2da05bfb0a9` |
+
+The same hashes are published in the model repo's `SHA256SUMS`, so you can verify independently:
+
+```bash
+shasum -a 256 ~/.local/share/rekody/models/nemotron-en-int8/*
+```
+
+## Whisper model files
+
+| `whisper_model` | Local file | Download |
+|---|---|---|
+| `tiny` | `ggml-tiny.bin` | 75 MB |
+| `small` | `ggml-small.bin` | 250 MB |
+| `medium` | `ggml-medium.bin` | 750 MB |
+| `turbo` | `ggml-large-v3-turbo-q5_0.bin` | 574 MB |
+| `large` | `ggml-large.bin` (upstream `ggml-large-v3.bin`, saved under the engine's expected name) | 3.1 GB |
+
+On Apple Silicon, a matching Core ML encoder archive (`ggml-<size>-encoder.mlmodelc.zip`) is downloaded, verified against its own pinned hash, and unzipped next to the model.
+
+All pinned hashes live in `crates/rekody-core/src/onboarding.rs` (`EXPECTED_CHECKSUMS`), with the date they were last verified.
+
+## Release binaries too
+
+Model files are not the only artifacts verified: `rekody update` checks the release tarball against the `SHA256SUMS` file published with every GitHub release before extracting it.
+
+## Licenses
+
+- **The CLI** is [MIT](https://github.com/rekody/rekody/blob/main/LICENSE).
+- **The streaming model** ships under two licenses, and users must comply with both:
+  1. The conversion work (the int8 quantization, packaging, and benchmarking) is licensed under the [PolyForm Shield License 1.0.0](https://polyformproject.org/licenses/shield/1.0.0). PolyForm Shield is a noncompete license: any use is permitted except providing a product that competes with the software or with the licensor's products built on it.
+  2. The base model weights remain licensed by NVIDIA Corporation under the [NVIDIA Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/). The model repo carries the `NOTICE` file and a dated copy of the license.
+- **Whisper models** are the whisper.cpp GGML conversions of OpenAI's Whisper weights (MIT), mirrored byte-for-byte.

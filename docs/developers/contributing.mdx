@@ -1,0 +1,37 @@
+---
+title: "Contributing"
+description: "Development setup, the checks that must pass, and how to report security issues."
+---
+
+Rekody is developed in the open at [github.com/rekody/rekody](https://github.com/rekody/rekody). The full guide is [CONTRIBUTING.md](https://github.com/rekody/rekody/blob/main/CONTRIBUTING.md); this page is the short version.
+
+## Development setup
+
+```bash
+git clone https://github.com/rekody/rekody.git
+cd rekody
+cargo build -p rekody-core
+cargo run --bin rekody          # first run launches the setup wizard
+```
+
+The Rust toolchain is pinned in `rust-toolchain.toml`, so rustup installs the exact version CI uses. On macOS you also need the Xcode Command Line Tools (`xcode-select --install`).
+
+## Before you open a PR
+
+All three must pass; clippy warnings are errors in CI:
+
+```bash
+cargo fmt
+cargo clippy --workspace -- -D warnings
+cargo test --workspace
+```
+
+Then fork, branch from `main`, keep commits small and focused, and open a PR with a clear what and why. Add or update tests for any changed behavior, and keep crate boundaries clean: each crate has a focused responsibility (see [Architecture](/developers/architecture)).
+
+## Reporting bugs
+
+Include your macOS version and Mac model, the Rekody version (`rekody --version`) and install method, steps to reproduce, expected vs actual behavior, and verbose logs (`rekody -v`) where relevant.
+
+## Security
+
+Rekody handles sensitive inputs: microphone audio, API keys in the Keychain, and Accessibility-privileged text injection. **Report vulnerabilities privately, not in a public issue**: open a [private security advisory](https://github.com/rekody/rekody/security/advisories/new) on GitHub or email [security@rekody.com](mailto:security@rekody.com). Only the latest minor release receives security fixes. The full policy is in [SECURITY.md](https://github.com/rekody/rekody/blob/main/SECURITY.md).

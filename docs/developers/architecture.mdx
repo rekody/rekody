@@ -1,0 +1,40 @@
+---
+title: "Architecture"
+description: "Six focused crates, one pipeline: hotkey to audio to text to your cursor."
+---
+
+The daemon is a Rust workspace of six crates, each owning one stage of the pipeline:
+
+```
+hotkey -> audio capture -> VAD -> STT -> LLM (optional) -> inject
+```
+
+A dictation flows left to right: the hotkey listener starts capture, audio is resampled and gated for silence, the speech engine produces a transcript, an optional LLM pass cleans it up, and the injector places the final text at the cursor.
+
+## The crates
+
+**`rekody-core`** is the orchestrator. It wires the other five crates into the pipeline, owns configuration and the setup wizard, and carries the CLI surface: the live console, history and config TUIs, skills, prompts, snippets, per-app context detection, and the training-data recorder.
+
+**`rekody-audio`** captures microphone audio via cpal, resamples it to 16kHz mono via rubato, and applies energy-based voice activity detection so silence never reaches the speech engine.
+
+**`rekody-stt`** is a trait-based abstraction over speech-to-text backends: the Rekody Streaming engine, local Whisper via whisper.cpp (with Core ML acceleration on Apple Silicon), and the Deepgram, Groq, and Cohere engines. Engines are swappable behind one interface, which is what makes `stt_engine` a one-line config change.
+
+**`rekody-llm`** turns raw transcripts into polished text. It implements the provider presets plus custom OpenAI-compatible endpoints, chained with automatic failover: providers are tried in order, the first success wins, and a final raw-transcript tier guarantees dictation always returns text.
+
+**`rekody-inject`** places the finished text at the cursor, either by clipboard paste (works everywhere) or by native CGEvent keystroke injection.
+
+**`rekody-hotkey`** listens for the global hotkey using an active macOS `CGEventTap`. Active means the tap suppresses <kbd>⌥</kbd> <kbd>Space</kbd> before it reaches the focused app, so dictating never types a stray non-breaking space. This is the crate behind the Accessibility permission requirement.
+
+## Where things live on disk
+
+| What | Path |
+|---|---|
+| Config | `~/.config/rekody/config.toml` |
+| History | `~/.config/rekody/history.json` |
+| Dictionary | `~/.config/rekody/dictionary.toml` |
+| Skills | `~/.config/rekody/skills/` |
+| Models | `~/.local/share/rekody/models/` |
+| Training data | `~/.local/share/rekody/training-data/` |
+| API keys | macOS Keychain, service `com.rekody.voice` |
+
+Config and history files are written with mode `0600`, readable only by the owning user.

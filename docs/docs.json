@@ -1,0 +1,99 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Rekody",
+  "colors": {
+    "primary": "#20808D",
+    "light": "#3FA9B4",
+    "dark": "#20808D"
+  },
+  "appearance": {
+    "default": "light"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Fraunces"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "icons": {
+    "library": "lucide"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "rekody.com",
+        "href": "https://rekody.com"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/rekody/rekody"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Using Rekody",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": ["index", "app/install", "app/first-dictation"]
+          },
+          {
+            "group": "Everyday dictation",
+            "pages": ["app/the-pill"]
+          },
+          {
+            "group": "Your workspace",
+            "pages": ["app/library", "app/dictionary", "app/snippets", "app/stats"]
+          },
+          {
+            "group": "Privacy",
+            "pages": ["app/privacy"]
+          },
+          {
+            "group": "Help",
+            "pages": ["app/troubleshooting", "app/faq"]
+          }
+        ]
+      },
+      {
+        "tab": "Developers",
+        "icon": "terminal",
+        "groups": [
+          {
+            "group": "The CLI",
+            "pages": ["developers/install-cli", "developers/configuration"]
+          },
+          {
+            "group": "Engines and models",
+            "pages": ["developers/engines", "developers/models"]
+          },
+          {
+            "group": "Project",
+            "pages": ["developers/architecture", "developers/contributing"]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/rekody/rekody"
+    }
+  }
+}

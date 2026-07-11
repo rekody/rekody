@@ -1,0 +1,75 @@
+---
+title: "Engines"
+description: "Rekody Streaming, local Whisper, and the optional cloud engines."
+---
+
+Rekody's speech-to-text is pluggable. Pick an engine in `rekody setup` or set `stt_engine` in [config.toml](/developers/configuration).
+
+| Engine | Where it runs | Release to text | Notes |
+|---|---|---|---|
+| `nemotron` (Rekody Streaming) | On device | ~50ms | Transcribes while you talk. English. Apple Silicon. The setup default. |
+| `local` (Whisper) | On device | 1 to 3s | whisper.cpp with Core ML acceleration on Apple Silicon. |
+| `deepgram` | Cloud | ~200ms | Nova-3 with smart formatting. Needs a Deepgram API key. |
+| `groq` | Cloud | ~300ms | Whisper Large v3 on Groq. Needs a Groq API key. |
+| `cohere` | Local server | varies | Talks to a local STT server on a configurable port. |
+
+## Rekody Streaming
+
+The flagship engine is the **Rekody Streaming model** ([`Rekody/rekody-streaming-en-0.6b-int8`](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8)), an int8 ONNX conversion of NVIDIA's Nemotron speech streaming 0.6B checkpoint, packaged by Rekody for on-device dictation.
+
+What makes it different from every other engine here: it is **cache-aware streaming ASR**. Audio is transcribed in 560ms chunks as it arrives, with encoder state carried across chunks, so your words appear while you are still talking. Batch engines wait for the full recording before emitting anything; the streaming engine has almost nothing left to do when you release the key, which is why the final text lands about 50ms later.
+
+- Fully on device: no audio leaves the machine.
+- English only, and the download is about 890 MB across three files.
+- Runs on the CPU via ONNX Runtime; Apple Silicon is the supported target.
+
+### Benchmarks
+
+Word error rate (WER, %), lower is better. Measured with the Open ASR Leaderboard methodology (`hf-audio/open-asr-leaderboard` @ `b6bdcd0b`, `EnglishTextNormalizer`), on identical audio and with the identical normalizer for both models.
+
+| Dataset | rekody-streaming-en-0.6b-int8 | openai/whisper-large-v3-turbo |
+|---|---|---|
+| AMI | 12.36 | 13.86 |
+| Earnings22 | 12.27 | 10.81 |
+| Gigaspeech | 8.64 | 8.34 |
+| LibriSpeech test-clean | 2.09 | 1.60 |
+| LibriSpeech test-other | 4.92 | 3.75 |
+| SPGISpeech | 2.99 | 2.78 |
+| Voxpopuli | 2.74 | 5.31 |
+| **Average** | **6.57** | **6.64** |
+
+Note the operating points: the Rekody model streams, producing text as audio arrives in 560ms chunks, while `whisper-large-v3-turbo` is a batch model that sees each full recording before emitting anything. Matching a strong batch model's average WER under a streaming constraint is the point of this model.
+
+The cost of int8 quantization was measured as statistically zero: on LibriSpeech test-clean (n = 2620), int8 differs from the fp32 export it came from by +0.072 pp WER with a paired bootstrap 95% CI of [-0.004, +0.150], which includes zero. Full details are on the [model card](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8).
+
+## Local Whisper
+
+`stt_engine = "local"` runs whisper.cpp on device. Pick a size with `whisper_model`:
+
+| `whisper_model` | Download | Character |
+|---|---|---|
+| `turbo` | 574 MB | Fast with near-large accuracy. The recommended size. |
+| `tiny` | 75 MB | Fastest, basic accuracy. |
+| `small` | 250 MB | Balanced. |
+| `medium` | 750 MB | Better accuracy. |
+| `large` | 3.1 GB | Best accuracy (large-v3 weights). |
+
+Setup installs the multilingual model files; set `stt_language` to a specific code when you know the language in advance, or leave it unset for auto-detect.
+
+On Apple Silicon, setup also fetches the matching **Core ML encoder** so the encoder pass runs on the Neural Engine, roughly twice as fast as Metal alone. The first transcription afterwards takes 30 to 60 seconds while macOS compiles the model; every run after that is fast.
+
+## Cloud engines
+
+Cloud engines are strictly opt-in and use your own API keys ([privacy details](/app/privacy)).
+
+- **Deepgram** (`stt_engine = "deepgram"`): Nova-3. Because its `smart_format` already returns clean, punctuated text, Rekody auto-disables LLM post-processing for this engine unless you force `llm_enabled = true`.
+- **Groq** (`stt_engine = "groq"`): Whisper Large v3 behind Groq's API.
+- **Cohere** (`stt_engine = "cohere"`): a local STT server reached on `cohere_stt_port` (default 8099).
+
+## LLM post-processing
+
+After transcription, an optional LLM pass cleans filler words, fixes grammar, and adapts formatting to the focused app. Only the transcript text is sent to an LLM provider, never audio.
+
+Providers are configured as an ordered `[[providers]]` chain: each is tried in turn and the first success wins. If every provider fails, the raw transcript is injected, so dictation never breaks. On macOS 26 with Apple Intelligence, the `apple` provider cleans up on device with no download and no API key.
+
+See the [config.toml reference](/developers/configuration#llm-providers) for the full provider list and fields.
