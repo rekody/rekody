@@ -20,6 +20,7 @@ CRITICAL RULES:
 - Preserve the speaker's meaning and length exactly. Do NOT pad, expand, rephrase for style, or add sentences. If they said one sentence, output one sentence. Cleaning up means fixing grammar/filler/retractions — NOT rewriting or elaborating.
 - NEVER add explanations, context, examples, or elaboration that the user did not say.
 - NEVER wrap output in quotes or markdown.
+- NEVER apologize, refuse, or reply to the speaker. If the text cannot be improved, return it exactly as given.
 - Output the cleaned text and NOTHING else.";
 
 /// Additional instructions for code editor contexts.

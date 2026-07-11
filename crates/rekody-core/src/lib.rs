@@ -23,6 +23,7 @@ pub const TRIGGER_LABEL: &str = "Ctrl + space";
 pub const TRIGGER_LABEL: &str = "⌥ + space";
 
 pub mod bench;
+pub mod cleanup_guard;
 pub mod command_mode;
 pub mod config_tui;
 pub mod context;
@@ -452,6 +453,31 @@ pub struct Pipeline {
     history: std::sync::Mutex<history::History>,
 }
 
+/// Probe the frontmost application off the hot path. Spawned at recording
+/// START (the user is about to speak for seconds, so the ~100ms osascript
+/// call never delays anything); the run loops resolve it at finalize time
+/// via [`resolve_app_probe`]. Capturing at start is also more truthful than
+/// probing at finalize: the start app is the one the text lands in.
+fn spawn_app_probe() -> tokio::task::JoinHandle<rekody_llm::AppContext> {
+    tokio::task::spawn_blocking(context::detect_active_app)
+}
+
+/// Resolve a pending app probe into `cache`, waiting at most 300ms (only
+/// sub-second dictations can still be racing it). Returns the cached app,
+/// which stays valid for every utterance until the next recording start.
+async fn resolve_app_probe(
+    probe: &mut Option<tokio::task::JoinHandle<rekody_llm::AppContext>>,
+    cache: &mut Option<rekody_llm::AppContext>,
+) -> Option<rekody_llm::AppContext> {
+    if let Some(handle) = probe.take() {
+        match tokio::time::timeout(std::time::Duration::from_millis(300), handle).await {
+            Ok(Ok(ctx)) => *cache = Some(ctx),
+            _ => tracing::debug!("app-at-start probe did not resolve in time"),
+        }
+    }
+    cache.clone()
+}
+
 impl Pipeline {
     pub fn new(config: RekodyConfig) -> Result<Self> {
         let provider_chain = build_provider_chain(&config);
@@ -601,6 +627,11 @@ impl Pipeline {
             tracing::info!("no LLM API keys configured; raw STT output will be used");
         }
 
+        // Frontmost-app capture for history tags + cleanup context: probed
+        // at recording start, resolved when the segment finalizes.
+        let mut app_probe: Option<tokio::task::JoinHandle<rekody_llm::AppContext>> = None;
+        let mut app_cache: Option<rekody_llm::AppContext> = None;
+
         // 3. Main event loop — listen for hotkey events and audio segments
         //    concurrently using tokio::select!.
         loop {
@@ -609,6 +640,8 @@ impl Pipeline {
                     match hotkey_event {
                         Some(HotkeyEvent::RecordStart) => {
                             tracing::info!(source = "hotkey", "recording started");
+                            app_cache = None;
+                            app_probe = Some(spawn_app_probe());
                             audio_capture.start_recording();
                         }
                         Some(HotkeyEvent::RecordStop) => {
@@ -649,7 +682,12 @@ impl Pipeline {
                                 "received audio segment, processing"
                             );
 
-                            if let Err(e) = self.process_segment(&audio_segment, llm_enabled).await {
+                            let app_at_start =
+                                resolve_app_probe(&mut app_probe, &mut app_cache).await;
+                            if let Err(e) = self
+                                .process_segment(&audio_segment, llm_enabled, app_at_start)
+                                .await
+                            {
                                 tracing::error!(error = %e, "failed to process audio segment");
                             }
                         }
@@ -725,6 +763,10 @@ impl Pipeline {
         // and samples/sample_rate is exact where hotkey press/release
         // wall-clock instants would drift from the audio actually captured.
         let mut utterance_sample_count: u64 = 0;
+        // Frontmost-app capture for history tags + cleanup context: probed
+        // at recording start, resolved when the utterance finalizes.
+        let mut app_probe: Option<tokio::task::JoinHandle<rekody_llm::AppContext>> = None;
+        let mut app_cache: Option<rekody_llm::AppContext> = None;
 
         // Release tail: when the key is released, audio for the last word(s)
         // is still draining through the capture pipeline (cpal callback →
@@ -749,6 +791,8 @@ impl Pipeline {
                                 recording = true;
                                 utterance_samples.clear();
                                 utterance_sample_count = 0;
+                                app_cache = None;
+                                app_probe = Some(spawn_app_probe());
                                 audio_capture.start_recording();
                             }
                         }
@@ -854,12 +898,15 @@ impl Pipeline {
                                     ) {
                                         tracing::debug!(error = %e, "training pair not saved");
                                     }
+                                let app_at_start =
+                                    resolve_app_probe(&mut app_probe, &mut app_cache).await;
                                 if let Err(e) = self
                                     .process_transcript(
                                         &text,
                                         latency_ms,
                                         Some(duration_ms),
                                         llm_enabled,
+                                        app_at_start,
                                     )
                                     .await
                                 {
@@ -900,6 +947,7 @@ impl Pipeline {
         &self,
         segment: &rekody_audio::AudioSegment,
         llm_enabled: bool,
+        app_at_start: Option<rekody_llm::AppContext>,
     ) -> Result<()> {
         // --- STT (model already loaded at startup) ---
         let transcript = self.stt.transcribe(&segment.samples).await?;
@@ -935,6 +983,7 @@ impl Pipeline {
             transcript.latency_ms,
             Some(duration_ms),
             llm_enabled,
+            app_at_start,
         )
         .await
     }
@@ -946,12 +995,19 @@ impl Pipeline {
     /// `duration_ms` is the captured-speech duration (recording start to
     /// stop) computed by the caller from its audio sample count — see the
     /// comments at each call site for the per-path source.
+    ///
+    /// `app_at_start` is the application that was frontmost when recording
+    /// STARTED (probed off the hot path; see `spawn_app_probe`). That is the
+    /// app the text lands in, and it is captured for every dictation so
+    /// history tags don't depend on cleanup being enabled. `None` falls back
+    /// to a synchronous probe on the cleanup path and "Unknown" in history.
     async fn process_transcript(
         &self,
         raw_text: &str,
         stt_latency_ms: u64,
         duration_ms: Option<u64>,
         llm_enabled: bool,
+        app_at_start: Option<rekody_llm::AppContext>,
     ) -> Result<()> {
         tracing::info!(
             text = %raw_text,
@@ -972,11 +1028,19 @@ impl Pipeline {
         // --- LLM post-processing ---
         let mut llm_latency_ms: Option<u64> = None;
         let mut llm_provider: Option<String> = None;
-        let mut app_name = String::from("Unknown");
+        let mut app_name = app_at_start
+            .as_ref()
+            .map(|a| a.app_name.clone())
+            .unwrap_or_else(|| String::from("Unknown"));
 
         let final_text = if llm_enabled {
-            // Detect the active application for context-aware formatting.
-            let app_context = context::detect_active_app();
+            // Application context for context-aware formatting: the app
+            // captured at recording start, or a synchronous probe when no
+            // start capture exists (VAD-only segments).
+            let app_context = match app_at_start {
+                Some(ctx) => ctx,
+                None => context::detect_active_app(),
+            };
             tracing::debug!(
                 app = %app_context.app_name,
                 bundle = ?app_context.bundle_id,
@@ -1026,9 +1090,23 @@ impl Pipeline {
                     );
                     llm_latency_ms = Some(formatted.latency_ms);
                     llm_provider = Some(formatted.provider.clone());
-                    // Guard: if LLM returns empty, use the corrected transcript
+                    // Guards on the cleanup output. Empty → corrected
+                    // transcript. Chat-response shaped (the model ANSWERED
+                    // the dictation instead of cleaning it) → corrected
+                    // transcript, unless a user skill is active — skills
+                    // legitimately transform text. See `cleanup_guard`.
                     if formatted.text.trim().is_empty() {
                         tracing::warn!("LLM returned empty text, using raw transcript");
+                        corrected_text
+                    } else if skill_name.is_none()
+                        && let Some(reason) =
+                            cleanup_guard::rejects(&corrected_text, &formatted.text)
+                    {
+                        tracing::warn!(
+                            provider = %formatted.provider,
+                            %reason,
+                            "cleanup output rejected, using corrected transcript"
+                        );
                         corrected_text
                     } else {
                         formatted.text
