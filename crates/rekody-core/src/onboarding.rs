@@ -1384,19 +1384,14 @@ mod tests {
         );
     }
 
-    /// The streaming engine downloads from the Rekody model repo first, with
-    /// the prior public conversion kept as the fallback source.
+    /// The streaming engine downloads only from the Rekody model repo.
     #[cfg(feature = "nemotron")]
     #[test]
-    fn nemotron_urls_prefer_rekody_repo_then_fallback() {
-        let (primary, fallback) = nemotron_asset_urls("encoder.onnx");
+    fn nemotron_urls_use_the_rekody_repo() {
+        let url = format!("{REKODY_NEMOTRON_BASE}/encoder.onnx");
         assert_eq!(
-            primary,
+            url,
             "https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8/resolve/main/encoder.onnx"
-        );
-        assert_eq!(
-            fallback,
-            "https://huggingface.co/lokkju/nemotron-speech-streaming-en-0.6b-int8/resolve/main/encoder.onnx"
         );
     }
 
