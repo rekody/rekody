@@ -12,7 +12,9 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// A personal dictionary of custom vocabulary terms.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -277,6 +279,28 @@ fn tolerance(term_word_len: usize) -> u32 {
     }
 }
 
+/// The top 10,000 spoken-English words (OpenSubtitles frequency list,
+/// vendored in `dictionary_common_words.txt`). A transcript word that IS one
+/// of these is never fuzzy-rewritten into a dictionary term: people say
+/// everyday words on purpose, and several sit within edit tolerance of
+/// plausible user terms ("change" is two edits from a term like "Chamgei").
+/// Garbled tokens ("recody") and rare real words ("recode") are not in the
+/// list, so the intended corrections keep firing.
+fn common_words() -> &'static HashSet<&'static str> {
+    static COMMON_WORDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    COMMON_WORDS.get_or_init(|| {
+        include_str!("dictionary_common_words.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+            .collect()
+    })
+}
+
+fn is_common_word(word_lc: &[char]) -> bool {
+    let word: String = word_lc.iter().collect();
+    common_words().contains(word.as_str())
+}
+
 /// Whether a transcript word is a fuzzy match for one term word.
 ///
 /// Guards, all of which must pass: first letter equal (case-insensitive),
@@ -349,15 +373,16 @@ fn match_at<'t>(
 
     // Fuzzy stage: every word of the span must be within per-word tolerance
     // of the corresponding term word. Ambiguity (more than one distinct term
-    // in range) means no correction.
+    // in range) means no correction. An everyday word (see [`common_words`])
+    // may participate only as an exact word-level match: it is never itself
+    // rewritten.
     let mut hits: Vec<&str> = Vec::new();
     for len in (1..=span_words.len()).rev() {
         for term in terms.iter().filter(|t| t.words.len() == len) {
-            let all_words_match = term
-                .words
-                .iter()
-                .zip(&span_words)
-                .all(|(tw, sw)| fuzzy_word_matches(sw, tw));
+            let all_words_match =
+                term.words.iter().zip(&span_words).all(|(tw, sw)| {
+                    sw == tw || (!is_common_word(sw) && fuzzy_word_matches(sw, tw))
+                });
             if all_words_match {
                 hits.push(term.canonical);
             }
@@ -386,7 +411,9 @@ fn match_at<'t>(
 /// - An exact case-insensitive match is recased to the term's canonical
 ///   spelling, and is never fuzzy-corrected into a different term.
 /// - Otherwise a fuzzy match fires only when the word passes every guard
-///   (see [`fuzzy_word_matches`]) for exactly ONE dictionary term.
+///   (see [`fuzzy_word_matches`]) for exactly ONE dictionary term, and the
+///   word is not an everyday English word (see [`common_words`]): "change"
+///   stays "change" even when a term like "Chamgei" is two edits away.
 ///
 /// Runs in microseconds at dictation scale; safe to call on every transcript.
 pub fn correct_text(text: &str, dictionary: &Dictionary) -> String {
@@ -432,6 +459,58 @@ pub fn correct_text(text: &str, dictionary: &Dictionary) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn already_correct_terms_pass_through_untouched() {
+        let mut dict = Dictionary::new();
+        dict.add_term("Rekody");
+        dict.add_term("Kipkemboi");
+        dict.add_term("Chamgei");
+        let sample = "Rekody is the best app for recording.\n\
+                      I want to use it to record a video of Kipkemboi.\n\
+                      Chamgei the settings to 1080p.";
+        assert_eq!(correct_text(sample, &dict), sample);
+    }
+
+    #[test]
+    fn common_words_are_never_fuzzy_rewritten_into_terms() {
+        let mut dict = Dictionary::new();
+        dict.add_term("Chamgei");
+        dict.add_term("Rekody");
+        // "change" and "charge" sit within fuzzy tolerance of "Chamgei"
+        // (n/m or r/m substitution plus a trailing insertion = two edits),
+        // but they are everyday words: rewriting them corrupts ordinary
+        // sentences, so the common-word guard must block the correction.
+        assert_eq!(
+            correct_text("Change the settings to 1080p.", &dict),
+            "Change the settings to 1080p."
+        );
+        assert_eq!(
+            correct_text("They charge for it.", &dict),
+            "They charge for it."
+        );
+        // Guarded by length/distance as before, and now also by the list.
+        assert_eq!(
+            correct_text("record a video of the recording", &dict),
+            "record a video of the recording"
+        );
+    }
+
+    #[test]
+    fn non_word_garbles_still_correct() {
+        let mut dict = Dictionary::new();
+        dict.add_term("Chamgei");
+        dict.add_term("Rekody");
+        assert_eq!(correct_text("open recody now", &dict), "open Rekody now");
+        assert_eq!(correct_text("chamgay it", &dict), "Chamgei it");
+        // "recode" is a real but uncommon word: an STT emitting it right
+        // where a dictionary term fits is stronger evidence of a garble
+        // than of intent, so it stays correctable.
+        assert_eq!(
+            correct_text("use recode please", &dict),
+            "use Rekody please"
+        );
+    }
 
     #[test]
     fn add_and_remove_terms() {

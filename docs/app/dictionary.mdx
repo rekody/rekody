@@ -11,7 +11,7 @@ Add a term and Rekody corrects it on every dictation, deterministically and inst
 
 - Exact matches are recased to your spelling: "rekody" becomes "Rekody", even mid-sentence and with punctuation attached ("rekody," becomes "Rekody,").
 - Near misses are fixed when they are within a letter or two of exactly one term: "recody" becomes "Rekody".
-- It stays conservative. Ordinary words like "record" and "recording" are never rewritten, and if a word sits close to two of your terms, Rekody leaves it alone rather than guess.
+- It stays conservative. Everyday English words are never rewritten into your terms, even when the spelling is close ("change" stays "change"), and if a word sits close to two of your terms, Rekody leaves it alone rather than guess.
 
 Multi-word terms are fine: "Core ML" is one dictionary entry and is matched as a whole phrase. When AI cleanup is enabled, your terms are also listed in the cleanup prompt so the model preserves them, but the deterministic pass runs either way and works with cleanup off.
 
