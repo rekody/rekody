@@ -715,6 +715,13 @@ impl Pipeline {
         // Utterance audio accumulated for the training-data pair (opt-out
         // via save_training_data = false). ~320KB per 5s of speech.
         let mut utterance_samples: Vec<f32> = Vec::new();
+        // Speaking-duration source (streaming Nemotron path): count of 16kHz
+        // live-tap samples fed to the engine for this utterance — from
+        // RecordStart through the post-release drain. Counted unconditionally
+        // (utterance_samples above only fills when save_training_data is on),
+        // and samples/sample_rate is exact where hotkey press/release
+        // wall-clock instants would drift from the audio actually captured.
+        let mut utterance_sample_count: u64 = 0;
 
         // Release tail: when the key is released, audio for the last word(s)
         // is still draining through the capture pipeline (cpal callback →
@@ -738,6 +745,7 @@ impl Pipeline {
                                 tracing::info!(source = "hotkey", "recording started");
                                 recording = true;
                                 utterance_samples.clear();
+                                utterance_sample_count = 0;
                                 audio_capture.start_recording();
                             }
                         }
@@ -782,6 +790,7 @@ impl Pipeline {
                     tracing::info!(source = "hotkey", "recording stopped");
                     audio_capture.stop_recording();
                     while let Ok(chunk) = live_rx.try_recv() {
+                        utterance_sample_count += chunk.len() as u64;
                         if self.config.save_training_data {
                             utterance_samples.extend_from_slice(&chunk);
                         }
@@ -804,6 +813,7 @@ impl Pipeline {
                                 / samples.len().max(1) as f32)
                                 .sqrt();
                             tracing::debug!(rms, "mic level");
+                            utterance_sample_count += samples.len() as u64;
                             if self.config.save_training_data {
                                 utterance_samples.extend_from_slice(&samples);
                             }
@@ -826,6 +836,10 @@ impl Pipeline {
                             tracing::info!(text = %text, "partial transcript");
                         }
                         Some(streaming::StreamEvent::Final { text, latency_ms }) => {
+                            // Captured-speech duration for this utterance,
+                            // from the unconditional live-tap sample counter.
+                            let duration_ms = utterance_sample_count * 1000
+                                / u64::from(rekody_audio::TARGET_SAMPLE_RATE);
                             if text.is_empty() {
                                 tracing::debug!("empty transcript, skipping injection");
                             } else {
@@ -837,13 +851,20 @@ impl Pipeline {
                                     ) {
                                         tracing::debug!(error = %e, "training pair not saved");
                                     }
-                                if let Err(e) =
-                                    self.process_transcript(&text, latency_ms, llm_enabled).await
+                                if let Err(e) = self
+                                    .process_transcript(
+                                        &text,
+                                        latency_ms,
+                                        Some(duration_ms),
+                                        llm_enabled,
+                                    )
+                                    .await
                                 {
                                     tracing::error!(error = %e, "failed to process transcript");
                                 }
                             }
                             utterance_samples.clear();
+                            utterance_sample_count = 0;
                         }
                         Some(streaming::StreamEvent::Error(msg)) => {
                             tracing::error!(error = %msg, "nemotron streaming error");
@@ -896,16 +917,36 @@ impl Pipeline {
             tracing::debug!(error = %e, "training pair not saved");
         }
 
-        self.process_transcript(&transcript.text, transcript.latency_ms, llm_enabled)
-            .await
+        // Speaking-duration source (batch Whisper path): the segment's exact
+        // sample count at 16kHz. The segment holds precisely the audio
+        // captured between recording start and stop (VAD-gated unless
+        // record_all_audio), so samples/sample_rate is the most truthful
+        // measure of captured speech — wall-clock instants would also include
+        // pre-speech silence, and everything downstream of here (STT + LLM)
+        // is processing time, not speaking time.
+        let duration_ms =
+            segment.samples.len() as u64 * 1000 / u64::from(rekody_audio::TARGET_SAMPLE_RATE);
+
+        self.process_transcript(
+            &transcript.text,
+            transcript.latency_ms,
+            Some(duration_ms),
+            llm_enabled,
+        )
+        .await
     }
 
     /// Post-STT stages shared by batch and streaming paths: LLM cleanup →
     /// number normalization → injection → history.
+    ///
+    /// `duration_ms` is the captured-speech duration (recording start to
+    /// stop) computed by the caller from its audio sample count — see the
+    /// comments at each call site for the per-path source.
     async fn process_transcript(
         &self,
         raw_text: &str,
         stt_latency_ms: u64,
+        duration_ms: Option<u64>,
         llm_enabled: bool,
     ) -> Result<()> {
         tracing::info!(
@@ -1009,6 +1050,7 @@ impl Pipeline {
         let entry = history::History::new_entry(
             final_text,
             raw_text.to_string(),
+            duration_ms,
             stt_latency_ms,
             llm_latency_ms,
             llm_provider,

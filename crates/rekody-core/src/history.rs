@@ -19,6 +19,14 @@ pub struct HistoryEntry {
     pub raw_transcript: String,
     /// ISO 8601 timestamp of the dictation.
     pub timestamp: String,
+    /// Milliseconds of captured speech audio for this dictation (recording
+    /// start to recording stop). Excludes model loading, transcription
+    /// latency, and LLM cleanup time — this is honest speaking time, so
+    /// WPM = words / (duration_ms / 60000) is truthful. `None` only for
+    /// entries written before this field existed; when `None` the field is
+    /// omitted from the JSON entirely (old and new absent entries look alike).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
     /// STT transcription latency in milliseconds.
     pub stt_latency_ms: u64,
     /// LLM post-processing latency in milliseconds (None if LLM was not used).
@@ -192,6 +200,7 @@ impl History {
     pub fn new_entry(
         text: String,
         raw_transcript: String,
+        duration_ms: Option<u64>,
         stt_latency_ms: u64,
         llm_latency_ms: Option<u64>,
         provider: Option<String>,
@@ -201,6 +210,7 @@ impl History {
             text,
             raw_transcript,
             timestamp: iso8601_now(),
+            duration_ms,
             stt_latency_ms,
             llm_latency_ms,
             provider,
@@ -220,6 +230,7 @@ mod tests {
             text: text.to_string(),
             raw_transcript: format!("raw: {}", text),
             timestamp: "2026-03-17T12:00:00Z".to_string(),
+            duration_ms: Some(3500),
             stt_latency_ms: 100,
             llm_latency_ms: Some(200),
             provider: Some("groq".to_string()),
@@ -282,6 +293,29 @@ mod tests {
 
         assert_eq!(parsed.entries().len(), 1);
         assert_eq!(parsed.entries()[0].text, "test entry");
+    }
+
+    #[test]
+    fn duration_ms_roundtrip_with_and_without() {
+        // New-style entry: duration_ms survives a serialize → deserialize trip.
+        let entry = sample_entry("timed");
+        assert_eq!(entry.duration_ms, Some(3500));
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("\"duration_ms\":3500"));
+        let parsed: HistoryEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.duration_ms, Some(3500));
+
+        // Old-style JSON (pre-duration_ms) deserializes fine, field = None.
+        let old_json = r#"{"text":"hi","raw_transcript":"hi","timestamp":"2026-01-01T00:00:00Z","stt_latency_ms":50,"llm_latency_ms":null,"provider":null,"app_context":"Terminal"}"#;
+        let old: HistoryEntry = serde_json::from_str(old_json).unwrap();
+        assert_eq!(old.duration_ms, None);
+
+        // Re-serializing an entry without a duration omits the field entirely
+        // (contract: old entries simply lack the field, never `null`).
+        let rejson = serde_json::to_string(&old).unwrap();
+        assert!(!rejson.contains("duration_ms"));
+        let reparsed: HistoryEntry = serde_json::from_str(&rejson).unwrap();
+        assert_eq!(reparsed.duration_ms, None);
     }
 
     #[test]

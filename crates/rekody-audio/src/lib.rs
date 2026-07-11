@@ -13,8 +13,10 @@ use rubato::{FftFixedIn, Resampler};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-/// Target sample rate for STT processing.
-const TARGET_SAMPLE_RATE: u32 = 16_000;
+/// Target sample rate for STT processing. All captured audio — both
+/// [`AudioSegment::samples`] and live-tap chunks — is 16kHz mono, so
+/// `samples / TARGET_SAMPLE_RATE` is the exact captured-speech duration.
+pub const TARGET_SAMPLE_RATE: u32 = 16_000;
 
 /// Number of samples per VAD frame at 16kHz (30ms frames).
 const VAD_FRAME_SAMPLES: usize = 480;
