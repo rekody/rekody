@@ -7,7 +7,13 @@ Every field has words a general speech model will not know: your coworkers' name
 
 ## How it works
 
-Add a term to the Dictionary and Rekody preserves it verbatim when it prepares your text. Multi-word terms are fine: "Core ML" is one dictionary entry.
+Add a term and Rekody corrects it on every dictation, deterministically and instantly, with no AI model in the loop:
+
+- Exact matches are recased to your spelling: "rekody" becomes "Rekody", even mid-sentence and with punctuation attached ("rekody," becomes "Rekody,").
+- Near misses are fixed when they are within a letter or two of exactly one term: "recody" becomes "Rekody".
+- It stays conservative. Ordinary words like "record" and "recording" are never rewritten, and if a word sits close to two of your terms, Rekody leaves it alone rather than guess.
+
+Multi-word terms are fine: "Core ML" is one dictionary entry and is matched as a whole phrase. When AI cleanup is enabled, your terms are also listed in the cleanup prompt so the model preserves them, but the deterministic pass runs either way and works with cleanup off.
 
 Good candidates:
 

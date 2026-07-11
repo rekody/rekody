@@ -1950,9 +1950,9 @@ fn print_dictionary() -> Result<()> {
     println!("  {BRAND}│{RESET}");
     if terms.is_empty() {
         println!(
-            "  {BRAND}│{RESET}   {DIM}No terms yet — add jargon, names, or products the{RESET}"
+            "  {BRAND}│{RESET}   {DIM}No terms yet — add jargon, names, or products and{RESET}"
         );
-        println!("  {BRAND}│{RESET}   {DIM}cleanup model should preserve verbatim.{RESET}");
+        println!("  {BRAND}│{RESET}   {DIM}rekody will keep them spelled your way.{RESET}");
     } else {
         for t in terms {
             println!("  {BRAND}│{RESET}   {CREAM}{BOLD}{}{RESET}", t);

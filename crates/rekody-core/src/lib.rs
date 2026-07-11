@@ -1,6 +1,8 @@
 //! Core pipeline orchestration for rekody voice dictation.
 //!
-//! Wires together all pipeline stages: hotkey → audio → VAD → STT → LLM → injection.
+//! Wires together all pipeline stages: hotkey → audio → VAD → STT →
+//! dictionary correction → LLM (optional) → number normalization →
+//! snippet expansion → injection.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -936,8 +938,9 @@ impl Pipeline {
         .await
     }
 
-    /// Post-STT stages shared by batch and streaming paths: LLM cleanup →
-    /// number normalization → injection → history.
+    /// Post-STT stages shared by batch and streaming paths: dictionary
+    /// correction → LLM cleanup → dictionary correction (again) → number
+    /// normalization → snippet expansion → injection → history.
     ///
     /// `duration_ms` is the captured-speech duration (recording start to
     /// stop) computed by the caller from its audio sample count — see the
@@ -954,6 +957,16 @@ impl Pipeline {
             latency_ms = stt_latency_ms,
             "transcription complete"
         );
+
+        // Personal dictionary, read fresh each dictation so `rekody
+        // dictionary add` takes effect without a daemon restart. The
+        // deterministic corrector runs on the raw transcript BEFORE optional
+        // LLM cleanup — zero latency, works with cleanup off — and again
+        // after cleanup inside `finalize_dictation_text`, protecting term
+        // casing against LLM rewrites. The history entry's `raw_transcript`
+        // keeps `raw_text` untouched (dataset purity for fine-tuning).
+        let dict = dictionary::Dictionary::load_or_empty();
+        let corrected_text = dictionary::correct_text(raw_text, &dict);
 
         // --- LLM post-processing ---
         let mut llm_latency_ms: Option<u64> = None;
@@ -989,15 +1002,16 @@ impl Pipeline {
                 tracing::debug!(skill = %name, "applying skill prompt");
             }
             // Append the user's personal-dictionary terms so the model
-            // preserves jargon/proper-nouns (e.g. "rekody" not "record").
-            // Read fresh each dictation; no-op when the dictionary is empty.
-            let dict = dictionary::Dictionary::load_or_empty();
+            // preserves jargon/proper-nouns (e.g. "rekody" not "record") —
+            // belt and suspenders on top of the deterministic corrector.
+            // No-op when the dictionary is empty.
             let system_prompt = dictionary::inject_vocabulary_prompt(&base_prompt, &dict);
 
-            // Send through the LLM provider chain.
+            // Send through the LLM provider chain (input already
+            // dictionary-corrected).
             match self
                 .provider_chain
-                .format(raw_text, &app_context, &system_prompt)
+                .format(&corrected_text, &app_context, &system_prompt)
                 .await
             {
                 Ok(formatted) => {
@@ -1011,10 +1025,10 @@ impl Pipeline {
                     );
                     llm_latency_ms = Some(formatted.latency_ms);
                     llm_provider = Some(formatted.provider.clone());
-                    // Guard: if LLM returns empty, use raw transcript
+                    // Guard: if LLM returns empty, use the corrected transcript
                     if formatted.text.trim().is_empty() {
                         tracing::warn!("LLM returned empty text, using raw transcript");
-                        raw_text.to_string()
+                        corrected_text
                     } else {
                         formatted.text
                     }
@@ -1024,18 +1038,24 @@ impl Pipeline {
                         error = %e,
                         "LLM formatting failed, falling back to raw transcript"
                     );
-                    raw_text.to_string()
+                    corrected_text
                 }
             }
         } else {
-            // No LLM configured — use raw STT output directly.
-            raw_text.to_string()
+            // No LLM configured — the dictionary-corrected STT output is
+            // already the final wording.
+            corrected_text
         };
 
-        // Deterministic number/currency/percent/unit normalization — a final
-        // pass that the LLM does inconsistently and the raw path not at all
-        // (e.g. "fifty dollars" → "$50", "twenty percent" → "20%").
-        let final_text = numbers::normalize(&final_text);
+        // Deterministic finishing pass: dictionary correction (again, cheap,
+        // protects casing when the LLM ran) → number normalization → snippet
+        // expansion. Snippets are read fresh each dictation so
+        // `snippets.toml` edits apply without a daemon restart.
+        let mut snippet_store = snippets::SnippetStore::new();
+        if let Err(e) = snippet_store.load() {
+            tracing::debug!(error = %e, "snippets not loaded, expansion skipped");
+        }
+        let final_text = finalize_dictation_text(&final_text, &dict, &snippet_store);
 
         // --- Text injection ---
         tracing::debug!(
@@ -1063,6 +1083,91 @@ impl Pipeline {
         }
 
         Ok(())
+    }
+}
+
+/// Deterministic finishing pass shared by every dictation path, applied to
+/// the final text right before injection and the history write:
+///
+/// 1. Dictionary correction ([`dictionary::correct_text`]) — recases and
+///    fixes near-miss spellings of the user's terms. It already ran once on
+///    the raw transcript before optional LLM cleanup; this second run is
+///    microseconds and protects term casing when the LLM rewrote the text.
+/// 2. Number/currency/percent/unit normalization ([`numbers::normalize`]) —
+///    the LLM does this inconsistently and the raw path not at all.
+/// 3. Snippet expansion ([`snippets::expand_triggers`]) — last, so stored
+///    expansions are injected verbatim and never rewritten by the passes
+///    above.
+///
+/// The raw transcript never flows through here: the history entry's
+/// `raw_transcript` field keeps the untouched STT output.
+fn finalize_dictation_text(
+    text: &str,
+    dict: &dictionary::Dictionary,
+    snippet_store: &snippets::SnippetStore,
+) -> String {
+    let corrected = dictionary::correct_text(text, dict);
+    let normalized = numbers::normalize(&corrected);
+    snippets::expand_triggers(&normalized, snippet_store)
+}
+
+#[cfg(test)]
+mod dictation_finalize_tests {
+    //! Pipeline-seam checks for the deterministic post-STT pass:
+    //! `process_transcript` feeds the final text through
+    //! `finalize_dictation_text` and stores the result as the history
+    //! entry's `text`, while `raw_transcript` keeps the raw STT output.
+
+    use crate::dictionary::Dictionary;
+    use crate::snippets::SnippetStore;
+    use crate::{finalize_dictation_text, history};
+
+    #[test]
+    fn corrector_then_snippets_apply_and_raw_transcript_stays_raw() {
+        let mut dict = Dictionary::new();
+        dict.add_term("Rekody");
+        let mut store = SnippetStore::with_path(std::path::PathBuf::from("/dev/null"));
+        store.add_snippet("sig", "Best,\nTony Kipkemboi\nrekody.com");
+
+        // What STT actually emits: a mangled product name and a spoken trigger.
+        let raw = "tell them recody ships today slash sig";
+        let finalized = finalize_dictation_text(raw, &dict, &store);
+        assert_eq!(
+            finalized,
+            "tell them Rekody ships today Best,\nTony Kipkemboi\nrekody.com"
+        );
+
+        // The seam `process_transcript` writes: finalized text goes into
+        // `text`, the raw transcript is stored untouched.
+        let entry = history::History::new_entry(
+            finalized.clone(),
+            raw.to_string(),
+            Some(2000),
+            80,
+            None,
+            None,
+            "Mail".to_string(),
+        );
+        assert_eq!(entry.text, finalized);
+        assert_eq!(entry.raw_transcript, raw);
+        assert!(entry.raw_transcript.contains("recody"));
+        assert!(!entry.raw_transcript.contains("Rekody"));
+    }
+
+    #[test]
+    fn finalize_without_dictionary_or_snippets_is_identity_for_plain_text() {
+        let dict = Dictionary::new();
+        let store = SnippetStore::with_path(std::path::PathBuf::from("/dev/null"));
+        let text = "nothing to correct here.";
+        assert_eq!(finalize_dictation_text(text, &dict, &store), text);
+    }
+
+    #[test]
+    fn finalize_keeps_number_normalization_in_the_chain() {
+        let dict = Dictionary::new();
+        let store = SnippetStore::with_path(std::path::PathBuf::from("/dev/null"));
+        let out = finalize_dictation_text("that costs fifty dollars", &dict, &store);
+        assert_eq!(out, "that costs $50");
     }
 }
 

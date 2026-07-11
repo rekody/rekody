@@ -6,10 +6,10 @@ description: "Six focused crates, one pipeline: hotkey to audio to text to your 
 The daemon is a Rust workspace of six crates, each owning one stage of the pipeline:
 
 ```
-hotkey -> audio capture -> VAD -> STT -> LLM (optional) -> inject
+hotkey -> audio capture -> VAD -> STT -> dictionary -> LLM (optional) -> snippets -> inject
 ```
 
-A dictation flows left to right: the hotkey listener starts capture, audio is resampled and gated for silence, the speech engine produces a transcript, an optional LLM pass cleans it up, and the injector places the final text at the cursor.
+A dictation flows left to right: the hotkey listener starts capture, audio is resampled and gated for silence, the speech engine produces a transcript, the personal dictionary deterministically corrects the user's terms (before and after cleanup, no LLM required), an optional LLM pass cleans the text up, numbers are normalized and spoken snippet triggers ("slash sig" or the literal `/sig`) expand, and the injector places the final text at the cursor. History keeps the raw transcript untouched alongside the final text.
 
 ## The crates
 
@@ -32,6 +32,7 @@ A dictation flows left to right: the hotkey listener starts capture, audio is re
 | Config | `~/.config/rekody/config.toml` |
 | History | `~/.config/rekody/history.json` |
 | Dictionary | `~/.config/rekody/dictionary.toml` |
+| Snippets | `~/.config/rekody/snippets.toml` |
 | Skills | `~/.config/rekody/skills/` |
 | Models | `~/.local/share/rekody/models/` |
 | Training data | `~/.local/share/rekody/training-data/` |
