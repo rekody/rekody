@@ -148,7 +148,8 @@ pub struct RekodyConfig {
     pub trigger_key: String,
 
     /// Maximum continuous recording duration in seconds (deadman switch).
-    /// `0` means no limit. Default: 300 (5 minutes).
+    /// `0` means no limit. Default: 1800 (30 minutes), matching the app's
+    /// Settings picker (5/10/20/30/60 min).
     #[serde(default = "default_max_recording_secs")]
     pub max_recording_secs: u64,
 
@@ -192,7 +193,7 @@ fn default_trigger_key() -> String {
 }
 
 fn default_max_recording_secs() -> u64 {
-    600
+    1800
 }
 
 impl Default for RekodyConfig {

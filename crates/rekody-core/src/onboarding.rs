@@ -353,8 +353,8 @@ pub fn run_onboarding() -> Result<()> {
                 "fast + near-large accuracy (recommended)",
             )
             .item("tiny", "Tiny (75 MB)", "fastest — basic accuracy")
-            .item("small", "Small (250 MB)", "balanced")
-            .item("medium", "Medium (750 MB)", "better accuracy")
+            .item("small", "Small (488 MB)", "balanced")
+            .item("medium", "Medium (1.5 GB)", "better accuracy")
             .item("large", "Large (3.1 GB)", "best accuracy")
             .initial_value("turbo")
             .interact()
@@ -599,7 +599,7 @@ activation_mode = "both"
 trigger_key = "{trigger_key}"
 # Longest single recording in seconds (safety stop for forgotten sessions).
 # Raise it if you ramble hands-free for a long time. 0 = no limit.
-max_recording_secs = 600
+max_recording_secs = 1800
 whisper_model = "{whisper_size}"
 vad_threshold = 0.01
 injection_method = "clipboard"

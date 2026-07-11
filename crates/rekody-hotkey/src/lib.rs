@@ -83,7 +83,7 @@ impl Default for HotkeyConfig {
         Self {
             activation_mode: ActivationMode::PushToTalk,
             trigger_key: TriggerKey::OptionSpace,
-            max_recording_secs: 600,
+            max_recording_secs: 1800,
         }
     }
 }
