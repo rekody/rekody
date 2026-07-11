@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Rekody · Label review</title>
+<link rel="icon" href="data:,">
+<style>
+:root{
+  --ink:#0F1717;
+  --teal:#20808D;
+  --teal-dark:#1B6E79;
+  --teal-soft:#E3F1F3;
+  --band:#FAFAFA;
+  --line:#E6EAEA;
+  --dim:#5F6E6E;
+  --faint:#9AA6A6;
+  --red:#B3372F;
+  --red-soft:#FCEBE9;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#FFFFFF;color:var(--ink);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+header{position:sticky;top:0;z-index:5;background:#FFFFFF;border-bottom:1px solid var(--line);padding:14px 24px 0}
+.mast{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;max-width:980px;margin:0 auto}
+.wordmark{font-weight:700;color:var(--teal);font-size:17px;letter-spacing:.01em}
+h1{font-size:17px;font-weight:600;margin:0}
+.keys{margin-left:auto;color:var(--dim);font-size:12.5px;display:flex;gap:12px;flex-wrap:wrap}
+kbd{border:1px solid #D9DFDF;border-bottom-width:2px;border-radius:4px;padding:0 5px;background:#FFF;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim)}
+.summary{display:flex;gap:14px;flex-wrap:wrap;align-items:center;color:var(--dim);font-size:13px;padding:9px 0 10px;max-width:980px;margin:0 auto}
+.summary b{color:var(--ink);font-weight:600}
+.legend{margin-left:auto}
+del{text-decoration:line-through;background:var(--red-soft);color:var(--red);padding:0 3px;border-radius:3px}
+ins{text-decoration:none;background:var(--teal-soft);color:#175E68;padding:0 3px;border-radius:3px}
+.bar{height:3px;background:#EDF1F1;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--teal);transition:width .4s ease}
+main{max-width:980px;margin:0 auto;padding:16px 24px 90px}
+section{background:var(--band);border:1px solid var(--line);border-radius:14px;padding:6px 16px 12px;margin:16px 0}
+section h2{font-size:14px;font-weight:600;margin:10px 0 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+section h2 .count{color:var(--teal)}
+section h2 .note{color:var(--dim);font-weight:400;font-size:12.5px}
+section h2 button{margin-left:auto}
+article.clip{background:#FFF;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:8px 0;outline:none}
+article.clip.sel{border-color:var(--teal);box-shadow:0 0 0 2px rgba(32,128,141,.15)}
+.meta{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--dim);flex-wrap:wrap}
+.chip{border:1px solid var(--line);border-radius:99px;padding:1px 9px;background:var(--band)}
+.chip.app{color:var(--teal);border-color:#C9E0E4;background:var(--teal-soft)}
+@keyframes pulse{50%{opacity:.45}}
+.chip.pending-chip{animation:pulse 1.6s ease-in-out infinite}
+@media (prefers-reduced-motion: reduce){.chip.pending-chip{animation:none}}
+.werb{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink)}
+.fname{margin-left:auto;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint)}
+audio{width:100%;height:32px;margin:10px 0 2px}
+.body{margin:8px 0 2px;overflow-wrap:anywhere}
+.actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+button{
+  font:13px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:7px 12px;border-radius:8px;border:1px solid var(--line);
+  background:#FFF;color:var(--ink);cursor:pointer;
+}
+button:hover{border-color:var(--teal);color:var(--teal)}
+button:disabled{opacity:.5;cursor:default}
+button.primary{background:var(--teal);border-color:var(--teal);color:#FFF}
+button.primary:hover{background:var(--teal-dark);color:#FFF}
+button kbd{margin-left:6px}
+button.primary kbd{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.4);color:#FFF}
+article.clip.done{padding:8px 14px;background:var(--band)}
+article.clip.done .meta,article.clip.done audio,article.clip.done .body,article.clip.done .actions{display:none}
+.done-line{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--dim);min-width:0}
+.done-line .badge{color:var(--teal);font-weight:600;white-space:nowrap}
+.done-line .final{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.done-line a{color:var(--dim);text-decoration:underline;cursor:pointer;white-space:nowrap}
+.done-line a:hover{color:var(--teal)}
+textarea{
+  width:100%;min-height:88px;resize:vertical;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:10px;border:1px solid var(--teal);border-radius:8px;outline:none;
+  background:#FFF;color:var(--ink);
+}
+.edit-hint{font-size:12px;color:var(--dim);margin-top:6px}
+.empty-note{color:var(--faint);font-size:13px;padding:6px 2px 4px}
+</style>
+</head>
+<body>
+<header>
+  <div class="mast">
+    <span class="wordmark">rekody</span>
+    <h1>Label review</h1>
+    <div class="keys">
+      <span><kbd>A</kbd> accept teacher</span>
+      <span><kbd>O</kbd> keep original</span>
+      <span><kbd>E</kbd> edit</span>
+      <span><kbd>Space</kbd> play</span>
+      <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span>
+    </div>
+  </div>
+  <div class="summary">
+    <span id="sum-main"><b>Loading</b> the dataset&#8230;</span>
+    <span class="legend"><del>label only</del> <ins>teacher only</ins></span>
+  </div>
+  <div class="bar"><i id="bar-fill"></i></div>
+</header>
+<main>
+  <section data-group="listen">
+    <h2>Listen first <span class="count">0</span><span class="note">big disagreements &#183; wer above 0.15</span></h2>
+    <div class="rows"></div>
+  </section>
+  <section data-group="quick">
+    <h2>Quick diffs <span class="count">0</span><span class="note">small disagreements &#183; wer up to 0.15</span></h2>
+    <div class="rows"></div>
+  </section>
+  <section data-group="agree">
+    <h2>Models agree <span class="count">0</span><span class="note">teacher matches the label</span>
+      <button id="bulk" disabled>Accept all agreeing</button>
+    </h2>
+    <div class="rows"></div>
+  </section>
+  <section data-group="pending">
+    <h2>Transcribing <span class="count">0</span><span class="note">the teacher pass has not reached these yet &#183; fills in as it runs</span></h2>
+    <div class="rows"></div>
+  </section>
+</main>
+
+<template id="row-t">
+<article class="clip" tabindex="-1">
+  <div class="meta">
+    <span class="chip app"></span>
+    <span class="dur"></span>
+    <span class="werb"></span>
+    <span class="chip pending-chip">transcribing</span>
+    <span class="fname"></span>
+  </div>
+  <audio controls preload="none"></audio>
+  <div class="body"></div>
+  <div class="actions">
+    <button class="primary" data-act="accept">Accept teacher <kbd>A</kbd></button>
+    <button data-act="keep">Keep original <kbd>O</kbd></button>
+    <button data-act="edit">Edit <kbd>E</kbd></button>
+  </div>
+  <div class="done-line" style="display:none">
+    <span class="badge"></span>
+    <span class="final"></span>
+    <a href="#" class="undo">Undo</a>
+  </div>
+</article>
+</template>
+
+<script>
+"use strict";
+
+const groupEls = {};
+document.querySelectorAll("section[data-group]").forEach(s => {
+  groupEls[s.dataset.group] = {
+    section: s,
+    rows: s.querySelector(".rows"),
+    count: s.querySelector(".count"),
+  };
+});
+const rowT = document.getElementById("row-t");
+const state = { clips: new Map(), rows: new Map(), selected: null, totalDuration: 0 };
+let bulkRunning = false;
+
+// --- grouping -------------------------------------------------------------
+
+function groupOf(c) {
+  if (c.teacher_text === null || c.teacher_text === undefined) return "pending";
+  if (c.wer > 0.15) return "listen";
+  if (c.wer > 0) return "quick";
+  return "agree";
+}
+
+function fmtDur(s) {
+  return s >= 60 ? Math.floor(s / 60) + "m " + Math.round(s % 60) + "s" : s.toFixed(1) + "s";
+}
+function fileOf(c) { return c.audio_filepath.replace(/^audio\//, ""); }
+function badgeFor(d) {
+  return d === "accept_teacher" ? "teacher accepted"
+       : d === "keep_original" ? "original kept"
+       : "edited";
+}
+
+// --- word diff (LCS over normalized tokens, raw tokens displayed) ---------
+
+function normTok(w) { return w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ""); }
+function toks(s) { s = (s || "").trim(); return s ? s.split(/\s+/) : []; }
+
+function diffWords(a, b) {
+  const n = a.length, m = b.length;
+  const an = a.map(normTok), bn = b.map(normTok);
+  const dp = [];
+  for (let i = 0; i <= n; i++) dp.push(new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = an[i] === bn[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const ops = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (an[i] === bn[j]) { ops.push(["eq", a[i]]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push(["del", a[i]]); i++; }
+    else { ops.push(["ins", b[j]]); j++; }
+  }
+  while (i < n) ops.push(["del", a[i++]]);
+  while (j < m) ops.push(["ins", b[j++]]);
+  return ops;
+}
+
+function renderDiff(el, label, teacher) {
+  el.replaceChildren();
+  for (const [kind, word] of diffWords(toks(label), toks(teacher))) {
+    if (kind === "eq") {
+      el.append(document.createTextNode(word));
+    } else {
+      const node = document.createElement(kind === "del" ? "del" : "ins");
+      node.textContent = word;
+      el.append(node);
+    }
+    el.append(document.createTextNode(" "));
+  }
+}
+
+// --- rows -------------------------------------------------------------------
+
+function ensureRow(c) {
+  let row = state.rows.get(c.audio_filepath);
+  if (row) return row;
+  row = rowT.content.firstElementChild.cloneNode(true);
+  row.dataset.id = c.audio_filepath;
+  row.querySelector("audio").src = "/audio/" + encodeURIComponent(fileOf(c));
+  row.querySelector(".fname").textContent = fileOf(c);
+  row.addEventListener("click", e => { if (!e.target.closest("a")) select(row); });
+  for (const act of ["accept", "keep", "edit"]) {
+    row.querySelector("[data-act=" + act + "]").addEventListener("click", e => {
+      e.stopPropagation();
+      select(row);
+      doAct(act);
+    });
+  }
+  row.querySelector(".undo").addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    decide(state.clips.get(row.dataset.id), "undo");
+  });
+  state.rows.set(c.audio_filepath, row);
+  return row;
+}
+
+function updateRow(row, c) {
+  row.classList.remove("editing");
+  const app = row.querySelector(".app");
+  app.textContent = c.app_context || "";
+  app.style.display = c.app_context ? "" : "none";
+  row.querySelector(".dur").textContent = fmtDur(c.duration || 0);
+  const werEl = row.querySelector(".werb");
+  if (c.wer === null || c.wer === undefined) {
+    werEl.style.display = "none";
+  } else {
+    werEl.style.display = "";
+    werEl.textContent = "wer " + c.wer.toFixed(2);
+  }
+  row.querySelector(".pending-chip").style.display =
+    c.teacher_text === null || c.teacher_text === undefined ? "" : "none";
+
+  const body = row.querySelector(".body");
+  const actions = row.querySelector(".actions");
+  const done = row.querySelector(".done-line");
+  if (c.decision) {
+    row.classList.add("done");
+    done.style.display = "";
+    done.querySelector(".badge").textContent = badgeFor(c.decision.decision);
+    done.querySelector(".final").textContent = c.decision.final_text || "";
+    if (state.selected === row) { row.classList.remove("sel"); state.selected = null; }
+  } else {
+    row.classList.remove("done");
+    done.style.display = "none";
+    if (c.teacher_text === null || c.teacher_text === undefined) {
+      actions.style.display = "none";
+      body.replaceChildren(document.createTextNode(c.text || ""));
+    } else {
+      actions.style.display = "";
+      renderDiff(body, c.text, c.teacher_text);
+    }
+  }
+}
+
+function placeRow(row, c) {
+  const g = groupOf(c);
+  row.dataset.wer = c.wer === null || c.wer === undefined ? "" : String(c.wer);
+  if (row.dataset.group === g && row.parentElement) { refreshCounts(); return; }
+  row.dataset.group = g;
+  const container = groupEls[g].rows;
+  if (g === "pending") {
+    container.appendChild(row);
+  } else {
+    // Sorted by wer descending within the group.
+    const w = c.wer || 0;
+    const next = Array.from(container.children)
+      .find(k => parseFloat(k.dataset.wer || "0") < w);
+    container.insertBefore(row, next || null);
+  }
+  refreshCounts();
+}
+
+// --- selection + keyboard ----------------------------------------------------
+
+function navRows() {
+  return Array.from(document.querySelectorAll("article.clip")).filter(r => !r.classList.contains("done"));
+}
+function select(row) {
+  if (state.selected === row) return;
+  if (state.selected) state.selected.classList.remove("sel");
+  state.selected = row;
+  row.classList.add("sel");
+}
+function moveSel(delta) {
+  const rows = navRows();
+  if (!rows.length) return;
+  let i = rows.indexOf(state.selected);
+  i = i === -1 ? (delta > 0 ? 0 : rows.length - 1)
+               : Math.min(rows.length - 1, Math.max(0, i + delta));
+  select(rows[i]);
+  rows[i].scrollIntoView({ block: "center", behavior: "smooth" });
+}
+function togglePlay() {
+  const row = state.selected || navRows()[0];
+  if (!row) return;
+  select(row);
+  const a = row.querySelector("audio");
+  if (!a) return;
+  if (a.paused) {
+    document.querySelectorAll("audio").forEach(x => { if (x !== a) x.pause(); });
+    a.play();
+  } else {
+    a.pause();
+  }
+}
+function doAct(kind) {
+  const row = state.selected;
+  if (!row) return;
+  const clip = state.clips.get(row.dataset.id);
+  if (!clip || clip.decision) return;
+  if (kind === "accept") {
+    if (clip.teacher_text !== null && clip.teacher_text !== undefined) decide(clip, "accept_teacher");
+  } else if (kind === "keep") {
+    decide(clip, "keep_original");
+  } else if (kind === "edit") {
+    openEdit(row, clip);
+  }
+}
+
+document.addEventListener("keydown", e => {
+  const t = e.target;
+  if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  switch (e.key) {
+    case "ArrowDown": e.preventDefault(); moveSel(1); break;
+    case "ArrowUp": e.preventDefault(); moveSel(-1); break;
+    case " ": e.preventDefault(); togglePlay(); break;
+    case "a": case "A": doAct("accept"); break;
+    case "o": case "O": doAct("keep"); break;
+    case "e": case "E": e.preventDefault(); doAct("edit"); break;
+  }
+});
+
+// --- edit ---------------------------------------------------------------------
+
+function openEdit(row, clip) {
+  if (row.classList.contains("editing")) return;
+  row.classList.add("editing");
+  row.querySelector(".actions").style.display = "none";
+  const body = row.querySelector(".body");
+  body.replaceChildren();
+  const area = document.createElement("textarea");
+  area.value = clip.teacher_text !== null && clip.teacher_text !== undefined
+    ? clip.teacher_text
+    : (clip.text || "");
+  const hint = document.createElement("div");
+  hint.className = "edit-hint";
+  hint.textContent = "Enter saves as the corrected label · Shift+Enter for a newline · Esc cancels";
+  area.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      decide(clip, "edit", area.value);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      updateRow(row, state.clips.get(row.dataset.id));
+    }
+  });
+  body.append(area, hint);
+  area.focus();
+  area.setSelectionRange(area.value.length, area.value.length);
+}
+
+// --- decisions ------------------------------------------------------------------
+
+async function decide(clip, decision, finalText) {
+  const payload = { audio_filepath: clip.audio_filepath, decision };
+  if (finalText !== undefined) payload.final_text = finalText;
+  let data;
+  try {
+    const r = await fetch("/api/decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    data = await r.json();
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  } catch (err) {
+    alert("Decision failed: " + err.message);
+    return false;
+  }
+  state.clips.set(data.audio_filepath, data);
+  const row = state.rows.get(data.audio_filepath);
+  const wasSelected = state.selected === row;
+  updateRow(row, data);
+  placeRow(row, data);
+  refreshSummary();
+  if (decision !== "undo" && wasSelected) selectNextAfter(row);
+  return true;
+}
+
+function selectNextAfter(row) {
+  const all = Array.from(document.querySelectorAll("article.clip"));
+  for (let i = all.indexOf(row) + 1; i < all.length; i++) {
+    if (!all[i].classList.contains("done")) {
+      select(all[i]);
+      all[i].scrollIntoView({ block: "center" });
+      return;
+    }
+  }
+}
+
+document.getElementById("bulk").addEventListener("click", async () => {
+  if (bulkRunning) return;
+  const targets = Array.from(state.clips.values()).filter(c => !c.decision && c.wer === 0);
+  if (!targets.length) return;
+  bulkRunning = true;
+  const bulk = document.getElementById("bulk");
+  bulk.disabled = true;
+  const label = bulk.textContent;
+  let n = 0;
+  for (const c of targets) {
+    n++;
+    bulk.textContent = "Accepting " + n + " / " + targets.length;
+    if (!await decide(c, "keep_original")) break;
+  }
+  bulk.textContent = label;
+  bulkRunning = false;
+  refreshSummary();
+});
+
+// --- summary + polling --------------------------------------------------------------
+
+function refreshCounts() {
+  for (const g of Object.keys(groupEls)) {
+    groupEls[g].count.textContent = groupEls[g].rows.children.length;
+  }
+}
+
+function refreshSummary() {
+  const clips = Array.from(state.clips.values());
+  const total = clips.length;
+  const decided = clips.filter(c => c.decision);
+  const decidedSecs = decided.reduce((s, c) => s + (c.duration || 0), 0);
+  const counts = { listen: 0, quick: 0, agree: 0, pending: 0 };
+  clips.forEach(c => counts[groupOf(c)]++);
+  const el = document.getElementById("sum-main");
+  el.replaceChildren();
+  const b = document.createElement("b");
+  b.textContent = decided.length + " / " + total;
+  el.append(
+    b,
+    document.createTextNode(
+      " reviewed · " + (decidedSecs / 3600).toFixed(2) + " of " +
+      (state.totalDuration / 3600).toFixed(2) + " h · listen first " + counts.listen +
+      " · quick diffs " + counts.quick + " · agree " + counts.agree +
+      " · transcribing " + counts.pending
+    )
+  );
+  document.getElementById("bar-fill").style.width = total ? (100 * decided.length / total) + "%" : "0";
+  const bulk = document.getElementById("bulk");
+  if (!bulkRunning) bulk.disabled = clips.filter(c => !c.decision && c.wer === 0).length === 0;
+  refreshCounts();
+}
+
+function sameDecision(a, b) { return JSON.stringify(a || null) === JSON.stringify(b || null); }
+
+function sync(data) {
+  state.totalDuration = data.total_duration_secs || 0;
+  for (const clip of data.clips) {
+    const prev = state.clips.get(clip.audio_filepath);
+    state.clips.set(clip.audio_filepath, clip);
+    const row = ensureRow(clip);
+    const changed = !prev
+      || prev.teacher_text !== clip.teacher_text
+      || prev.wer !== clip.wer
+      || prev.text !== clip.text
+      || !sameDecision(prev.decision, clip.decision);
+    if (!row.parentElement || (changed && !row.classList.contains("editing"))) {
+      updateRow(row, clip);
+      placeRow(row, clip);
+    }
+  }
+  refreshSummary();
+}
+
+async function load() {
+  try {
+    const r = await fetch("/api/clips");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    sync(await r.json());
+  } catch (err) {
+    document.getElementById("sum-main").textContent = "Waiting for the server: " + err.message;
+  }
+}
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

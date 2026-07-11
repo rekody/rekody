@@ -1,0 +1,25 @@
+[package]
+name = "rekody-review"
+publish = false        # internal app crate — never published to crates.io
+description = "Localhost label-review tool for the rekody training dataset"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rekody-stt.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+reqwest.workspace = true
+clap.workspace = true
+dirs = "6"
+hound = "3.5"
+# Tiny sync HTTP server for the localhost review page — no async stack,
+# no TLS, exactly what a single-user 127.0.0.1 tool needs.
+tiny_http = "0.12"
+
+[dev-dependencies]
+tempfile = "3"
