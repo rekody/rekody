@@ -45,7 +45,12 @@ pub fn dataset_dir() -> PathBuf {
 /// `samples` must be 16kHz mono f32 (what both the VAD segment path and the
 /// streaming live tap produce). Skips silently-short clips (<0.4s) — they
 /// are key-taps, not speech.
-pub fn save_pair(samples: &[f32], raw_text: &str, engine: &str) -> Result<PathBuf> {
+pub fn save_pair(
+    samples: &[f32],
+    raw_text: &str,
+    engine: &str,
+    app_context: Option<&str>,
+) -> Result<PathBuf> {
     const SAMPLE_RATE: u32 = 16_000;
     let duration = samples.len() as f64 / SAMPLE_RATE as f64;
     if duration < 0.4 || raw_text.trim().is_empty() {
@@ -110,13 +115,19 @@ pub fn save_pair(samples: &[f32], raw_text: &str, engine: &str) -> Result<PathBu
         "audio/{}",
         audio_path.file_name().unwrap_or_default().to_string_lossy()
     );
-    let line = serde_json::json!({
+    let mut line = serde_json::json!({
         "audio_filepath": rel,
         "text": raw_text.trim(),
         "duration": (duration * 1000.0).round() / 1000.0,
         "engine": engine,
         "timestamp": stamp,
     });
+    // The app the dictation landed in (frontmost at recording start), for
+    // the Library's per-row tags. Omitted when unknown so old and new
+    // untagged lines look alike.
+    if let Some(app) = app_context.filter(|a| !a.is_empty() && *a != "Unknown") {
+        line["app_context"] = serde_json::Value::String(app.to_string());
+    }
     let manifest = root.join("manifest.jsonl");
     use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
@@ -289,7 +300,13 @@ mod tests {
         let samples: Vec<f32> = (0..16_000)
             .map(|i| (i as f32 * 220.0 * std::f32::consts::TAU / 16_000.0).sin() * 0.4)
             .collect();
-        let path = save_pair(&samples, "hello training world", "nemotron").unwrap();
+        let path = save_pair(
+            &samples,
+            "hello training world",
+            "nemotron",
+            Some("Ghostty"),
+        )
+        .unwrap();
         assert!(path.exists());
 
         let manifest = std::fs::read_to_string(dir.path().join("manifest.jsonl")).unwrap();
@@ -297,6 +314,8 @@ mod tests {
             serde_json::from_str(manifest.lines().last().unwrap()).unwrap();
         assert_eq!(entry["text"], "hello training world");
         assert!((entry["duration"].as_f64().unwrap() - 1.0).abs() < 0.01);
+        // App captured at recording start rides along for Library tags.
+        assert_eq!(entry["app_context"], "Ghostty");
 
         unsafe { std::env::remove_var("REKODY_TRAINING_DIR") };
     }
@@ -311,8 +330,8 @@ mod tests {
         let samples: Vec<f32> = (0..16_000)
             .map(|i| (i as f32 * 220.0 * std::f32::consts::TAU / 16_000.0).sin() * 0.4)
             .collect();
-        save_pair(&samples, "the spark gdx", "nemotron").unwrap();
-        save_pair(&samples, "second utterance", "nemotron").unwrap();
+        save_pair(&samples, "the spark gdx", "nemotron", None).unwrap();
+        save_pair(&samples, "second utterance", "nemotron", None).unwrap();
 
         // n=1 reaches the older entry.
         let pair = nth_recent(1).unwrap();
@@ -331,6 +350,6 @@ mod tests {
     #[test]
     fn rejects_too_short_clips() {
         let samples = vec![0.1f32; 1000]; // 62ms
-        assert!(save_pair(&samples, "tap", "nemotron").is_err());
+        assert!(save_pair(&samples, "tap", "nemotron", None).is_err());
     }
 }

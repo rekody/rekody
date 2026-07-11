@@ -890,16 +890,17 @@ impl Pipeline {
                             if text.is_empty() {
                                 tracing::debug!("empty transcript, skipping injection");
                             } else {
+                                let app_at_start =
+                                    resolve_app_probe(&mut app_probe, &mut app_cache).await;
                                 if self.config.save_training_data
                                     && let Err(e) = training_data::save_pair(
                                         &utterance_samples,
                                         &text,
                                         &self.config.stt_engine,
+                                        app_at_start.as_ref().map(|a| a.app_name.as_str()),
                                     ) {
                                         tracing::debug!(error = %e, "training pair not saved");
                                     }
-                                let app_at_start =
-                                    resolve_app_probe(&mut app_probe, &mut app_cache).await;
                                 if let Err(e) = self
                                     .process_transcript(
                                         &text,
@@ -963,6 +964,7 @@ impl Pipeline {
                 &segment.samples,
                 &transcript.text,
                 &self.config.stt_engine,
+                app_at_start.as_ref().map(|a| a.app_name.as_str()),
             )
         {
             tracing::debug!(error = %e, "training pair not saved");
