@@ -63,22 +63,49 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
     <link rel="icon" type="image/png" href="/icon.png?v=4" sizes="1024x1024" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
 
-    <!-- JSON-LD: SoftwareApplication -->
+    <!-- JSON-LD: Organization + WebSite + SoftwareApplication. The app is
+         free but not MIT (the EULA covers it; only the CLI is MIT), so the
+         schema carries no license claim. -->
     <script type="application/ld+json" set:html={JSON.stringify({
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "Rekody",
-      "applicationCategory": "UtilitiesApplication",
-      "operatingSystem": "macOS",
-      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "url": "https://rekody.com",
-      "description": description,
-      "license": "https://opensource.org/licenses/MIT",
-      "author": {
-        "@type": "Person",
-        "name": "Tony Kipkemboi",
-        "url": "https://github.com/tonykipkemboi",
-      },
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://rekody.com/#org",
+          "name": "Rekody",
+          "url": "https://rekody.com/",
+          "logo": "https://rekody.com/icon.png",
+          "email": "hi@rekody.com",
+          "sameAs": [
+            "https://github.com/rekody",
+            "https://huggingface.co/Rekody",
+            "https://www.linkedin.com/company/rekody/",
+          ],
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://rekody.com/#website",
+          "url": "https://rekody.com/",
+          "name": "Rekody",
+          "publisher": { "@id": "https://rekody.com/#org" },
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "Rekody",
+          "applicationCategory": "UtilitiesApplication",
+          "operatingSystem": "macOS 13.0 or later",
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "url": "https://rekody.com/",
+          "downloadUrl": "https://github.com/rekody/rekody-app/releases/latest/download/Rekody.dmg",
+          "description": description,
+          "publisher": { "@id": "https://rekody.com/#org" },
+          "author": {
+            "@type": "Person",
+            "name": "Tony Kipkemboi",
+            "url": "https://github.com/tonykipkemboi",
+          },
+        },
+      ],
     })} />
 
     <!-- JSON-LD: FAQPage -->

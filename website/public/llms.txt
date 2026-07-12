@@ -1,0 +1,25 @@
+# Rekody
+
+> Free voice dictation for macOS. Hold Option Space and speak; the text lands at your cursor in any app about 100ms after you release. Transcription runs on-device by default: no account, no analytics, no audio stored. The Mac app is free; the CLI is open source (MIT).
+
+Key facts, all verifiable in the linked repositories:
+
+- The default engine is Rekody Streaming (English), built on NVIDIA Nemotron: words appear as you talk, with roughly 60ms of flush after release. A local Whisper engine (five sizes) and cloud engines (Groq, Deepgram) are options.
+- Everything runs locally by default. The app makes zero analytics calls. Optional AI cleanup can run locally through Ollama.
+- A personal dictionary corrects your names and jargon deterministically, snippets expand spoken triggers, and every dictation can build a private, local fine-tuning dataset.
+- Free Mac app download: https://github.com/rekody/rekody-app/releases/latest/download/Rekody.dmg
+- CLI install: brew install rekody/rekody/rekody
+
+## Pages
+
+- [Home](https://rekody.com/): what Rekody does, how it works, download.
+- [Use cases](https://rekody.com/use-cases): dictation in email, chat, documents, and code editors.
+- [Open source](https://rekody.com/open-source): what is MIT (the CLI) and what is free but closed (the Mac app).
+- [Privacy](https://rekody.com/privacy): the on-device model, what the site collects (cookie-less page counts only), what the app never collects.
+- [Support](https://rekody.com/support): help and contact. Email support@rekody.com.
+
+## Code and models
+
+- [CLI repository (MIT)](https://github.com/rekody/rekody)
+- [App releases](https://github.com/rekody/rekody-app/releases)
+- [Models on Hugging Face](https://huggingface.co/Rekody)
