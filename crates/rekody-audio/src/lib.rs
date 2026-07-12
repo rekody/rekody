@@ -169,6 +169,12 @@ pub struct AudioConfig {
     /// (e.g. phone-speaker playback into the mic) where VAD would otherwise
     /// drop everything as silence.
     pub record_all_audio: bool,
+    /// Preferred input device, matched by name (case-insensitive). `None`
+    /// (or `"system"`) follows the OS default input — which can drift to
+    /// whatever was plugged in last (e.g. AirPods). Set a device name to
+    /// pin capture to it regardless of the system default. Resolved fresh
+    /// each recording, so a disconnected device transparently falls back.
+    pub input_device: Option<String>,
 }
 
 impl Default for AudioConfig {
@@ -176,8 +182,66 @@ impl Default for AudioConfig {
         Self {
             vad_threshold: 0.01,
             record_all_audio: false,
+            input_device: None,
         }
     }
+}
+
+/// Names of all available input devices, for pickers and `rekody doctor`.
+/// Returns an empty list if the host can't enumerate (never panics).
+pub fn list_input_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    host.input_devices()
+        .map(|it| it.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default()
+}
+
+/// Index of the device whose name matches `want` (case-insensitive): an
+/// exact match wins, otherwise the first substring match. `None` if nothing
+/// matches. Pure helper, unit-tested.
+fn match_device_name(available: &[String], want: &str) -> Option<usize> {
+    let want = want.trim().to_lowercase();
+    if want.is_empty() {
+        return None;
+    }
+    available
+        .iter()
+        .position(|n| n.to_lowercase() == want)
+        .or_else(|| {
+            available
+                .iter()
+                .position(|n| n.to_lowercase().contains(&want))
+        })
+}
+
+/// Resolve the input device to capture from: the configured name if it
+/// matches an available device, otherwise the system default. A configured
+/// name that no longer matches (device unplugged, renamed) logs a warning
+/// and falls back — capture never hard-fails on a stale preference.
+fn resolve_input_device(host: &cpal::Host, configured: Option<&str>) -> Option<cpal::Device> {
+    let want = configured
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("system"));
+
+    if let Some(want) = want {
+        let devices: Vec<cpal::Device> = host
+            .input_devices()
+            .map(|it| it.collect())
+            .unwrap_or_default();
+        let names: Vec<String> = devices
+            .iter()
+            .map(|d| d.name().unwrap_or_default())
+            .collect();
+        if let Some(idx) = match_device_name(&names, want) {
+            tracing::info!(device = %names[idx], "using configured input device");
+            return devices.into_iter().nth(idx);
+        }
+        tracing::warn!(
+            configured = %want,
+            "configured input_device not found — falling back to system default"
+        );
+    }
+    host.default_input_device()
 }
 
 /// Manages the audio capture lifecycle.
@@ -401,8 +465,7 @@ fn run_capture_session(
 
     // ----- device & stream setup -----
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
+    let device = resolve_input_device(&host, config.input_device.as_deref())
         .ok_or(AudioError::NoInputDevice)?;
 
     let supported_config = device.default_input_config().map_err(|e| {
@@ -768,6 +831,35 @@ mod tests {
         let config = AudioConfig::default();
         assert!(config.vad_threshold > 0.0);
         assert!(config.vad_threshold < 1.0);
+        assert!(config.input_device.is_none());
+    }
+
+    #[test]
+    fn match_device_name_exact_and_substring() {
+        let devices = vec![
+            "MacBook Air Microphone".to_string(),
+            "Tony's AirPods Pro".to_string(),
+            "External USB Mic".to_string(),
+        ];
+        // Exact (case-insensitive) wins.
+        assert_eq!(
+            match_device_name(&devices, "macbook air microphone"),
+            Some(0)
+        );
+        // Substring match.
+        assert_eq!(match_device_name(&devices, "airpods"), Some(1));
+        assert_eq!(match_device_name(&devices, "USB"), Some(2));
+        // No match → None (caller falls back to system default).
+        assert_eq!(match_device_name(&devices, "Studio Display"), None);
+        // Empty / whitespace → None.
+        assert_eq!(match_device_name(&devices, "   "), None);
+    }
+
+    #[test]
+    fn match_device_name_prefers_exact_over_substring() {
+        // "Mic" is a substring of #0 but an exact match of #1 — exact wins.
+        let devices = vec!["Studio Mic Array".to_string(), "Mic".to_string()];
+        assert_eq!(match_device_name(&devices, "Mic"), Some(1));
     }
 
     #[test]

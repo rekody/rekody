@@ -129,6 +129,12 @@ pub struct RekodyConfig {
     /// playback into the mic). Default: false (VAD enabled).
     #[serde(default)]
     pub record_all_audio: bool,
+    /// Preferred microphone, matched by name (case-insensitive substring).
+    /// `None`/omitted (or `"system"`) follows the OS default input — which
+    /// drifts to whatever was connected last (e.g. AirPods). Set a device
+    /// name to pin capture regardless of the system default.
+    #[serde(default)]
+    pub input_device: Option<String>,
     /// Text injection method.
     pub injection_method: String,
     /// Whether to run LLM post-processing on transcripts.
@@ -211,6 +217,7 @@ impl Default for RekodyConfig {
             cohere_stt_port: 8099,
             vad_threshold: 0.01,
             record_all_audio: false,
+            input_device: None,
             injection_method: "clipboard".into(),
             llm_enabled: None,
             stt_language: None,
@@ -615,6 +622,7 @@ impl Pipeline {
         let audio_config = AudioConfig {
             vad_threshold: self.config.vad_threshold,
             record_all_audio: self.config.record_all_audio,
+            input_device: self.config.input_device.clone(),
         };
         let audio_capture = rekody_audio::AudioCapture::new(audio_config.clone());
         let mut segment_rx = audio_capture.open(audio_config)?;
@@ -733,6 +741,7 @@ impl Pipeline {
         let audio_config = AudioConfig {
             vad_threshold: self.config.vad_threshold,
             record_all_audio: self.config.record_all_audio,
+            input_device: self.config.input_device.clone(),
         };
         let audio_capture = rekody_audio::AudioCapture::new(audio_config.clone());
         let mut live_rx = audio_capture.live_chunks();
