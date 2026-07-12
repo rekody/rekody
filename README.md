@@ -6,6 +6,15 @@
 
 <p align="center"><strong>/ˈrɛ.kə.di/</strong> — record + melody, the rhythm of your voice becoming text.</p>
 
+<p align="center">
+  <a href="https://github.com/rekody/rekody/releases/latest"><img src="https://img.shields.io/github/v/release/rekody/rekody?label=release&color=20808D" alt="Latest release" /></a>
+  <a href="https://github.com/rekody/rekody/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rekody/rekody/ci.yml?branch=main&label=ci" alt="CI status" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/rekody/rekody?color=20808D" alt="MIT license" /></a>
+  <a href="https://github.com/rekody/rekody/releases/latest"><img src="https://img.shields.io/badge/macOS-13%2B-20808D" alt="macOS 13 or later" /></a>
+  <a href="https://github.com/rekody/homebrew-rekody"><img src="https://img.shields.io/badge/homebrew-tap-20808D?logo=homebrew&logoColor=fff" alt="Homebrew tap" /></a>
+  <a href="https://huggingface.co/Rekody"><img src="https://img.shields.io/badge/models-Hugging%20Face-20808D?logo=huggingface&logoColor=fff" alt="Models on Hugging Face" /></a>
+</p>
+
 **Open-source, privacy-first voice dictation for the terminal.**
 
 Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on your desktop.
