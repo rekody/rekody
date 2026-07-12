@@ -1,0 +1,319 @@
+---
+import Base from '../layouts/Base.astro';
+import Navbar from '../components/Navbar.astro';
+import Footer from '../components/Footer.astro';
+
+const title = 'Rekody CLI: voice dictation for the terminal';
+const description =
+  'The Rekody CLI is free, MIT-licensed voice dictation for the macOS terminal. Text lands about 50ms after key release with the streaming engine. Install with Homebrew.';
+
+const brewCmd = 'brew install rekody/rekody/rekody';
+
+// The exact prompt the "Set up for agents" button copies.
+const agentSnippet =
+  'Set up the Rekody CLI on this Mac by following the instructions at https://docs.rekody.com/llms-full.txt. Install with Homebrew (brew install rekody/rekody/rekody), run rekody setup, then verify with rekody doctor.';
+
+// Terminal mock: the words that stream in while "speaking".
+const streamWords = ['Fix', 'the', 'flaky', 'test,', 'then', 'ship', 'the', 'release', 'notes.'];
+
+// Waveform bars: [height(px), amplitude-ramp color], quiet to loud teal ramp.
+const bars: [number, string][] = [
+  [4, '#20808D'], [8, '#2FA3B3'], [13, '#4FB8C5'], [18, '#7FD4DE'],
+  [12, '#4FB8C5'], [7, '#2FA3B3'], [11, '#2FA3B3'], [16, '#7FD4DE'],
+  [9, '#2FA3B3'], [5, '#20808D'],
+];
+
+// Every claim below is verified against README.md and crates/rekody-core.
+const features = [
+  {
+    cmd: 'rekody',
+    title: 'Streaming dictation',
+    body: 'Words appear while you talk. Final text lands about 50ms after you release the key with the streaming engine; batch engines take 1 to 3 seconds.',
+  },
+  {
+    cmd: 'rekody dictionary',
+    title: 'Personal dictionary',
+    body: 'Teach it your jargon, names, and product terms. The cleanup model preserves them verbatim.',
+  },
+  {
+    cmd: 'snippets.toml',
+    title: 'Spoken snippets',
+    body: 'Map trigger phrases to saved text. Say a trigger like slash sig and the stored expansion lands in its place.',
+  },
+  {
+    cmd: 'rekody history -i',
+    title: 'Searchable history',
+    body: 'An interactive browser for past dictations. Search text, filter by app, copy any entry to the clipboard.',
+  },
+  {
+    cmd: 'rekody doctor',
+    title: 'Doctor and self update',
+    body: 'Checks your mic and every configured engine end to end. Updates install with one command.',
+  },
+  {
+    cmd: 'rekody fix',
+    title: 'Your own training set',
+    body: 'Each dictation can save lossless audio plus transcript locally, ready to fine-tune a model on your voice. Nothing leaves your Mac.',
+  },
+];
+---
+
+<Base title={title} description={description}>
+  <Navbar />
+  <main>
+    <div style="height:4rem;"></div>
+
+    <!-- Hero: name the thing, show it alive, hand over the install command -->
+    <section class="relative pt-14 pb-16" style="background:var(--color-cream);">
+      <div class="max-w-4xl mx-auto px-6 flex flex-col items-center text-center gap-6">
+
+        <p class="flex items-center gap-2.5 font-mono text-[12px] uppercase" style="color:var(--color-ink-faint); letter-spacing:0.16em;">
+          <span class="inline-block w-[7px] h-[7px] rounded-full" style="background:var(--color-teal);" aria-hidden="true"></span>
+          Free &middot; MIT &middot; macOS terminal
+        </p>
+
+        <h1 class="display" style="font-size:clamp(44px, 6.2vw, 76px); line-height:1.02;">
+          Dictation that lives in <span class="display-italic" style="color:var(--color-teal);">the terminal.</span>
+        </h1>
+
+        <p class="body-serif max-w-2xl mx-auto" style="font-size:18px; color:var(--color-ink-soft);">
+          The Rekody CLI is free, MIT-licensed voice dictation for your Mac: the same engine the
+          Mac app ships. Hold <span class="key">⌥</span> <span class="key">Space</span> and speak.
+          Let go, and the text lands at your cursor in any app.
+        </p>
+
+        <!-- Live console mock: finished entry with latency, then words streaming in -->
+        <div
+          class="w-full max-w-[620px] rounded-xl overflow-hidden text-left mt-2"
+          style="background:#0D1414; border:1px solid rgba(47,163,179,0.35); box-shadow:0 30px 80px -30px rgba(15,23,23,0.35);"
+          role="img"
+          aria-label="The Rekody live console: one finished dictation with its latency, and new words streaming in while you speak"
+        >
+          <div class="flex items-center gap-1.5 px-4 py-2.5" style="border-bottom:1px solid rgba(251,250,244,0.08);">
+            <span class="w-2.5 h-2.5 rounded-full" style="background:#FF5F57;"></span>
+            <span class="w-2.5 h-2.5 rounded-full" style="background:#FEBC2E;"></span>
+            <span class="w-2.5 h-2.5 rounded-full" style="background:#28C840;"></span>
+            <span class="font-mono text-[11px] ml-2" style="color:rgba(251,250,244,0.4);">rekody</span>
+          </div>
+          <div class="px-5 py-4 font-mono text-[13px] flex flex-col gap-2.5" style="line-height:1.5;">
+            <p><span style="color:#3FA9B4;">$</span> <span style="color:#FBFAF4;">rekody</span></p>
+            <p class="flex items-baseline gap-2 min-w-0">
+              <span class="shrink-0" style="color:#3FA9B4;">✓</span>
+              <span class="truncate" style="color:rgba(251,250,244,0.45);">Sounds good, I will send the notes after standup.</span>
+              <span class="shrink-0 text-[11px]" style="color:#3FA9B4;">54ms</span>
+            </p>
+            <p class="flex items-center gap-3">
+              <span class="flex items-center gap-1.5 shrink-0">
+                <span class="inline-block w-[9px] h-[9px] rounded-full" style="border:1.5px solid #3FA9B4;" aria-hidden="true"></span>
+                <span id="cli-timer" class="font-bold text-[13px]" style="color:#3FA9B4;">0:07</span>
+              </span>
+              <span class="hud-live flex items-end gap-[2px] shrink-0 h-[18px]" aria-hidden="true">
+                {bars.map(([h, c]) => (
+                  <span class="hud-bar" style={`height:${h}px; background:${c};`}></span>
+                ))}
+              </span>
+              <span class="text-[11px]" style="color:rgba(251,250,244,0.4);">listening</span>
+            </p>
+            <p id="cli-stream" class="min-h-[20px]">
+              {streamWords.map((w) => (
+                <span class="cli-word" style="color:#FBFAF4;">{w + ' '}</span>
+              ))}<span class="hud-caret inline-block w-[7px] h-[14px] rounded-[2px] align-middle" style="background:#7FD4DE;" aria-hidden="true"></span>
+            </p>
+          </div>
+        </div>
+
+        <button
+          id="cli-brew-copy"
+          type="button"
+          class="pill pill-ghost font-mono justify-center w-full max-w-[400px] sm:w-auto"
+          style="padding:0.9rem 1.6rem; font-size:14px;"
+          data-cmd={brewCmd}
+          aria-label="Copy the brew install command"
+        >
+          <span aria-hidden="true" style="color:var(--color-teal);">$</span><span id="cli-brew-label">{brewCmd}</span>
+        </button>
+
+        <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">
+          macOS 13+ &middot; Apple Silicon &amp; Intel &middot; no account &middot; no telemetry
+        </p>
+      </div>
+    </section>
+
+    <!-- What you get: six real features, verified against the repo -->
+    <section class="relative py-20" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline); border-bottom:1px solid var(--color-hairline);">
+      <div class="max-w-5xl mx-auto px-6">
+        <p class="text-[11px] font-mono uppercase mb-4" style="color:var(--color-teal); letter-spacing:0.14em;">What you get</p>
+        <h2 class="display mb-10" style="font-size:clamp(32px, 4vw, 48px);">More than speech to text.</h2>
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {features.map((f) => (
+            <div class="rounded-xl p-5" style="background:#FFFFFF; border:1px solid var(--color-hairline);">
+              <p class="font-mono text-[11px] mb-2" style="color:var(--color-teal);">{f.cmd}</p>
+              <h3 class="text-[15px] font-medium mb-1.5" style="color:var(--color-ink);">{f.title}</h3>
+              <p class="text-[13.5px]" style="color:var(--color-ink-mute); line-height:1.55;">{f.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- The two ways in: docs, or hand setup to a coding agent -->
+    <section class="relative py-20" style="background:var(--color-cream);">
+      <div class="max-w-3xl mx-auto px-6 flex flex-col items-center text-center gap-5">
+        <p class="text-[11px] font-mono uppercase" style="color:var(--color-teal); letter-spacing:0.14em;">Get set up</p>
+        <h2 class="display" style="font-size:clamp(32px, 4vw, 48px);">Two ways in.</h2>
+        <p class="body-serif max-w-xl" style="font-size:16px; color:var(--color-ink-soft);">
+          Read the docs, or hand the whole setup to your coding agent.
+        </p>
+
+        <div class="flex w-full max-w-[400px] sm:max-w-none sm:w-auto flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 pt-1">
+          <a
+            href="https://docs.rekody.com"
+            class="pill pill-dark justify-center"
+            style="padding:0.9rem 1.9rem; font-size:16px;"
+            data-placeholder="docs"
+            aria-label="Get started with the Rekody docs. Docs are rolling out now."
+          >Get started</a>
+          <button
+            id="cli-agent-copy"
+            type="button"
+            class="pill pill-teal justify-center"
+            style="padding:0.9rem 1.9rem; font-size:16px; min-width:206px;"
+            data-snippet={agentSnippet}
+            aria-label="Copy the agent setup prompt to your clipboard"
+          ><span id="cli-agent-label" aria-live="polite">Set up for agents</span></button>
+        </div>
+
+        <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">Docs are rolling out now.</p>
+
+        <div class="w-full max-w-2xl rounded-xl p-5 text-left mt-1" style="background:var(--color-cream-warm); border:1px solid var(--color-hairline);">
+          <p class="font-mono text-[11px] uppercase mb-2" style="color:var(--color-ink-faint); letter-spacing:0.1em;">What the button copies</p>
+          <p class="font-mono text-[12.5px]" style="color:var(--color-ink-mute); line-height:1.6;">{agentSnippet}</p>
+        </div>
+        <p class="text-[14px]" style="color:var(--color-ink-mute);">
+          Paste this into Claude Code, Cursor, or any coding agent and it installs Rekody for you.
+        </p>
+      </div>
+    </section>
+
+    <!-- Quiet close: the source and the project -->
+    <section class="relative py-16" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline);">
+      <div class="max-w-3xl mx-auto px-6 flex flex-col items-center text-center gap-5">
+        <p class="body-serif max-w-xl" style="font-size:16px; color:var(--color-ink-soft);">
+          The CLI is the whole dictation engine, six Rust crates under MIT. Small enough to read in an afternoon.
+        </p>
+        <div class="flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
+          <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-[14px] font-mono" style="color:var(--color-teal);">
+            View the source on GitHub
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a href="/open-source" class="inline-flex items-center gap-1.5 text-[14px] font-mono" style="color:var(--color-teal);">
+            How the open source project works
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  .cli-word { transition: opacity 0.18s ease; }
+</style>
+
+<script>
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Copy with a fallback for browsers without the async clipboard API.
+  async function copyText(text: string): Promise<boolean> {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        /* fall through to the textarea fallback */
+      }
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch {
+      ok = false;
+    }
+    ta.remove();
+    return ok;
+  }
+
+  // Brew chip: same confirmation swap as the landing page.
+  const brewBtn = document.getElementById('cli-brew-copy') as HTMLButtonElement | null;
+  const brewLabel = document.getElementById('cli-brew-label');
+  brewBtn?.addEventListener('click', async () => {
+    const ok = await copyText(brewBtn?.dataset.cmd ?? 'brew install rekody/rekody/rekody');
+    if (ok && brewLabel) {
+      const prev = brewLabel.textContent;
+      brewLabel.textContent = '✓ copied';
+      setTimeout(() => {
+        if (brewLabel) brewLabel.textContent = prev;
+      }, 1400);
+    }
+  });
+
+  // Agent setup prompt: copy the snippet, flip the label to "Copied" for 2s.
+  const agentBtn = document.getElementById('cli-agent-copy') as HTMLButtonElement | null;
+  const agentLabel = document.getElementById('cli-agent-label');
+  agentBtn?.addEventListener('click', async () => {
+    const ok = await copyText(agentBtn?.dataset.snippet ?? '');
+    if (ok && agentLabel) {
+      agentLabel.textContent = 'Copied';
+      setTimeout(() => {
+        if (agentLabel) agentLabel.textContent = 'Set up for agents';
+      }, 2000);
+    }
+  });
+
+  // Tick the console timer like a real recording (paused under reduced motion).
+  const timer = document.getElementById('cli-timer');
+  if (timer && !reduceMotion) {
+    let s = 7;
+    setInterval(() => {
+      s = (s + 1) % 3600;
+      const m = Math.floor(s / 60);
+      timer.textContent = `${m}:${String(s % 60).padStart(2, '0')}`;
+    }, 1000);
+  }
+
+  // Stream the transcript words in, hold, clear, repeat. The full sentence is
+  // server-rendered, so no-JS and reduced-motion readers see it complete.
+  const stream = document.getElementById('cli-stream');
+  if (stream && !reduceMotion) {
+    const words = Array.from(stream.querySelectorAll('.cli-word')) as HTMLElement[];
+    if (words.length > 0) {
+      const STEP = 360;
+      const HOLD = 2600;
+      const GAP = 600;
+      let i = 0;
+      const advance = () => {
+        if (i < words.length) {
+          words[i].style.opacity = '1';
+          i += 1;
+          setTimeout(advance, STEP);
+        } else {
+          setTimeout(() => {
+            for (const w of words) w.style.opacity = '0';
+            i = 0;
+            setTimeout(advance, GAP);
+          }, HOLD);
+        }
+      };
+      for (const w of words) w.style.opacity = '0';
+      setTimeout(advance, 400);
+    }
+  }
+</script>
