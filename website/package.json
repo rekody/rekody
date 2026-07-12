@@ -13,10 +13,10 @@
     "astro": "^6.4.8"
   },
   "devDependencies": {
-    "@astrojs/sitemap": "^3.7.2",
-    "@playwright/test": "^1.59.1",
-    "@tailwindcss/vite": "^4.2.1",
-    "tailwindcss": "^4.2.1",
+    "@astrojs/sitemap": "^3.7.3",
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/vite": "^4.3.2",
+    "tailwindcss": "^4.3.2",
     "vite": "^7.3.6"
   },
   "pnpm": {
