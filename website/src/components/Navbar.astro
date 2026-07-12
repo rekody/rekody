@@ -8,6 +8,20 @@ const links = [
   { label: 'Use cases',    href: '/use-cases' },
   { label: 'Open source',  href: '/open-source' },
 ];
+
+// Star count fetched at BUILD time (refreshes on every deploy), so the
+// page makes no third-party calls at runtime. The button renders without
+// the count segment if the fetch fails.
+let stars: string | null = null;
+try {
+  const res = await fetch('https://api.github.com/repos/rekody/rekody');
+  if (res.ok) {
+    const n: number = (await res.json()).stargazers_count;
+    stars = n.toLocaleString('en-US');
+  }
+} catch {
+  // decorative only
+}
 ---
 
 <nav id="navbar" class="fixed top-0 left-0 right-0 z-50" style="background:rgba(255,255,255,0.85); border-bottom:1px solid var(--color-hairline); backdrop-filter:saturate(1.2) blur(14px); -webkit-backdrop-filter:saturate(1.2) blur(14px);">
@@ -31,33 +45,36 @@ const links = [
     </div>
 
     <!-- Right actions: the star ask is the corner CTA; download CTAs
-         already live throughout the page. -->
-    <div class="hidden md:flex items-center gap-2 shrink-0">
+         already live throughout the page. GitHub's own two-segment
+         button look: [octocat Star | count]. -->
+    <div class="hidden md:flex items-center shrink-0">
       <a
         href="https://github.com/rekody/rekody"
         target="_blank"
         rel="noopener noreferrer"
-        class="pill pill-ghost"
+        class="gh-star"
         aria-label="Star Rekody on GitHub"
       >
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="#E3B341" aria-hidden="true">
-          <path d="M12 .587l3.668 7.431 8.2 1.192-5.934 5.787 1.401 8.168L12 19.348l-7.335 3.817 1.401-8.168L.132 9.21l8.2-1.192L12 .587z"/>
-        </svg>
-        Star on
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
-        </svg>
-        GitHub
+        <span class="gh-star-left">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          Star
+        </span>
+        {stars && <span class="gh-star-count">{stars}</span>}
       </a>
     </div>
 
     <!-- Mobile right -->
     <div class="flex md:hidden items-center gap-2 shrink-0">
-      <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer" class="pill pill-ghost" style="font-size:12px;" aria-label="Star Rekody on GitHub">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="#E3B341" aria-hidden="true">
-          <path d="M12 .587l3.668 7.431 8.2 1.192-5.934 5.787 1.401 8.168L12 19.348l-7.335 3.817 1.401-8.168L.132 9.21l8.2-1.192L12 .587z"/>
-        </svg>
-        Star
+      <a href="https://github.com/rekody/rekody" target="_blank" rel="noopener noreferrer" class="gh-star" aria-label="Star Rekody on GitHub">
+        <span class="gh-star-left">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          Star
+        </span>
+        {stars && <span class="gh-star-count">{stars}</span>}
       </a>
       <button
         id="nav-toggle"
@@ -111,6 +128,36 @@ const links = [
 <style>
   .nav-link:hover { color: var(--color-ink); background: rgba(15,23,23,0.04); }
   .drawer-link:hover { color: var(--color-ink); background: rgba(15,23,23,0.04); }
+
+  /* GitHub's two-segment star button: [octocat Star | count] */
+  .gh-star {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--color-hairline);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-ink);
+    line-height: 1;
+  }
+  .gh-star-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    background: #FAFAFA;
+    transition: background 0.15s ease;
+  }
+  .gh-star-count {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 10px;
+    background: #FFFFFF;
+    border-left: 1px solid var(--color-hairline);
+    font-variant-numeric: tabular-nums;
+  }
+  .gh-star:hover .gh-star-left { background: rgba(15, 23, 23, 0.07); }
 </style>
 
 <script>
