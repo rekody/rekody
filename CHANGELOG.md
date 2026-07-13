@@ -8,7 +8,6 @@
 
 - **The console no longer hangs on the "formatting…" box after streaming dictations.** The text was already typed into your app, but a processing error on the streaming path logged a different message than the batch path, and the live console only recognized the batch one, so its busy box never cleared. Both error paths now return the console to idle, and a watchdog guarantees the box can never stay stuck even if a clearing event goes missing.
 - **The live waveform now animates reliably while you speak.** Mic levels were rounded to a single decimal before reaching the console, which flattened normal speech to the lowest bar and made the waveform look absent except on the loudest syllables. The full level is kept now, so the bars move continuously.
-- **The Homebrew upgrade hint now runs `brew update` first.** brew refreshes its cached tap only on update, so the bare `brew upgrade rekody` could report the version you were upgrading to as already installed. The hint now reads `brew update && brew upgrade rekody` so it no longer claims the old version is current.
 
 ## [0.5.18] - 2026-07-13
 
