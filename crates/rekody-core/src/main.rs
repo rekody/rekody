@@ -1507,10 +1507,15 @@ async fn cmd_update(check_only: bool) -> Result<()> {
 
     let owned_by_brew = is_homebrew_install(&install_path);
 
+    // Homebrew clones the tap locally and only refreshes it on `brew update`
+    // (auto-update is rate-limited), so `brew upgrade` alone can see a stale
+    // formula and claim the old version is current. Always hint both steps.
+    const BREW_UPGRADE: &str = "brew update && brew upgrade rekody";
+
     if check_only {
         println!();
         let cmd = if owned_by_brew {
-            "brew upgrade rekody"
+            BREW_UPGRADE
         } else {
             "rekody update"
         };
@@ -1524,7 +1529,7 @@ async fn cmd_update(check_only: bool) -> Result<()> {
     if owned_by_brew {
         println!();
         println!("  {} rekody was installed via Homebrew.", style("ℹ").cyan());
-        println!("  Run {} to upgrade.", style("brew upgrade rekody").cyan());
+        println!("  Run {} to upgrade.", style(BREW_UPGRADE).cyan());
         println!();
         return Ok(());
     }
