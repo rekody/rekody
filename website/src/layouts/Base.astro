@@ -10,8 +10,8 @@ export interface Props {
 }
 
 const {
-  title = 'Rekody — You talk. It types.',
-  description = 'Free, open-source voice dictation for macOS. Hold ⌥ Space and speak; the text lands at your cursor in any app about 100ms after you release. On-device by default — no account, no analytics, no audio stored.',
+  title = 'Rekody. You talk. It types.',
+  description = 'Free, open-source voice dictation for macOS. Hold ⌥ Space and speak; the text lands at your cursor in any app about 100ms after you release. On-device by default: no account, no analytics, no audio stored.',
   ogImage = '/og.png',
   faqSchema,
 } = Astro.props;
@@ -138,7 +138,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
         }, { threshold: 0.1, rootMargin: '0px 0px -8% 0px' });
         const fold = window.innerHeight * 0.88;
         document.querySelectorAll('section').forEach((el) => {
-          if (el.getBoundingClientRect().top < fold) return; // already visible — never hide
+          if (el.getBoundingClientRect().top < fold) return; // already visible, never hide
           el.classList.add('reveal-init');
           io.observe(el);
         });
