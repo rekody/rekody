@@ -3,10 +3,10 @@ title: "Install the app"
 description: "Download Rekody for Mac, grant two permissions, and make your first dictation."
 ---
 
-Rekody for Mac is a free download.
+Rekody for Mac is a free download. Setup takes about two minutes: drag to Applications, grant two permissions, and let the on-device model download once.
 
 <Card title="Download Rekody for Mac" icon="download" href="https://github.com/rekody/rekody-app/releases/latest/download/Rekody.dmg">
-  Rekody.dmg, direct from the latest GitHub release.
+  Rekody.dmg, direct from the latest GitHub release. macOS 13 or later.
 </Card>
 
 <Steps>
@@ -29,6 +29,18 @@ Rekody for Mac is a free download.
 <Note>
   The model download happens exactly once. From then on, your voice is transcribed on your Mac, not on a server.
 </Note>
+
+## After setup
+
+Rekody lives in your menu bar. Its Settings are where you pick a speech engine, turn optional AI cleanup on or off, and choose hold-to-talk or hands-free.
+
+<Frame caption="Settings: the default Rekody Streaming engine, with optional local and cloud engines.">
+  <img src="/images/settings-engines.png" alt="Rekody Settings showing the engine picker, cleanup toggle, and dictation options." />
+</Frame>
+
+<Warning>
+  Run **Setup** before switching engines. Local Whisper and the cloud engines each need their model downloaded or an API key added first, and Setup is what wires that up.
+</Warning>
 
 ## Next
 

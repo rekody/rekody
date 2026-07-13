@@ -1,19 +1,65 @@
 ---
-title: "What is Rekody"
+title: "Rekody"
 description: "Private, on-device voice dictation for your Mac. You talk, it types."
+mode: "wide"
 ---
 
-Rekody turns your speech into text on the device in front of you. Hold <kbd>⌥</kbd> <kbd>Space</kbd>, speak, and the words land where your cursor is, in any app. Everything runs on your Mac: no accounts, no servers, no audio leaving your machine.
+<Frame>
+  <img src="/images/hero.png" alt="Rekody. You talk. It types. Voice dictation for macOS." />
+</Frame>
+
+Hold <kbd>⌥</kbd> <kbd>Space</kbd>, speak, and the words land where your cursor is, in any app. Everything runs on your Mac: no accounts, no servers, no audio leaving your machine.
 
 <CardGroup cols={3}>
   <Card title="~100ms" icon="gauge">
-    From key release to final text, measured on the default on-device engine.
+    From key release to final text, on the default on-device engine.
   </Card>
   <Card title="0 network calls" icon="wifi-off">
-    While dictating. Speech models download once at setup, then dictation never touches the network.
+    While dictating. The speech model downloads once at setup, then dictation never touches the network.
   </Card>
   <Card title="Open source" icon="github" href="https://github.com/rekody/rekody">
     The dictation engine is MIT licensed, so you do not have to take our word for any of this.
+  </Card>
+</CardGroup>
+
+## How a dictation works
+
+<Frame caption="Speak, transcribe on-device, land the text at your cursor.">
+  <img src="/images/how-it-works.png" alt="Three stages: you speak into a waveform, an on-device model on your Mac, then finished text at your cursor." />
+</Frame>
+
+1. You hold or tap <kbd>⌥</kbd> <kbd>Space</kbd> and speak.
+2. Rekody transcribes on your Mac while you talk. Words appear live.
+3. You release, or pause, and the finished text lands at your cursor.
+
+That is the whole loop. No window to switch to, no paste step, no upload.
+
+## Start here
+
+<CardGroup cols={2}>
+  <Card title="Install the app" icon="download" href="/app/install">
+    Download the DMG and dictate in about two minutes.
+  </Card>
+  <Card title="Your first dictation" icon="mic" href="/app/first-dictation">
+    Hold to talk, or tap for hands-free. Either way, the text lands at your cursor.
+  </Card>
+  <Card title="The pill" icon="podcast" href="/app/the-pill">
+    The floating capsule that shows you what Rekody hears while you dictate.
+  </Card>
+  <Card title="Dictionary" icon="book-a" href="/app/dictionary">
+    Teach Rekody the names, jargon, and product terms that matter to you.
+  </Card>
+  <Card title="Snippets" icon="scissors" href="/app/snippets">
+    Say a short phrase, get a long block of text you type often.
+  </Card>
+  <Card title="Privacy" icon="shield-check" href="/app/privacy">
+    No accounts, no telemetry, no servers. Here is exactly what stays on your Mac.
+  </Card>
+  <Card title="The CLI" icon="terminal" href="/developers/install-cli">
+    The open-source engine for people who live in the terminal.
+  </Card>
+  <Card title="Configuration" icon="settings" href="/developers/configuration">
+    Every setting the CLI reads from one TOML file.
   </Card>
 </CardGroup>
 
@@ -22,20 +68,3 @@ Rekody turns your speech into text on the device in front of you. Hold <kbd>⌥<
 **The Mac app** is the easiest way in: a free download with a guided setup, a floating pill while you dictate, and a workspace for your history, dictionary, and snippets.
 
 **The CLI** is the open-source engine underneath, for people who live in the terminal. Same pipeline, same privacy, configured through a TOML file.
-
-<CardGroup cols={2}>
-  <Card title="Install the app" icon="download" href="/app/install">
-    Download the DMG and dictate in about two minutes.
-  </Card>
-  <Card title="Install the CLI" icon="terminal" href="/developers/install-cli">
-    One brew command, then a setup wizard in your terminal.
-  </Card>
-</CardGroup>
-
-## How a dictation works
-
-1. You hold <kbd>⌥</kbd> <kbd>Space</kbd> and speak.
-2. Rekody transcribes on your Mac while you talk. Words appear live.
-3. You release the key. The finished text lands at your cursor.
-
-That is the whole loop. No windows to switch to, no paste step, no upload.

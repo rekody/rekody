@@ -5,6 +5,12 @@ description: "Six focused crates, one pipeline: hotkey to audio to text to your 
 
 The daemon is a Rust workspace of six crates, each owning one stage of the pipeline:
 
+<Frame caption="The user-facing loop: speak, transcribe on-device, land the text at your cursor.">
+  <img src="/images/how-it-works.png" alt="Three stages: you speak into a waveform, an on-device model, then finished text at your cursor." />
+</Frame>
+
+Under the hood, that loop runs through eight stages:
+
 ```
 hotkey -> audio capture -> VAD -> STT -> dictionary -> LLM (optional) -> snippets -> inject
 ```
