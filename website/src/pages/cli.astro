@@ -9,7 +9,13 @@ const description =
 
 const brewCmd = 'brew install rekody/rekody/rekody';
 
-// The exact prompt the "Set up for agents" button copies.
+// Agent path A: add Rekody's live docs as an MCP server your agent can query.
+// Verified against Mintlify's docs (the /mcp path of the docs site) and the live
+// endpoint at https://docs.rekody.com/mcp (MCP initialize handshake returns 200).
+const mcpEndpoint = 'https://docs.rekody.com/mcp';
+const mcpClaudeCmd = 'claude mcp add --transport http rekody-docs https://docs.rekody.com/mcp';
+
+// Agent path B (no MCP): a copy-paste prompt pointing at the live llms-full.txt.
 const agentSnippet =
   'Set up the Rekody CLI on this Mac by following the instructions at https://docs.rekody.com/llms-full.txt. Install with Homebrew (brew install rekody/rekody/rekody), run rekody setup, then verify with rekody doctor.';
 
@@ -156,42 +162,88 @@ const features = [
       </div>
     </section>
 
-    <!-- The two ways in: docs, or hand setup to a coding agent -->
+    <!-- The two ways in: read the live docs, or wire them into a coding agent -->
     <section class="relative py-20" style="background:var(--color-cream);">
       <div class="max-w-3xl mx-auto px-6 flex flex-col items-center text-center gap-5">
         <p class="text-[11px] font-mono uppercase" style="color:var(--color-teal); letter-spacing:0.14em;">Get set up</p>
         <h2 class="display" style="font-size:clamp(32px, 4vw, 48px);">Two ways in.</h2>
         <p class="body-serif max-w-xl" style="font-size:16px; color:var(--color-ink-soft);">
-          Read the docs, or hand the whole setup to your coding agent.
+          Read the docs, or give your coding agent live access to them.
         </p>
 
-        <div class="flex w-full max-w-[400px] sm:max-w-none sm:w-auto flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 pt-1">
+        <div class="pt-1">
           <a
             href="https://docs.rekody.com"
             class="pill pill-dark justify-center"
             style="padding:0.9rem 1.9rem; font-size:16px;"
-            data-placeholder="docs"
-            aria-label="Get started with the Rekody docs. Docs are rolling out now."
-          >Get started</a>
-          <button
-            id="cli-agent-copy"
-            type="button"
-            class="pill pill-teal justify-center"
-            style="padding:0.9rem 1.9rem; font-size:16px; min-width:206px;"
-            data-snippet={agentSnippet}
-            aria-label="Copy the agent setup prompt to your clipboard"
-          ><span id="cli-agent-label" aria-live="polite">Set up for agents</span></button>
+            aria-label="Read the Rekody docs at docs.rekody.com"
+          >Read the docs</a>
         </div>
 
-        <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">Docs are rolling out now.</p>
+        <!-- For agents: the strong path (MCP), then the no-MCP fallback -->
+        <div class="w-full max-w-2xl flex flex-col gap-4 text-left mt-4">
+          <p class="font-mono text-[11px] uppercase text-center" style="color:var(--color-teal); letter-spacing:0.14em;">For your coding agent</p>
 
-        <div class="w-full max-w-2xl rounded-xl p-5 text-left mt-1" style="background:var(--color-cream-warm); border:1px solid var(--color-hairline);">
-          <p class="font-mono text-[11px] uppercase mb-2" style="color:var(--color-ink-faint); letter-spacing:0.1em;">What the button copies</p>
-          <p class="font-mono text-[12.5px]" style="color:var(--color-ink-mute); line-height:1.6;">{agentSnippet}</p>
+          <!-- Path A: MCP server -->
+          <div class="rounded-xl p-5" style="background:var(--color-cream-warm); border:1px solid var(--color-hairline);">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="inline-flex items-center rounded-full font-mono text-[10px] uppercase px-2 py-0.5" style="background:var(--color-teal-soft); color:var(--color-teal); letter-spacing:0.08em;">Recommended</span>
+              <h3 class="text-[15px] font-medium" style="color:var(--color-ink);">Add Rekody's docs as an MCP server</h3>
+            </div>
+            <p class="text-[13.5px] mb-3.5" style="color:var(--color-ink-mute); line-height:1.55;">
+              Your agent can then query Rekody's docs live, straight from the source.
+            </p>
+
+            <p class="text-[11px] font-mono uppercase mb-1.5" style="color:var(--color-ink-faint); letter-spacing:0.1em;">Claude Code</p>
+            <button
+              id="cli-mcp-copy"
+              type="button"
+              class="group w-full flex items-center gap-2 rounded-lg px-3.5 py-3 font-mono text-[12.5px] text-left"
+              style="background:#0D1414; border:1px solid rgba(47,163,179,0.35); color:#FBFAF4;"
+              data-cmd={mcpClaudeCmd}
+              aria-label="Copy the Claude Code command to add Rekody's docs as an MCP server"
+            >
+              <span aria-hidden="true" class="shrink-0" style="color:#3FA9B4;">$</span>
+              <span class="min-w-0 flex-1 truncate">{mcpClaudeCmd}</span>
+              <span id="cli-mcp-label" aria-live="polite" class="shrink-0 text-[11px]" style="color:#3FA9B4;">Copy</span>
+            </button>
+
+            <p class="text-[11px] font-mono uppercase mt-4 mb-1.5" style="color:var(--color-ink-faint); letter-spacing:0.1em;">Cursor or any MCP client</p>
+            <button
+              id="cli-endpoint-copy"
+              type="button"
+              class="group w-full flex items-center gap-2 rounded-lg px-3.5 py-3 font-mono text-[12.5px] text-left"
+              style="background:#FFFFFF; border:1px solid var(--color-hairline); color:var(--color-ink);"
+              data-cmd={mcpEndpoint}
+              aria-label="Copy the Rekody docs MCP server endpoint URL"
+            >
+              <span class="min-w-0 flex-1 truncate" style="color:var(--color-teal);">{mcpEndpoint}</span>
+              <span id="cli-endpoint-label" aria-live="polite" class="shrink-0 text-[11px]" style="color:var(--color-ink-faint);">Copy</span>
+            </button>
+            <p class="text-[12px] mt-2" style="color:var(--color-ink-faint); line-height:1.5;">
+              In Cursor, add it to <span class="font-mono">mcp.json</span> as a server with this <span class="font-mono">url</span>.
+            </p>
+          </div>
+
+          <!-- Path B: no-MCP fallback -->
+          <div class="rounded-xl p-5" style="background:var(--color-cream-warm); border:1px solid var(--color-hairline);">
+            <h3 class="text-[15px] font-medium mb-1.5" style="color:var(--color-ink);">No MCP? Hand it the setup prompt</h3>
+            <p class="text-[13.5px] mb-3.5" style="color:var(--color-ink-mute); line-height:1.55;">
+              Paste this into Claude Code, Cursor, or any coding agent and it installs Rekody for you, from the live <span class="font-mono" style="color:var(--color-teal);">llms-full.txt</span>.
+            </p>
+            <button
+              id="cli-agent-copy"
+              type="button"
+              class="group w-full flex items-start gap-2 rounded-lg px-3.5 py-3 font-mono text-[12.5px] text-left"
+              style="background:#FFFFFF; border:1px solid var(--color-hairline); color:var(--color-ink-mute);"
+              data-snippet={agentSnippet}
+              aria-label="Copy the agent setup prompt to your clipboard"
+            >
+              <span class="min-w-0 flex-1" style="line-height:1.6;">{agentSnippet}</span>
+              <span id="cli-agent-label" aria-live="polite" class="shrink-0 text-[11px]" style="color:var(--color-teal);">Copy</span>
+            </button>
+          </div>
         </div>
-        <p class="text-[14px]" style="color:var(--color-ink-mute);">
-          Paste this into Claude Code, Cursor, or any coding agent and it installs Rekody for you.
-        </p>
       </div>
     </section>
 
@@ -265,18 +317,26 @@ const features = [
     }
   });
 
-  // Agent setup prompt: copy the snippet, flip the label to "Copied" for 2s.
-  const agentBtn = document.getElementById('cli-agent-copy') as HTMLButtonElement | null;
-  const agentLabel = document.getElementById('cli-agent-label');
-  agentBtn?.addEventListener('click', async () => {
-    const ok = await copyText(agentBtn?.dataset.snippet ?? '');
-    if (ok && agentLabel) {
-      agentLabel.textContent = 'Copied';
-      setTimeout(() => {
-        if (agentLabel) agentLabel.textContent = 'Set up for agents';
-      }, 2000);
-    }
-  });
+  // Shared "Copy" -> "Copied" label swap for the agent copy buttons.
+  // Each flips its own label to "Copied" for 2s, then restores "Copy".
+  function wireCopyButton(btnId: string, labelId: string, getText: (btn: HTMLButtonElement) => string) {
+    const btn = document.getElementById(btnId) as HTMLButtonElement | null;
+    const label = document.getElementById(labelId);
+    btn?.addEventListener('click', async () => {
+      const ok = await copyText(getText(btn));
+      if (ok && label) {
+        label.textContent = 'Copied';
+        setTimeout(() => {
+          if (label) label.textContent = 'Copy';
+        }, 2000);
+      }
+    });
+  }
+
+  // MCP path: the Claude Code command, the raw endpoint, and the no-MCP prompt.
+  wireCopyButton('cli-mcp-copy', 'cli-mcp-label', (b) => b.dataset.cmd ?? '');
+  wireCopyButton('cli-endpoint-copy', 'cli-endpoint-label', (b) => b.dataset.cmd ?? '');
+  wireCopyButton('cli-agent-copy', 'cli-agent-label', (b) => b.dataset.snippet ?? '');
 
   // Tick the console timer like a real recording (paused under reduced motion).
   const timer = document.getElementById('cli-timer');
