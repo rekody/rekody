@@ -1,114 +1,170 @@
 <!doctype html>
-<!-- OG/social card template — rendered to public/og.png by generate.mjs.
-     Mirrors the site's design tokens (global.css): cream, ink, teal, Fraunces. -->
-<html>
+<!-- OG/social card template — rendered to public/og.png (2400x1260 @2x of 1200x630)
+     by generate.mjs or headless Chrome. Mirrors the site hero (Hero.astro) and
+     the ratified white-world brand tokens (global.css): pure white ground, ink,
+     teal, Fraunces display + JetBrains Mono. -->
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=Source+Serif+4:opsz,wght@8..60,300..500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --cream: #FBFAF4;
+    --white: #FFFFFF;
+    --paper: #FBFAF4;
     --ink: #0F1717;
     --ink-mute: #4A5757;
     --ink-faint: #8A9696;
     --teal: #20808D;
-    --hairline: rgba(15, 23, 23, 0.10);
+    --pill: #0D1414;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { width: 1200px; height: 630px; }
+
   body {
-    width: 1200px;
-    height: 630px;
-    background: var(--cream);
-    font-family: "Source Serif 4", Georgia, serif;
+    background: var(--white);
+    font-family: "Fraunces", Georgia, serif;
     color: var(--ink);
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
-    padding: 72px 84px 60px;
+    align-items: center;
+    justify-content: center;
     position: relative;
     overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
   }
-  .eyebrow {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 17px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+
+  /* Centered stack: wordmark sentence, pill, trust line, url. */
+  .stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 52px;
+    margin-top: -14px; /* optical centering: descenders + domain balance the block */
+  }
+
+  /* The brand sentence — mirrors Hero.astro H1 exactly:
+     "Rekody." then "You talk. It types." with the name's period + "It types."
+     in teal, "It types." set in Fraunces 300 italic. */
+  .headline {
+    font-weight: 400;
+    letter-spacing: -0.035em;
+    line-height: 1.02;
+    text-align: center;
+    color: var(--ink);
+    font-size: 112px;
+  }
+  .headline .name { display: block; }
+  .headline .teal { color: var(--teal); }
+  .headline .it {
+    font-weight: 300;
+    font-style: italic;
     color: var(--teal);
   }
-  .wordmark {
-    font-family: "Fraunces", Georgia, serif;
-    font-variation-settings: 'SOFT' 30;
-    font-weight: 900;
-    font-size: 170px;
-    line-height: 0.95;
-    letter-spacing: -0.04em;
-    color: var(--ink);
-    margin-top: 10px;
-  }
-  .wordmark .dot { color: var(--teal); margin-left: -0.04em; }
-  .tagline {
-    font-size: 34px;
-    font-weight: 300;
-    color: var(--ink-mute);
-    margin-top: 26px;
-    max-width: 860px;
-    line-height: 1.35;
-  }
-  .bottom {
+
+  /* Product pill — mirrors PillView.swift / the hero HUD (hands-free state),
+     rendered static for the still image: app dot, hollow teal circle + teal
+     mono timer, teal waveform ramp, cream transcript tail + teal caret. */
+  .pill {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    border-top: 1px solid var(--hairline);
-    padding-top: 28px;
+    gap: 20px;
+    background: var(--pill);
+    border: 1px solid rgba(47, 163, 179, 0.4);
+    border-radius: 999px;
+    padding: 16px 26px;
+    box-shadow: 0 40px 90px -40px rgba(15, 23, 23, 0.45);
   }
-  .keys {
+  .pill .grp { display: flex; align-items: center; gap: 12px; }
+  /* Hollow teal recording ring */
+  .ring {
+    width: 14px; height: 14px;
+    border-radius: 999px;
+    border: 2px solid #2FA3B3;
+    flex-shrink: 0;
+  }
+  .timer {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 700;
+    font-size: 20px;
+    color: #2FA3B3;
+    letter-spacing: 0.01em;
+  }
+  /* Waveform: teal amplitude ramp #20808D → #7FD4DE (from Hero.astro bars) */
+  .wave { display: flex; align-items: center; gap: 3px; height: 34px; }
+  .wave i { width: 4px; border-radius: 2px; display: block; }
+  /* Cream transcript tail + blinking-look caret */
+  .tail {
+    display: flex; align-items: center; gap: 8px;
+    padding-left: 18px;
+    border-left: 1px solid rgba(251, 250, 244, 0.14);
+  }
+  .tail .dim { font-family: "JetBrains Mono", monospace; font-size: 18px; color: #5E6E6E; }
+  .tail .lit { font-family: "JetBrains Mono", monospace; font-size: 18px; color: var(--paper); }
+  .caret { width: 9px; height: 22px; border-radius: 3px; background: #7FD4DE; flex-shrink: 0; }
+
+  /* Trust line — mono, faint, middot separators, no em dashes. */
+  .trust {
     font-family: "JetBrains Mono", monospace;
     font-size: 21px;
-    color: var(--ink-mute);
-    display: flex;
-    align-items: center;
-    gap: 14px;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
   }
-  .key {
-    display: inline-block;
-    border: 1px solid var(--hairline);
-    border-bottom-width: 2px;
-    border-radius: 8px;
-    padding: 5px 14px;
-    background: #fff;
-    color: var(--ink);
-    font-size: 20px;
-    /* System font first: JetBrains Mono lacks ⌥ (U+2325) */
-    font-family: -apple-system, "Helvetica Neue", "JetBrains Mono", monospace;
-  }
-  .sep { color: var(--ink-faint); }
-  .meta {
+
+  /* Quiet domain, bottom-center under the pill. */
+  .domain {
+    position: absolute;
+    bottom: 40px;
+    left: 0; right: 0;
+    text-align: center;
     font-family: "JetBrains Mono", monospace;
     font-size: 19px;
+    letter-spacing: 0.05em;
     color: var(--ink-faint);
-    display: flex;
-    gap: 26px;
   }
-  .meta .mit { color: var(--teal); }
 </style>
 </head>
 <body>
-  <div>
-    <div class="eyebrow">— open-source voice dictation for macOS</div>
-    <div class="wordmark">rekody<span class="dot">.</span></div>
-    <div class="tagline">Hold a key, speak, release. Your words land at the cursor — in any app, in 100+ languages. Fully on-device.</div>
-  </div>
-  <div class="bottom">
-    <div class="keys">
-      <span class="key">⌥</span><span class="key">Space</span>
-      <span class="sep">·</span> speak
-      <span class="sep">·</span> release
+  <div class="stage">
+    <h1 class="headline">
+      <span class="name">Rekody<span class="teal">.</span></span>
+      You talk. <span class="it">It types.</span>
+    </h1>
+
+    <div class="pill">
+      <div class="grp">
+        <span class="ring"></span>
+        <span class="timer">0:07</span>
+      </div>
+      <div class="wave">
+        <i style="height:5px;  background:#20808D;"></i>
+        <i style="height:9px;  background:#2FA3B3;"></i>
+        <i style="height:15px; background:#2FA3B3;"></i>
+        <i style="height:23px; background:#7FD4DE;"></i>
+        <i style="height:28px; background:#7FD4DE;"></i>
+        <i style="height:20px; background:#4FB8C5;"></i>
+        <i style="height:12px; background:#2FA3B3;"></i>
+        <i style="height:18px; background:#4FB8C5;"></i>
+        <i style="height:25px; background:#7FD4DE;"></i>
+        <i style="height:21px; background:#4FB8C5;"></i>
+        <i style="height:11px; background:#2FA3B3;"></i>
+        <i style="height:16px; background:#4FB8C5;"></i>
+        <i style="height:7px;  background:#20808D;"></i>
+        <i style="height:13px; background:#2FA3B3;"></i>
+        <i style="height:6px;  background:#20808D;"></i>
+      </div>
+      <div class="tail">
+        <span class="dim">as I say them</span><span class="lit"></span>
+        <span class="caret"></span>
+      </div>
     </div>
-    <div class="meta">
-      <span class="mit">MIT</span>
-      <span>github.com/rekody/rekody</span>
-    </div>
+
+    <div class="trust">On-device &middot; No account &middot; macOS</div>
   </div>
+
+  <div class="domain">rekody.com</div>
 </body>
 </html>
