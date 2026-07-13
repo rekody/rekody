@@ -1,4 +1,3 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" width="60" height="40" role="img" aria-label="rekody">
-  <text x="6" y="32" font-family="Fraunces, 'Source Serif 4', Georgia, serif" font-weight="900" font-size="36" letter-spacing="-1.4" fill="#FBFAF4">r</text>
-  <circle cx="34" cy="29" r="3.6" fill="#3FA9B4" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 40" width="112" height="40" role="img" aria-label="rekody">
+  <text x="2" y="30" font-family="Fraunces, Georgia, serif" font-weight="400" font-size="32" letter-spacing="-0.6"><tspan fill="#FBFAF4">rekody</tspan><tspan fill="#20808D">.</tspan></text>
 </svg>

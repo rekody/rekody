@@ -1,5 +1,4 @@
 ---
-import Lettermark from './Lettermark.astro';
 import { version } from '../lib/version';
 
 const cols = [
@@ -49,8 +48,7 @@ const social = [
       <!-- Brand column -->
       <div class="col-span-2 md:col-span-1">
         <div class="flex items-center gap-2.5 mb-4">
-          <Lettermark size={28} />
-          <span style="font-family:var(--font-serif); font-size:20px; color:var(--color-ink);">rekody</span>
+          <span style="font-family:var(--font-serif); font-size:20px; color:var(--color-ink);">rekody<span style="color:var(--color-teal);">.</span></span>
           <span class="text-[10px] font-mono px-1.5 py-0.5 rounded" style="background:var(--color-teal-soft); color:var(--color-teal); letter-spacing:0.02em;">v{version}</span>
         </div>
         <p class="body-serif max-w-sm" style="font-size:14px;">
