@@ -5,7 +5,9 @@ const links = [
   { label: 'How it works', href: '/#how-it-works' },
   { label: 'Privacy',      href: '/#privacy' },
   { label: 'Use cases',    href: '/use-cases' },
+  { label: 'CLI',          href: '/cli' },
   { label: 'Open source',  href: '/open-source' },
+  { label: 'Docs',         href: 'https://docs.rekody.com', external: true },
 ];
 
 // Star count fetched at BUILD time (refreshes on every deploy), so the
@@ -36,6 +38,8 @@ try {
       {links.map(l => (
         <a
           href={l.href}
+          target={l.external ? '_blank' : undefined}
+          rel={l.external ? 'noopener noreferrer' : undefined}
           class="nav-link px-3 py-1.5 rounded-full text-[13px] transition-colors"
           style="color:var(--color-ink-mute);"
         >{l.label}</a>
@@ -101,6 +105,8 @@ try {
       {links.map(l => (
         <a
           href={l.href}
+          target={l.external ? '_blank' : undefined}
+          rel={l.external ? 'noopener noreferrer' : undefined}
           class="drawer-link px-3 py-3 rounded-lg text-sm font-medium transition-colors"
           style="color:var(--color-ink-soft);"
         >{l.label}</a>
