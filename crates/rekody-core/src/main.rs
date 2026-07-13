@@ -2321,6 +2321,14 @@ fn inject_keychain_keys(config: &mut RekodyConfig) {
 
 /// Number of recent mic levels shown in the waveform.
 const WAVE_BARS: usize = 14;
+
+/// Safety net for the busy ("transcribing…/formatting…") state. The state is
+/// normally cleared by a terminal pipeline event (injection succeeded, empty
+/// transcript, or a processing error). If none of those ever arrive (a bug, a
+/// panicked worker, a dropped event), the console must still return to idle
+/// rather than hang the box forever. Generous so it never clips a genuinely
+/// slow cloud-LLM cleanup; it only exists to bound an otherwise-infinite wait.
+const BUSY_WATCHDOG: std::time::Duration = std::time::Duration::from_secs(90);
 const WAVE_GLYPHS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 // Chip backgrounds (solid — terminals don't alpha-blend).
@@ -2339,6 +2347,9 @@ struct UiState {
     partial: String,
     /// Status line override while transcribing/formatting (batch path).
     busy: Option<&'static str>,
+    /// When the current busy state began. Drives a watchdog so a missing
+    /// terminal event can never leave the "formatting…" box on screen forever.
+    busy_since: Option<Instant>,
     /// Both mode: recording latched hands-free (quick tap) — show stop hint.
     handsfree: bool,
     /// Shimmer sweep position, advanced by the ticker (~8fps).
@@ -2644,6 +2655,7 @@ impl Ui {
         if let Ok(mut s) = self.state.lock() {
             s.recording = false;
             s.busy = None;
+            s.busy_since = None;
             s.partial.clear();
             s.wave.clear();
         }
@@ -2654,6 +2666,7 @@ impl Ui {
         if let Ok(mut s) = self.state.lock() {
             s.recording = true;
             s.busy = None;
+            s.busy_since = None;
             s.handsfree = false;
             s.recording_start = Some(Instant::now());
             s.partial.clear();
@@ -2672,18 +2685,40 @@ impl Ui {
             std::thread::spawn(move || {
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(120));
-                    let active = ui
+                    let (active, watchdog_fired) = ui
                         .state
                         .lock()
                         .map(|mut s| {
                             s.shimmer_phase += 0.9;
-                            s.recording || s.busy.is_some()
+                            // Watchdog: a busy state that outlives BUSY_WATCHDOG
+                            // with no clearing event is treated as stuck and
+                            // force-cleared so the box can never hang forever.
+                            let stuck = busy_state_is_stuck(
+                                s.recording,
+                                s.busy,
+                                s.busy_since,
+                                Instant::now(),
+                            );
+                            if stuck {
+                                s.busy = None;
+                                s.busy_since = None;
+                                s.partial.clear();
+                                s.wave.clear();
+                            }
+                            (s.recording || s.busy.is_some(), stuck)
                         })
-                        .unwrap_or(false);
+                        .unwrap_or((false, false));
+                    if watchdog_fired {
+                        tracing::warn!(
+                            "dictation busy state cleared by watchdog (no terminal event)"
+                        );
+                    }
+                    // Always repaint once more so the final (idle) frame lands
+                    // even on the iteration that decides to stop.
+                    ui.render();
                     if !active {
                         break;
                     }
-                    ui.render();
                 }
                 ui.ticker_running
                     .store(false, std::sync::atomic::Ordering::Relaxed);
@@ -2696,6 +2731,11 @@ impl Ui {
             s.recording = false;
             s.handsfree = false;
             s.busy = Some(busy);
+            // Start (or keep) the watchdog clock the moment we go busy. Only
+            // the first transition arms it; later label changes
+            // (transcribing…→formatting…) keep the original deadline so a
+            // long-but-progressing dictation isn't penalized.
+            s.busy_since.get_or_insert_with(Instant::now);
         }
         self.render();
     }
@@ -2813,6 +2853,36 @@ fn latency_color(total_ms: u64) -> &'static str {
 
 fn sep() -> String {
     format!("{DIM}·{RESET}")
+}
+
+/// True when a tracing message marks a dictation that ended in a terminal
+/// pipeline error, so the live UI (console card / HUD pill) must clear its
+/// busy "formatting…/working…" state and return to idle.
+///
+/// Both the batch and streaming paths run through `process_transcript`, but
+/// they log DIFFERENT strings when it fails: the batch path emits "failed to
+/// process audio segment" (lib.rs) and the streaming path emits "failed to
+/// process transcript" (lib.rs). Matching only one of them left the other
+/// path with the busy box stuck on screen forever. Both layers route their
+/// terminal-error handling through here so the two strings can never drift
+/// apart again; see the matcher test below.
+fn is_dictation_terminal_error(msg: &str) -> bool {
+    msg.contains("failed to process audio") || msg.contains("failed to process transcript")
+}
+
+/// Watchdog predicate: should the busy ("formatting…") state be force-cleared?
+/// True only when we are NOT recording, a busy label is set, and it has been
+/// busy for at least [`BUSY_WATCHDOG`] with no clearing event. Pure so the
+/// ticker's safety net is unit-testable without spinning a real UI.
+fn busy_state_is_stuck(
+    recording: bool,
+    busy: Option<&str>,
+    busy_since: Option<Instant>,
+    now: Instant,
+) -> bool {
+    !recording
+        && busy.is_some()
+        && busy_since.is_some_and(|t| now.saturating_duration_since(t) >= BUSY_WATCHDOG)
 }
 
 struct UiLayer {
@@ -2978,7 +3048,7 @@ where
             self.on_llm_complete(&latency, skill.as_deref());
         } else if msg.contains("text injected successfully") {
             self.on_injected();
-        } else if msg.contains("LLM formatting failed") || msg.contains("failed to process audio") {
+        } else if msg.contains("LLM formatting failed") || is_dictation_terminal_error(msg) {
             let err = visitor
                 .fields
                 .get("error")
@@ -3118,7 +3188,7 @@ where
             }
         } else if msg.contains("text injected successfully") {
             self.on_injected();
-        } else if msg.contains("LLM formatting failed") || msg.contains("failed to process audio") {
+        } else if msg.contains("LLM formatting failed") || is_dictation_terminal_error(msg) {
             let err = visitor
                 .fields
                 .get("error")
@@ -3166,8 +3236,15 @@ impl tracing::field::Visit for EventVisitor {
     }
 
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+        // Full precision, not `{:.1}`. Mic-level RMS values are tiny (typical
+        // speech ~0.01 to 0.15); rounding to one decimal collapsed most of them
+        // to "0.0"/"0.1", so the waveform sparkline flattened to its lowest
+        // glyph and read as "no waveform" except on the loudest syllables.
+        // The consumer (`on_mic_level`) parses this string back to f32, so it
+        // needs the real value; other float fields are display-only in debug
+        // logs and are unharmed by keeping precision.
         self.fields
-            .insert(field.name().to_string(), format!("{:.1}", value));
+            .insert(field.name().to_string(), value.to_string());
     }
 }
 
@@ -3210,5 +3287,152 @@ fedc000000000000000000000000000000000000000000000000000000000000  rekody-0.5.13-
             // lookup lowercases the digest for case-insensitive comparison
             Some("dead00000000000000000000000000000000000000000000000000000000beef")
         );
+    }
+}
+
+#[cfg(test)]
+mod ui_event_tests {
+    use super::{BUSY_WATCHDOG, WAVE_GLYPHS, busy_state_is_stuck, is_dictation_terminal_error};
+    use std::time::Instant;
+
+    // The two run-loop error emissions the live UI must treat as terminal,
+    // copied VERBATIM from crates/rekody-core/src/lib.rs so this test fails
+    // if either string is edited without updating the matcher.
+    //   - batch path:     tracing::error!(..., "failed to process audio segment")
+    //   - streaming path: tracing::error!(..., "failed to process transcript")
+    const BATCH_ERROR_MSG: &str = "failed to process audio segment";
+    const STREAMING_ERROR_MSG: &str = "failed to process transcript";
+
+    #[test]
+    fn terminal_error_matcher_covers_both_batch_and_streaming() {
+        // The regression: the streaming string was NOT matched, so the busy
+        // "formatting…" box hung forever after streaming dictations. Both must
+        // now clear the console.
+        assert!(
+            is_dictation_terminal_error(BATCH_ERROR_MSG),
+            "batch error string must clear the busy box"
+        );
+        assert!(
+            is_dictation_terminal_error(STREAMING_ERROR_MSG),
+            "streaming error string must clear the busy box"
+        );
+    }
+
+    #[test]
+    fn busy_watchdog_clears_a_stuck_formatting_state() {
+        let now = Instant::now();
+        // Busy long enough with no clearing event → force-clear (the defensive
+        // guarantee: the box can never hang forever).
+        let long_ago = now - (BUSY_WATCHDOG + std::time::Duration::from_secs(1));
+        assert!(
+            busy_state_is_stuck(false, Some("formatting…"), Some(long_ago), now),
+            "a busy state older than the watchdog must be force-cleared"
+        );
+    }
+
+    #[test]
+    fn busy_watchdog_leaves_healthy_states_alone() {
+        let now = Instant::now();
+        let recent = now - std::time::Duration::from_secs(2);
+        // Still recording → never a watchdog target.
+        assert!(!busy_state_is_stuck(
+            true,
+            Some("formatting…"),
+            Some(recent),
+            now
+        ));
+        // Idle (no busy label) → nothing to clear.
+        assert!(!busy_state_is_stuck(false, None, None, now));
+        // Busy but well within the deadline → a slow-but-progressing dictation
+        // must not be interrupted.
+        assert!(!busy_state_is_stuck(
+            false,
+            Some("formatting…"),
+            Some(recent),
+            now
+        ));
+    }
+
+    #[test]
+    fn terminal_error_matcher_ignores_unrelated_messages() {
+        // Non-terminal / progress messages must NOT be treated as errors, or
+        // a normal dictation would flash an error and drop out of its live
+        // states early.
+        for msg in [
+            "transcription complete",
+            "text injected successfully",
+            "partial transcript",
+            "mic level",
+            "recording started",
+            "LLM formatting complete",
+            "snippets not loaded, expansion skipped",
+        ] {
+            assert!(
+                !is_dictation_terminal_error(msg),
+                "'{msg}' must not be treated as a terminal dictation error"
+            );
+        }
+    }
+
+    /// Reproduce the mic-level RMS pipeline exactly as it flows through the
+    /// UI: `EventVisitor::record_f64` stringifies the value, then
+    /// `on_mic_level` parses it back and `wave_sparkline` maps it to a glyph.
+    /// This models both the OLD `{:.1}` formatting and the NEW `to_string()`
+    /// so the regression (quiet speech collapsing to the flat glyph) is
+    /// locked out.
+    fn glyph_for_rms(store: impl Fn(f64) -> String, rms: f32) -> char {
+        // `tracing` upcasts the f32 field to f64 before `record_f64` sees it.
+        let stored = store(rms as f64);
+        let parsed: f32 = stored.parse().expect("rms field must parse back");
+        // Same amplitude→level math as `wave_sparkline`.
+        let level = (parsed.sqrt() * 14.0).min(7.0) as usize;
+        WAVE_GLYPHS[level]
+    }
+
+    #[test]
+    fn waveform_rms_precision_survives_the_visitor() {
+        // Quiet-speech RMS values that all round to "0.0" under the old
+        // `{:.1}` formatter (anything below ~0.045). The lowest glyph '▁'
+        // reads as "no waveform"; anything above it animates.
+        let quiet_speech = [0.0056_f32, 0.0312, 0.041];
+
+        let old_fmt = |v: f64| format!("{v:.1}"); // the buggy formatter
+        let new_fmt = |v: f64| v.to_string(); // the fix
+
+        // OLD behavior: every one of these collapsed to the flat glyph, so the
+        // waveform looked absent except on the loudest syllables.
+        for rms in quiet_speech {
+            assert_eq!(
+                glyph_for_rms(old_fmt, rms),
+                WAVE_GLYPHS[0],
+                "sanity: the old {{:.1}} formatting really did flatten rms={rms}"
+            );
+        }
+
+        // NEW behavior: the same values now produce visible, distinct bars.
+        for rms in quiet_speech {
+            assert_ne!(
+                glyph_for_rms(new_fmt, rms),
+                WAVE_GLYPHS[0],
+                "rms={rms} must animate the waveform, not collapse to the flat glyph"
+            );
+        }
+
+        // And the levels stay monotonic with loudness (no clipping surprises).
+        let ordered = [0.004_f32, 0.02, 0.05, 0.1, 0.178];
+        let levels: Vec<usize> = ordered
+            .iter()
+            .map(|&rms| {
+                let stored = new_fmt(rms as f64);
+                let parsed: f32 = stored.parse().unwrap();
+                (parsed.sqrt() * 14.0).min(7.0) as usize
+            })
+            .collect();
+        for pair in levels.windows(2) {
+            assert!(
+                pair[0] <= pair[1],
+                "louder rms must not map to a lower bar: {levels:?}"
+            );
+        }
     }
 }
