@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.5.18] - 2026-07-13
+
+### Fixed
+
+- **The live waveform is back.** The default log filter passed debug events for the binary target only, and the mic-level events that feed the waveform come from the library target, so the bars never moved. The filter now covers both.
+- **The Homebrew upgrade hint now includes `brew update`.** brew refreshes its cached tap only on update (auto-update runs at most daily), so the old bare `brew upgrade rekody` could claim the version you were upgrading to was already installed. The hint now reads `brew update && brew upgrade rekody`.
+
+### Changed
+
+- **Skills step back when AI cleanup is off.** Skills apply during cleanup, so without a configured provider the console footer drops the ⇥ skill hint and Tab cycling goes quiet (a one-time log line explains why). Add a provider and both return; `rekody skill` and your saved skills stay put.
+- **One-dot wordmark.** The wordmark is lowercase rekody with a teal period. Site nav, footer, and docs logos now carry it, and the console startup mast wears the same mark.
+
 ## [0.5.17] - 2026-07-12
 
 ### Added
