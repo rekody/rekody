@@ -2203,9 +2203,16 @@ async fn run_dictation(verbose: bool, record_all_audio_flag: bool) -> Result<()>
         .as_ref()
         .map(|server| HudLayer::new(Arc::clone(server), &config));
 
+    // rekody=debug covers the BINARY target only; the pipeline (and its
+    // "mic level" waveform events) lives in the rekody_core LIB target,
+    // which EnvFilter treats as a different name. Both need debug or the
+    // live waveform starves.
     let level = if verbose { "debug" } else { "info" };
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| format!("{},rekody=debug", level).parse().unwrap());
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        format!("{level},rekody=debug,rekody_core=debug")
+            .parse()
+            .unwrap()
+    });
 
     // DEBUG: tee tracing events to file when REKODY_DEBUG_LOG=<path> is set.
     let debug_layer = std::env::var("REKODY_DEBUG_LOG")
