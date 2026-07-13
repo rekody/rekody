@@ -1,0 +1,756 @@
+---
+import Base from '../layouts/Base.astro';
+import Navbar from '../components/Navbar.astro';
+import Footer from '../components/Footer.astro';
+
+// One page, top to bottom, no login: a browsable version of the brand kit
+// the hero button hands over. Ratified brand system throughout: pure white
+// (#FFFFFF) grounds with #FAFAFA bands, ink #0F1717, single teal #20808D
+// accent, Fraunces display + JetBrains Mono labels + Inter body, the
+// rekody. wordmark with a teal period. Source of truth: the "Branding Page
+// Mock" board in the Paper file "Rekody Branding" (page "logos").
+
+const KIT = '/rekody-brand-kit.zip';
+
+// Copyable brand colors (click-to-copy, the same vanilla-JS pattern used
+// elsewhere on the site). Each entry: hex + role note. The three-stop teal
+// ramp is one tile; cream sits on a dark surface since it only lives there.
+const coreSwatches = [
+  { hex: '#FFFFFF', role: 'Ground',          ground: '#FFFFFF', label: '#0F1717', border: true },
+  { hex: '#FAFAFA', role: 'Section band',    ground: '#FAFAFA', label: '#0F1717', border: true },
+  { hex: '#0F1717', role: 'Ink · words & marks', ground: '#0F1717', label: '#F4F6F6' },
+  { hex: '#20808D', role: 'Teal · the accent',   ground: '#20808D', label: '#FFFFFF' },
+];
+---
+
+<Base
+  title="Rekody Brand: marks, color, type, and press assets"
+  description="Download the Rekody brand kit: the r. mark and rekody. wordmark, the color system, the type, product shots, and the press boilerplate. On-brand by default for editorial and press use."
+>
+  <Navbar />
+
+  <main>
+    <!-- ── Hero ───────────────────────────────────────────────── -->
+    <section class="band-white">
+      <div class="wrap hero">
+        <p class="eyebrow">REKODY · BRAND &amp; PRESS</p>
+        <h1 class="hero-head display">Use the mark<span class="dot">.</span></h1>
+        <div class="hero-row">
+          <p class="hero-intro">
+            Everything you need to write about Rekody: the marks, the color,
+            the type, and product shots. On-brand by default, no permission
+            needed for editorial or press use.
+          </p>
+          <a class="kit-cta" href={KIT} download>
+            <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" fill="none" stroke="#FBFAF4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="kit-cta-label">Download the brand kit</span>
+            <span class="kit-cta-tag">ZIP</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 01 · The marks (band) ──────────────────────────────── -->
+    <section class="band-warm">
+      <div class="wrap">
+        <div class="head-row">
+          <div class="head-lede">
+            <p class="eyebrow">01 · THE MARKS</p>
+            <h2 class="head-title display">Two marks, one dot<span class="dot">.</span></h2>
+          </div>
+          <p class="head-intro">
+            The wordmark leads. The r. mark stands in where space is tight:
+            avatars, favicons, the app tile. Each ships as SVG and PNG, in
+            light and dark.
+          </p>
+        </div>
+
+        <!-- r. mark row -->
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-stage" style="background:#FFFFFF;">
+              <img src="/icon.png" alt="Rekody r. mark" class="r-mark" width="112" height="112" loading="lazy" />
+            </div>
+            <div class="tile-foot">
+              <span class="tile-label">R. MARK · ON LIGHT</span>
+              <span class="chips">
+                <a class="chip" href="/favicon.svg" download>SVG</a>
+                <a class="chip" href="/icon.png" download>PNG</a>
+              </span>
+            </div>
+          </div>
+          <div class="tile tile-dark">
+            <div class="tile-stage" style="background:#0F1717;">
+              <img src="/icon.png" alt="Rekody r. mark on dark" class="r-mark" width="112" height="112" loading="lazy" />
+            </div>
+            <div class="tile-foot tile-foot-dark">
+              <span class="tile-label tile-label-dark">R. MARK · ON DARK</span>
+              <span class="chips">
+                <a class="chip chip-dark" href="/favicon.svg" download>SVG</a>
+                <a class="chip chip-dark" href="/icon.png" download>PNG</a>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- wordmark row -->
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-stage" style="background:#FFFFFF;">
+              <span class="wordmark wordmark-lg">rekody<span class="dot">.</span></span>
+            </div>
+            <div class="tile-foot">
+              <span class="tile-label">WORDMARK · ON LIGHT</span>
+              <span class="chips">
+                <a class="chip" href="/logo/rekody-wordmark-light.svg" download>SVG</a>
+                <a class="chip" href="/logo/rekody-wordmark-light.png" download>PNG</a>
+              </span>
+            </div>
+          </div>
+          <div class="tile tile-dark">
+            <div class="tile-stage" style="background:#0F1717;">
+              <span class="wordmark wordmark-lg wordmark-cream">rekody<span class="dot">.</span></span>
+            </div>
+            <div class="tile-foot tile-foot-dark">
+              <span class="tile-label tile-label-dark">WORDMARK · ON DARK</span>
+              <span class="chips">
+                <a class="chip chip-dark" href="/logo/rekody-wordmark-dark.svg" download>SVG</a>
+                <a class="chip chip-dark" href="/logo/rekody-wordmark-dark.png" download>PNG</a>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- one-dot rule: do / don't -->
+        <div class="rule-row">
+          <div class="rule-card">
+            <div class="rule-tag">
+              <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="12" cy="12" r="11" fill="#20808D" />
+                <path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span class="rule-tag-do">DO · ONE DOT</span>
+            </div>
+            <span class="wordmark wordmark-rule">rekody<span class="dot">.</span></span>
+            <p class="rule-note">The period appears once, always teal, always attached to the wordmark.</p>
+          </div>
+          <div class="rule-card">
+            <div class="rule-tag">
+              <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="12" cy="12" r="11" fill="#C6CBCB" />
+                <path d="M8 8l8 8M16 8l-8 8" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" />
+              </svg>
+              <span class="rule-tag-dont">DON'T · NO STUTTER</span>
+            </div>
+            <span class="wordmark wordmark-rule wordmark-bad">r<span>. rekody</span><span>.</span><i class="strike" aria-hidden="true"></i></span>
+            <p class="rule-note">Never repeat the mark or double the dot. One r., one period, one voice.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 02 · Color ─────────────────────────────────────────── -->
+    <section class="band-white">
+      <div class="wrap">
+        <div class="head-row">
+          <div class="head-lede">
+            <p class="eyebrow">02 · COLOR</p>
+            <h2 class="head-title display">One teal moment<span class="dot">.</span></h2>
+          </div>
+          <p class="head-intro">
+            Pure white ground, ink for words, one teal accent. Click any value
+            to copy.
+          </p>
+        </div>
+
+        <!-- core row -->
+        <div class="swatch-row">
+          {coreSwatches.map(s => (
+            <button class="swatch copy-value" data-copy={s.hex} type="button" aria-label={`Copy ${s.hex}`}>
+              <span class="swatch-chip" style={`background:${s.ground};${s.border ? 'border-bottom:1px solid #EDEFEF;' : ''}`}></span>
+              <span class="swatch-foot">
+                <span class="swatch-top">
+                  <span class="swatch-hex">{s.hex}</span>
+                  <svg class="copy-glyph" width="15" height="15" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="#9AA5A5" stroke-width="1.8" />
+                    <path d="M5 15V6a2 2 0 012-2h8" fill="none" stroke="#9AA5A5" stroke-width="1.8" stroke-linecap="round" />
+                  </svg>
+                </span>
+                <span class="swatch-role">{s.role}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <!-- ramp + orange + cream row -->
+        <div class="swatch-row swatch-row-b">
+          <div class="swatch swatch-ramp">
+            <span class="ramp-stack">
+              <button class="ramp-cell copy-value" data-copy="#2FA3B3" type="button" style="background:#2FA3B3;color:#FFFFFF;" aria-label="Copy #2FA3B3">#2FA3B3</button>
+              <button class="ramp-cell copy-value" data-copy="#4FB8C5" type="button" style="background:#4FB8C5;color:#FFFFFF;" aria-label="Copy #4FB8C5">#4FB8C5</button>
+              <button class="ramp-cell copy-value" data-copy="#7FD4DE" type="button" style="background:#7FD4DE;color:#0F1717;" aria-label="Copy #7FD4DE">#7FD4DE</button>
+            </span>
+            <span class="swatch-foot">
+              <span class="swatch-hex">TEAL RAMP</span>
+              <span class="swatch-role">Data and waveforms only. Never headlines, never chrome.</span>
+            </span>
+          </div>
+          <button class="swatch copy-value" data-copy="#FF6B35" type="button" aria-label="Copy #FF6B35">
+            <span class="swatch-chip" style="background:#FF6B35;"></span>
+            <span class="swatch-foot">
+              <span class="swatch-top">
+                <span class="swatch-hex" style="color:#FF6B35;">#FF6B35</span>
+                <svg class="copy-glyph" width="15" height="15" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="#9AA5A5" stroke-width="1.8" />
+                  <path d="M5 15V6a2 2 0 012-2h8" fill="none" stroke="#9AA5A5" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </span>
+              <span class="swatch-role">REC · recording only</span>
+            </span>
+          </button>
+          <button class="swatch copy-value" data-copy="#FBFAF4" type="button" aria-label="Copy #FBFAF4">
+            <span class="swatch-chip swatch-chip-cream" style="background:#0F1717;">
+              <span class="cream-swatch" style="background:#FBFAF4;"></span>
+            </span>
+            <span class="swatch-foot">
+              <span class="swatch-top">
+                <span class="swatch-hex">#FBFAF4</span>
+                <svg class="copy-glyph" width="15" height="15" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="#9AA5A5" stroke-width="1.8" />
+                  <path d="M5 15V6a2 2 0 012-2h8" fill="none" stroke="#9AA5A5" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </span>
+              <span class="swatch-role">Cream · inside dark only</span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 03 · Typography (band) ─────────────────────────────── -->
+    <section class="band-warm">
+      <div class="wrap">
+        <div class="head-row">
+          <div class="head-lede">
+            <p class="eyebrow">03 · TYPOGRAPHY</p>
+            <h2 class="head-title display">Three voices<span class="dot">.</span></h2>
+          </div>
+          <p class="head-intro">
+            Fraunces speaks. JetBrains Mono labels. Inter carries the body.
+            All three are open fonts, linked below.
+          </p>
+        </div>
+
+        <div class="spec-row">
+          <!-- Fraunces -->
+          <div class="spec">
+            <span class="spec-aa" style="font-family:var(--font-serif); font-weight:600; letter-spacing:-0.02em;">Aa</span>
+            <div class="spec-name-block">
+              <span class="spec-name" style="font-family:var(--font-serif); font-weight:600;">Fraunces</span>
+              <span class="spec-role">DISPLAY · HEADLINES</span>
+            </div>
+            <p class="spec-sample" style="font-family:var(--font-serif); font-weight:600; font-size:19px; line-height:26px; color:#0F1717;">
+              You talk. It types. The sentence ends where you stop.
+            </p>
+            <span class="spec-weights">SEMIBOLD 600 · BOLD 700</span>
+          </div>
+          <!-- JetBrains Mono -->
+          <div class="spec">
+            <span class="spec-aa" style="font-family:var(--font-mono); font-weight:700;">Aa</span>
+            <div class="spec-name-block">
+              <span class="spec-name" style="font-family:var(--font-mono); font-weight:700; font-size:24px;">JetBrains Mono</span>
+              <span class="spec-role">LABELS · CLI &amp; CHROME</span>
+            </div>
+            <div class="spec-cmd"><span class="tok-prompt">$</span> brew install rekody/rekody/rekody</div>
+            <span class="spec-weights">MEDIUM 500 · BOLD 700</span>
+          </div>
+          <!-- Inter -->
+          <div class="spec">
+            <span class="spec-aa" style="font-family:var(--font-sans); font-weight:700;">Aa</span>
+            <div class="spec-name-block">
+              <span class="spec-name" style="font-family:var(--font-sans); font-weight:600; font-size:24px;">Inter</span>
+              <span class="spec-role">BODY · UI &amp; PROSE</span>
+            </div>
+            <p class="spec-sample" style="font-family:var(--font-sans); font-size:16px; line-height:24px; color:#3A4545;">
+              Everything runs on your Mac. No accounts, no servers, no audio
+              leaving your machine.
+            </p>
+            <span class="spec-weights">REGULAR 400 · MEDIUM 500</span>
+          </div>
+        </div>
+        <p class="type-links">
+          Install from source:
+          <a href="https://fonts.google.com/specimen/Fraunces" target="_blank" rel="noopener noreferrer">Fraunces</a> ·
+          <a href="https://fonts.google.com/specimen/JetBrains+Mono" target="_blank" rel="noopener noreferrer">JetBrains Mono</a> ·
+          <a href="https://fonts.google.com/specimen/Inter" target="_blank" rel="noopener noreferrer">Inter</a>.
+          All three are SIL Open Font License.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── 04 · Product imagery ───────────────────────────────── -->
+    <section class="band-white">
+      <div class="wrap">
+        <div class="head-row">
+          <div class="head-lede">
+            <p class="eyebrow">04 · PRODUCT IMAGERY</p>
+            <h2 class="head-title display">Shots you can ship<span class="dot">.</span></h2>
+          </div>
+          <p class="head-intro">
+            Approved marketing frames for articles and posts. Use as-is; do
+            not recrop the pill or restyle the mark.
+          </p>
+        </div>
+
+        <!-- launch card -->
+        <div class="shot shot-lg">
+          <a href="/brand-shots/launch-card.png" download class="shot-media">
+            <img src="/brand-shots/launch-card.png" alt="Rekody launch card. You talk. It types." loading="lazy" />
+          </a>
+          <div class="tile-foot">
+            <span class="tile-label">LAUNCH CARD · OG / X · 1200×630</span>
+            <span class="chips"><a class="chip" href="/brand-shots/launch-card.png" download>PNG @2X</a></span>
+          </div>
+        </div>
+
+        <!-- gallery row -->
+        <div class="shot-row">
+          <div class="shot">
+            <a href="/brand-shots/gallery-01.png" download class="shot-media shot-media-sm">
+              <img src="/brand-shots/gallery-01.png" alt="Rekody gallery frame: You talk. It types." loading="lazy" />
+            </a>
+            <div class="tile-foot">
+              <span class="tile-label">GALLERY · 01</span>
+              <span class="chips"><a class="chip" href="/brand-shots/gallery-01.png" download>PNG</a></span>
+            </div>
+          </div>
+          <div class="shot">
+            <a href="/brand-shots/gallery-02.png" download class="shot-media shot-media-sm">
+              <img src="/brand-shots/gallery-02.png" alt="Rekody gallery frame: it all runs on your Mac." loading="lazy" />
+            </a>
+            <div class="tile-foot">
+              <span class="tile-label">GALLERY · 02</span>
+              <span class="chips"><a class="chip" href="/brand-shots/gallery-02.png" download>PNG</a></span>
+            </div>
+          </div>
+          <div class="shot">
+            <a href="/brand-shots/gallery-03.png" download class="shot-media shot-media-sm">
+              <img src="/brand-shots/gallery-03.png" alt="Rekody gallery frame: free app, open CLI." loading="lazy" />
+            </a>
+            <div class="tile-foot">
+              <span class="tile-label">GALLERY · 03</span>
+              <span class="chips"><a class="chip" href="/brand-shots/gallery-03.png" download>PNG</a></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 05 · Press (band) ──────────────────────────────────── -->
+    <section class="band-warm">
+      <div class="wrap press-grid">
+        <div class="press-lede">
+          <p class="eyebrow">05 · PRESS</p>
+          <h2 class="head-title display">About Rekody<span class="dot">.</span></h2>
+          <p class="press-body">
+            Rekody is free, on-device voice dictation for macOS. Hold Option
+            and Space, speak, and the words land at your cursor in any app.
+            Transcription runs on your Mac by default, with no accounts and no
+            audio leaving the machine. The command-line tool is open source
+            under the MIT license, and the Mac app is free to download.
+          </p>
+        </div>
+        <div class="contact-card">
+          <p class="eyebrow" style="margin-bottom:14px;">PRESS &amp; CONTACT</p>
+          <h3 class="contact-head display" style="font-size:26px;">Working on a story?</h3>
+          <p class="contact-sub">Questions, interviews, or asset requests, we reply within a day.</p>
+          <div class="contact-rows">
+            <a class="email-chip email-chip-primary" href="mailto:press@rekody.com">
+              <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="#7FD4DE" stroke-width="1.8" />
+                <path d="M4 7l8 6 8-6" fill="none" stroke="#7FD4DE" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>press@rekody.com</span>
+            </a>
+            <a class="email-chip" href="mailto:hi@rekody.com">
+              <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="#20808D" stroke-width="1.8" />
+                <path d="M4 7l8 6 8-6" fill="none" stroke="#20808D" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>hi@rekody.com</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Usage note band (ink) ──────────────────────────────── -->
+    <section class="usage-band">
+      <div class="wrap">
+        <div class="usage-row">
+          <span class="usage-dot" aria-hidden="true"></span>
+          <p class="usage-note">
+            Use the marks as shipped. Do not alter, recolor, or redraw them;
+            keep the period teal; give the mark room to breathe. When in
+            doubt, download <a href={KIT} download>the kit</a>.
+          </p>
+        </div>
+        <div class="usage-bottom">
+          <span class="wordmark wordmark-cream" style="font-size:22px;">rekody<span class="dot">.</span></span>
+          <span class="usage-tag">BRAND KIT · V1 · 2026 · REKODY.COM/BRANDING</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</Base>
+
+<style>
+  .wrap { max-width: 1280px; margin: 0 auto; padding-inline: 24px; }
+  @media (min-width: 768px) { .wrap { padding-inline: 40px; } }
+
+  /* Section grounds */
+  .band-white { background: #FFFFFF; padding-block: 96px; }
+  .band-warm  { background: #FAFAFA; padding-block: 96px; }
+
+  /* Shared section header rhythm: mono eyebrow, Fraunces headline (teal
+     period), right-aligned Inter intro. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    color: var(--color-teal);
+    text-transform: uppercase;
+  }
+  .head-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 40px;
+    margin-bottom: 48px;
+    flex-wrap: wrap;
+  }
+  .head-lede { display: flex; flex-direction: column; gap: 14px; }
+  .head-title { font-size: 48px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.08; }
+  .head-intro {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 24px;
+    color: #5A6666;
+    max-width: 380px;
+    text-align: right;
+    margin-left: auto;
+  }
+  .dot { color: var(--color-teal); }
+  .display .dot, .head-title .dot { color: var(--color-teal); }
+
+  /* ── Hero ── */
+  .hero { display: flex; flex-direction: column; align-items: flex-start; padding-top: 24px; }
+  .eyebrow + .hero-head { margin-top: 28px; }
+  .hero-head { font-size: 96px; line-height: 1; letter-spacing: -0.02em; font-weight: 600; }
+  .hero-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 40px;
+    width: 100%;
+    margin-top: 40px;
+    flex-wrap: wrap;
+  }
+  .hero-intro {
+    font-family: var(--font-sans);
+    font-size: 20px;
+    line-height: 32px;
+    color: #404A4A;
+    max-width: 620px;
+  }
+  .kit-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    padding: 18px 26px;
+    border-radius: 12px;
+    background: #0F1717;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .kit-cta:hover { background: #1A2424; transform: translateY(-1px); }
+  .kit-cta-label { font-family: var(--font-sans); font-size: 16px; font-weight: 600; color: #FBFAF4; }
+  .kit-cta-tag { font-family: var(--font-mono); font-size: 12px; color: #7E8C8C; padding-left: 4px; }
+
+  /* ── Mark tiles ── */
+  .tiles { display: flex; gap: 24px; margin-bottom: 24px; flex-wrap: wrap; }
+  .tile {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 320px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #FFFFFF;
+    border: 1px solid #E7E9E9;
+  }
+  .tile-dark { background: #0F1717; border-color: #0F1717; }
+  .tile-stage { display: flex; align-items: center; justify-content: center; height: 220px; }
+  .r-mark { width: 112px; height: 112px; border-radius: 24px; display: block; }
+  .tile-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-top: 1px solid #EDEFEF;
+    gap: 12px;
+  }
+  .tile-foot-dark { border-top-color: #22302F; }
+  .tile-label { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.1em; color: #5A6666; }
+  .tile-label-dark { color: #8A9797; }
+  .chips { display: inline-flex; gap: 8px; flex-shrink: 0; }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #0F1717;
+    border: 1px solid #D8DBDB;
+    border-radius: 6px;
+    padding: 6px 10px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .chip:hover { background: rgba(15,23,23,0.05); border-color: #B8BEBE; }
+  .chip-dark { color: #FBFAF4; border-color: #33413F; }
+  .chip-dark:hover { background: rgba(255,255,255,0.06); border-color: #4A5856; }
+
+  /* Wordmark treatment (Fraunces, teal period) */
+  .wordmark { font-family: var(--font-serif); font-weight: 600; letter-spacing: -0.02em; color: #0F1717; line-height: 1; }
+  .wordmark-lg { font-size: 64px; }
+  .wordmark-cream { color: #FBFAF4; }
+  .wordmark-rule { font-size: 44px; letter-spacing: -0.01em; }
+  .wordmark-bad { position: relative; width: fit-content; color: #AEB5B5; }
+  .wordmark-bad .strike {
+    position: absolute; left: -6px; right: -6px; top: 50%;
+    height: 3px; border-radius: 2px; background: #FF6B35;
+  }
+
+  /* one-dot do/don't cards */
+  .rule-row { display: flex; gap: 24px; margin-top: 16px; flex-wrap: wrap; }
+  .rule-card {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 320px;
+    gap: 18px;
+    padding: 28px 30px;
+    border-radius: 16px;
+    background: #FFFFFF;
+    border: 1px solid #E7E9E9;
+  }
+  .rule-tag { display: flex; align-items: center; gap: 10px; }
+  .rule-tag-do, .rule-tag-dont { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.1em; }
+  .rule-tag-do { color: var(--color-teal); }
+  .rule-tag-dont { color: #8A9797; }
+  .rule-note { font-family: var(--font-sans); font-size: 14px; line-height: 22px; color: #5A6666; }
+
+  /* ── Color swatches ── */
+  .swatch-row { display: flex; gap: 24px; margin-bottom: 24px; flex-wrap: wrap; }
+  .swatch-row-b { margin-bottom: 0; }
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 220px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid #E7E9E9;
+    background: #FFFFFF;
+    text-align: left;
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .swatch:hover { transform: translateY(-2px); box-shadow: 0 8px 24px -12px rgba(15,23,23,0.18); }
+  .swatch-ramp { flex: 2 1 480px; cursor: default; }
+  .swatch-ramp:hover { transform: none; box-shadow: none; }
+  .swatch-chip { display: block; height: 132px; }
+  .swatch-chip-cream { display: flex; align-items: center; justify-content: center; }
+  .cream-swatch { width: 64px; height: 34px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+  .swatch-foot { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; }
+  .swatch-top { display: flex; align-items: center; justify-content: space-between; }
+  .swatch-hex { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: #0F1717; }
+  .swatch-role { font-family: var(--font-sans); font-size: 12px; font-weight: 500; color: #8A9797; }
+  .copy-glyph { flex-shrink: 0; }
+  .ramp-stack { display: flex; height: 132px; }
+  .ramp-cell {
+    display: flex;
+    align-items: flex-end;
+    flex: 1;
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: filter 0.15s ease;
+  }
+  .ramp-cell:hover { filter: brightness(1.06); }
+
+  /* ── Type specimens ── */
+  .spec-row { display: flex; gap: 24px; flex-wrap: wrap; }
+  .spec {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 320px;
+    gap: 20px;
+    padding: 32px 34px;
+    border-radius: 16px;
+    background: #FFFFFF;
+    border: 1px solid #E7E9E9;
+  }
+  .spec-aa { font-size: 88px; line-height: 0.9; color: #0F1717; }
+  .spec-name-block { display: flex; flex-direction: column; gap: 8px; }
+  .spec-name { font-size: 24px; line-height: 30px; color: #0F1717; }
+  .spec-role { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.1em; color: var(--color-teal); }
+  .spec-cmd {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 8px;
+    background: #0F1717;
+    color: #FBFAF4;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    gap: 8px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .spec-weights { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: #8A9797; }
+  .type-links {
+    margin-top: 28px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: #5A6666;
+  }
+  .type-links a { color: var(--color-teal); text-decoration: underline; text-decoration-color: rgba(32,128,141,0.3); }
+  .type-links a:hover { text-decoration-color: var(--color-teal); }
+
+  /* ── Product imagery ── */
+  .shot { display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; border: 1px solid #E7E9E9; background: #FFFFFF; }
+  .shot-lg { margin-bottom: 24px; }
+  .shot-media { display: block; }
+  .shot-media img { display: block; width: 100%; height: auto; }
+  .shot-media-sm img { aspect-ratio: 3 / 2; object-fit: cover; }
+  .shot-row { display: flex; gap: 24px; flex-wrap: wrap; }
+  .shot-row .shot { flex: 1 1 300px; }
+
+  /* ── Press ── */
+  .press-grid { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+  .press-lede { flex: 1 1 460px; display: flex; flex-direction: column; gap: 14px; }
+  .press-body { font-family: var(--font-sans); font-size: 17px; line-height: 30px; color: #3A4545; margin-top: 8px; max-width: 640px; }
+  .contact-card {
+    flex: 1 1 380px;
+    max-width: 505px;
+    padding: 32px 34px;
+    border-radius: 16px;
+    background: #FFFFFF;
+    border: 1px solid #E7E9E9;
+  }
+  .contact-head { color: #0F1717; margin-bottom: 6px; }
+  .contact-sub { font-family: var(--font-sans); font-size: 15px; line-height: 22px; color: #5A6666; margin-bottom: 20px; }
+  .contact-rows { display: flex; flex-direction: column; gap: 10px; }
+  .email-chip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    border: 1px solid #E7E9E9;
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 500;
+    color: #0F1717;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  }
+  .email-chip:hover { border-color: #C8CDCD; transform: translateY(-1px); }
+  .email-chip-primary { background: #0F1717; color: #FBFAF4; border-color: #0F1717; }
+  .email-chip-primary:hover { background: #1A2424; }
+
+  /* ── Usage note band (ink) ── */
+  .usage-band { background: #0F1717; padding-block: 48px; }
+  .usage-row { display: flex; align-items: flex-start; gap: 16px; }
+  .usage-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--color-teal-bright); margin-top: 8px; flex-shrink: 0; }
+  .usage-note { font-family: var(--font-sans); font-size: 16px; line-height: 24px; color: #C6CFCF; }
+  .usage-note a { color: #FBFAF4; text-decoration: underline; text-decoration-color: rgba(251,250,244,0.4); }
+  .usage-note a:hover { text-decoration-color: #FBFAF4; }
+  .usage-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 36px;
+    padding-top: 28px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    flex-wrap: wrap;
+  }
+  .usage-tag { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.1em; color: #5C6A6A; }
+
+  /* Copied-toast on swatches */
+  .copy-value.copied .copy-glyph { display: none; }
+  .copy-value.copied .swatch-top::after,
+  .copy-value.copied.ramp-cell::after {
+    content: 'Copied';
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-teal);
+  }
+  .ramp-cell.copied { position: relative; }
+  .ramp-cell.copied::after {
+    content: 'Copied';
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    color: #FFFFFF;
+  }
+
+  /* Responsive: stack + downsize display type on small screens */
+  @media (max-width: 900px) {
+    .band-white, .band-warm { padding-block: 72px; }
+    .hero-head { font-size: 64px; }
+    .head-title { font-size: 36px; }
+    .head-intro { text-align: left; margin-left: 0; }
+    .hero-intro { font-size: 18px; line-height: 28px; }
+  }
+  @media (max-width: 560px) {
+    .hero-head { font-size: 48px; }
+    .head-title { font-size: 30px; }
+    .wordmark-lg { font-size: 48px; }
+    .spec-aa { font-size: 72px; }
+  }
+</style>
+
+<script>
+  // Click-to-copy hex values (the site's existing vanilla-JS pattern).
+  document.querySelectorAll<HTMLElement>('.copy-value').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const value = el.dataset.copy;
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch {
+        const ta = document.createElement('textarea');
+        ta.value = value;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch { /* no-op */ }
+        document.body.removeChild(ta);
+      }
+      el.classList.add('copied');
+      window.setTimeout(() => el.classList.remove('copied'), 1400);
+    });
+  });
+</script>
