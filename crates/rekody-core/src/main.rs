@@ -2361,6 +2361,10 @@ impl Ui {
         let bar = ProgressBar::new_spinner();
         bar.set_style(ProgressStyle::with_template("{msg}").unwrap());
 
+        // Skills only apply during AI cleanup, so the whole skill surface
+        // (footer hint here, Tab cycling in the run loops) keys off this.
+        let llm_enabled = rekody_core::has_llm_providers(config);
+
         // Header chips: (accented, label).
         let engine = match config.stt_engine.to_lowercase().as_str() {
             "nemotron" => "● nemotron · en".to_string(),
@@ -2369,7 +2373,7 @@ impl Ui {
             "cohere" => "● cohere local".to_string(),
             _ => format!("● whisper {}", config.whisper_model),
         };
-        let cleanup = if rekody_core::has_llm_providers(config) {
+        let cleanup = if llm_enabled {
             config
                 .providers
                 .first()
@@ -2404,8 +2408,16 @@ impl Ui {
         println!();
         println!("  {DIM}ready — hold {TRIGGER_LABEL} to talk · quick-tap for hands-free{RESET}");
         println!();
+        // The ⇥ skill hint only shows when cleanup can actually run a skill;
+        // without a provider the run loops ignore Tab, so advertising it
+        // would be a dead control.
+        let skill_hint = if llm_enabled {
+            format!("⇥ skill   {}   ", sep())
+        } else {
+            String::new()
+        };
         println!(
-            "  {SUBTLE}{TRIGGER_LABEL} dictate   {sep}   ⇥ skill   {sep}   ^c quit{RESET}",
+            "  {SUBTLE}{TRIGGER_LABEL} dictate   {sep}   {skill_hint}^c quit{RESET}",
             sep = sep()
         );
         println!();

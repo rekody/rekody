@@ -640,6 +640,9 @@ impl Pipeline {
         let mut app_probe: Option<tokio::task::JoinHandle<rekody_llm::AppContext>> = None;
         let mut app_cache: Option<rekody_llm::AppContext> = None;
 
+        // One-time notice when Tab is pressed without an LLM provider.
+        let mut skill_cycle_notice_logged = false;
+
         // 3. Main event loop — listen for hotkey events and audio segments
         //    concurrently using tokio::select!.
         loop {
@@ -665,14 +668,25 @@ impl Pipeline {
                             tracing::info!("command mode activated (not yet implemented)");
                         }
                         Some(HotkeyEvent::CycleSkill) => {
-                            // ⌥Space+Tab: advance the sticky skill. The next
-                            // dictation picks it up via the fresh-read in
-                            // process_segment. Surface the new selection.
-                            let now = skill::cycle_active();
-                            tracing::info!(
-                                skill = now.as_deref().unwrap_or("Auto"),
-                                "skill cycled"
-                            );
+                            if llm_enabled {
+                                // ⌥Space+Tab: advance the sticky skill. The next
+                                // dictation picks it up via the fresh-read in
+                                // process_segment. Surface the new selection.
+                                let now = skill::cycle_active();
+                                tracing::info!(
+                                    skill = now.as_deref().unwrap_or("Auto"),
+                                    "skill cycled"
+                                );
+                            } else if !skill_cycle_notice_logged {
+                                // Skills only apply during AI cleanup, so the
+                                // gesture stays quiet instead of advertising a
+                                // feature that cannot run.
+                                skill_cycle_notice_logged = true;
+                                tracing::info!(
+                                    "skill cycling ignored: skills need AI cleanup \
+                                     enabled (add an LLM provider via rekody setup)"
+                                );
+                            }
                         }
                         None => {
                             tracing::warn!("hotkey channel closed, shutting down");
@@ -777,6 +791,9 @@ impl Pipeline {
         let mut app_probe: Option<tokio::task::JoinHandle<rekody_llm::AppContext>> = None;
         let mut app_cache: Option<rekody_llm::AppContext> = None;
 
+        // One-time notice when Tab is pressed without an LLM provider.
+        let mut skill_cycle_notice_logged = false;
+
         // Release tail: when the key is released, audio for the last word(s)
         // is still draining through the capture pipeline (cpal callback →
         // resampler → tap). Cutting the mic instantly drops it. Instead we
@@ -822,11 +839,22 @@ impl Pipeline {
                             tracing::info!("command mode activated (not yet implemented)");
                         }
                         Some(HotkeyEvent::CycleSkill) => {
-                            let now = skill::cycle_active();
-                            tracing::info!(
-                                skill = now.as_deref().unwrap_or("Auto"),
-                                "skill cycled"
-                            );
+                            if llm_enabled {
+                                let now = skill::cycle_active();
+                                tracing::info!(
+                                    skill = now.as_deref().unwrap_or("Auto"),
+                                    "skill cycled"
+                                );
+                            } else if !skill_cycle_notice_logged {
+                                // Skills only apply during AI cleanup, so the
+                                // gesture stays quiet instead of advertising a
+                                // feature that cannot run.
+                                skill_cycle_notice_logged = true;
+                                tracing::info!(
+                                    "skill cycling ignored: skills need AI cleanup \
+                                     enabled (add an LLM provider via rekody setup)"
+                                );
+                            }
                         }
                         None => {
                             tracing::warn!("hotkey channel closed, shutting down");
