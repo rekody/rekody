@@ -118,9 +118,23 @@ jobs:
           shasum -a 256 * > SHA256SUMS
           cat SHA256SUMS
 
+      # The release body is the curated CHANGELOG.md section for this
+      # version; the auto-generated commit list is appended below it.
+      - name: Extract changelog section
+        run: |
+          awk -v ver="${{ steps.version.outputs.version }}" '
+            /^## \[/ { grab = ($0 ~ "^## \\[" ver "\\]"); next }
+            grab { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "_No CHANGELOG.md section for this version._" > release-notes.md
+          fi
+          cat release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
+          body_path: release-notes.md
           generate_release_notes: true
           files: release-assets/*
         env:

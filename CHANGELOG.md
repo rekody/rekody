@@ -2,9 +2,94 @@
 
 ## [Unreleased]
 
+## [0.5.17] - 2026-07-12
+
 ### Added
 
-- **Deterministic number formatting.** A final cleanup pass converts spoken quantities to written form that LLMs handle inconsistently and the raw path not at all: compound numbers ("three hundred fifty" → "350", "two thousand twenty six" → "2026"), currency ("fifty dollars" → "$50"), percent ("twenty percent" → "20%"), and a curated set of unambiguous units ("five kilograms" → "5 kg"). Conservative by design — isolated small numbers stay as words ("one idea", "a second"), ambiguous units (pounds/feet) are left alone, and malformed runs like a year said in pairs ("twenty twenty six") are not mis-summed. Closes the main parity gap vs Deepgram's `smart_format`.
+- **Preferred input device.** Since mic-on-demand shipped, every recording re-queried the system default input, so capture silently drifted to whatever connected last (AirPods being the classic offender). Set `input_device = "MacBook Pro Microphone"` (any unique substring works) in config.toml or pick a device during `rekody setup`, and rekody pins capture to it. `rekody doctor` shows exactly which device will capture and warns when a pinned device is not connected, falling back to the system default so dictation never breaks.
+
+### Changed
+
+- Dependency freshness: tokio, serde_json, and libc patch updates; CI actions moved to newer SHA-pinned releases with artifact digest verification.
+
+## [0.5.16] - 2026-07-11
+
+### Fixed
+
+- **AI cleanup can no longer answer you instead of cleaning your words.** Small cleanup models sometimes treated a dictation as a question and typed a reply at your cursor (a refusal, a fabricated response, or a single word). A deterministic guard now rejects cleanup output that collapses, balloons, or opens like a chat reply, and your dictionary-corrected words go through instead. User-selected skills are exempt since they legitimately transform text.
+
+### Added
+
+- **Every dictation records the app it landed in.** The frontmost app is captured at recording start (off the hot path, zero added latency) and stamped into history and the local training manifest, powering per-app tags and stats in the apps. Cleanup also reuses this capture instead of probing again, saving about 100ms when cleanup is on.
+
+## [0.5.15] - 2026-07-11
+
+### Added
+
+- **Your dictionary now corrects instantly, no AI required.** A deterministic pass fixes near-miss transcriptions of your terms ("recody" becomes "Rekody") and recases exact matches, before and after optional AI cleanup. It never rewrites everyday English words into your terms ("change" stays "change" even when a term is spelled close), never guesses between two close terms, and runs in microseconds.
+- **Snippets expand when spoken.** Say "slash sig" (or the literal "/sig") anywhere in a dictation and the saved snippet expands in place, multi-line signatures included.
+- **History entries record measured speaking time.** Duration comes from the exact audio sample count, so words-per-minute stats in the apps are honest.
+
+### Changed
+
+- New setups default the recording safety stop to 30 minutes (was 10), matching the Mac app's picker, and the setup wizard shows the real Whisper download sizes.
+
+## [0.5.14] - 2026-07-11
+
+### Added
+
+- **Rekody Streaming is now the streaming engine, served from Rekody's own model repo.** The streaming model downloads exclusively from huggingface.co/Rekody with pinned SHA-256 checksums verified on download. Whisper models also download mirror-first from Rekody/rekody-models with checksum verification and upstream fallback.
+
+### Fixed
+
+- `rekody update` verifies the release's SHA256SUMS before installing, so a tampered or corrupted download can never replace your binary.
+- Whisper large model downloads work again after the upstream file rename.
+
+### Changed
+
+- Supply-chain hardening in CI: cargo-deny license and advisory gate, all GitHub Actions pinned to commit SHAs. Early Windows groundwork landed behind the scenes (nothing user-facing yet).
+
+## [0.5.13] - 2026-06-26
+
+### Fixed
+
+- **Your last word no longer gets clipped.** Releasing the key the instant you finished speaking could drop the final word while the audio tail was still in flight. A 180ms capture tail now lets the pipeline drain before finalizing, and a quick re-press within the tail resumes the same dictation instead of splitting it.
+
+## [0.5.12] - 2026-06-12
+
+### Added
+
+- **Hold or tap on the same key.** Hold ⌥ + space and release to insert, as always. Or quick-tap to latch hands-free recording and tap again to stop; the console shows the latch state. New configs default to `activation_mode = "both"`.
+- **`rekody changelog`** shows what changed in the latest release from your terminal; `--all` lists recent releases and marks the one you are on.
+
+### Changed
+
+- **The mic opens only while you dictate.** The orange macOS mic indicator used to stay lit the whole time rekody ran. The stream now opens at key-down (about 50 to 90ms, faster than you can start speaking) and closes when the dictation ends. Every dictation re-checks the default input device, so switching headsets no longer needs a restart.
+
+## [0.5.11] - 2026-06-12
+
+### Added
+
+- **`rekody fix`** corrects the transcript label of a recent dictation in the moment, keeping your local training dataset accurate.
+- HUD groundwork: a socket server and helper supervision so a pill overlay can ride along with the daemon.
+
+## [0.5.10] - 2026-06-12
+
+### Added
+
+- **Local training-data capture.** Each dictation can save its audio (FLAC) and raw transcript under `~/.local/share/rekody/training-data/`, building a personal fine-tuning dataset. Local only, owner-only permissions, off with `save_training_data = false`.
+- **Studio CLI.** A live status region with waveform, timer, and branded setup replaces plain log lines.
+
+### Changed
+
+- `rekody setup` lists the streaming engine first.
+
+## [0.5.9] - 2026-06-09
+
+### Added
+
+- **Real-time streaming dictation.** The on-device Nemotron engine transcribes while you talk; the final text lands about 50ms after you release the key, where batch engines take 1 to 3 seconds.
+- **Deterministic number formatting.** A final cleanup pass converts spoken quantities to written form that LLMs handle inconsistently and the raw path not at all: compound numbers ("three hundred fifty" becomes "350"), currency ("fifty dollars" becomes "$50"), percent, and a curated set of unambiguous units. Conservative by design: isolated small numbers stay as words, ambiguous units are left alone.
 
 ## [0.5.8] - 2026-05-29
 
