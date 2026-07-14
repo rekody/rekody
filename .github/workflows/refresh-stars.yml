@@ -1,0 +1,39 @@
+name: Refresh GitHub star count
+
+# The navbar star count is a committed value (website/src/lib/github-stars.json)
+# so the site makes zero third-party calls at build or runtime. This job keeps
+# it current: once a day it reads the live count and, only if it changed,
+# commits the new number. That commit triggers the Vercel deploy that shows it.
+
+on:
+  schedule:
+    - cron: "17 7 * * *" # daily, ~07:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Update star count if it changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          count=$(gh api "repos/${{ github.repository }}" --jq '.stargazers_count')
+          file="website/src/lib/github-stars.json"
+          current=$(jq -r '.count' "$file")
+          if [ "$count" = "$current" ]; then
+            echo "Star count unchanged at $count; nothing to do."
+            exit 0
+          fi
+          printf '{\n  "count": %s\n}\n' "$count" > "$file"
+          git config user.name "rekody-bot"
+          git config user.email "hi@rekody.com"
+          git add "$file"
+          git commit -m "chore: refresh GitHub star count to $count"
+          git push
+          echo "Star count updated: $current -> $count"
