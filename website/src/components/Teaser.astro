@@ -1,0 +1,54 @@
+---
+// Teaser — the 30-second brand film. Autoplay muted loop so the pill inside it
+// stays animating (the "never render the pill frozen" rule), with native controls
+// so visitors can turn the voice on. Autoplay is disabled under prefers-reduced-motion.
+---
+
+<section id="watch" aria-label="Watch Rekody in action" class="pt-16 pb-16 md:pt-20 md:pb-20" style="background:#FFFFFF; border-top:1px solid var(--color-hairline);">
+  <div class="max-w-6xl mx-auto px-6 flex flex-col items-center text-center gap-7">
+
+    <!-- Eyebrow -->
+    <p class="flex items-center gap-2.5 font-mono text-[12px] uppercase" style="color:var(--color-ink-faint); letter-spacing:0.16em;">
+      <span class="inline-block w-[7px] h-[7px] rounded-full" style="background:var(--color-teal);" aria-hidden="true"></span>
+      See it in action
+    </p>
+
+    <!-- Heading -->
+    <h2 class="display" style="font-size:clamp(30px,4.8vw,54px);">
+      Thirty seconds, <span class="display-italic block sm:inline" style="color:var(--color-teal);">start to finish.</span>
+    </h2>
+
+    <!-- The film, in a rounded card -->
+    <div class="w-full max-w-[900px] rounded-[20px] overflow-hidden" style="border:1px solid var(--color-hairline); box-shadow:0 40px 100px -44px rgba(15,23,23,0.38);">
+      <video
+        id="teaser-video"
+        class="block w-full"
+        style="aspect-ratio:16/9; width:100%; height:auto; background:#0D1414;"
+        autoplay
+        muted
+        loop
+        playsinline
+        controls
+        preload="metadata"
+        poster="/video/rekody-teaser-poster.jpg"
+        aria-label="A 30-second film of Rekody: speak, and the words land in your app on your Mac"
+      >
+        <source src="/video/rekody-teaser.mp4" type="video/mp4" />
+      </video>
+    </div>
+
+    <!-- Caption -->
+    <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">
+      Muted by default &middot; turn sound on for the voice
+    </p>
+  </div>
+</section>
+
+<script>
+  // Honor reduced motion: do not autoplay; leave the poster + controls so the visitor can choose to play.
+  const v = document.getElementById('teaser-video') as HTMLVideoElement | null;
+  if (v && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    v.removeAttribute('autoplay');
+    v.pause();
+  }
+</script>
