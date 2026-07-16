@@ -21,11 +21,11 @@ Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on
 
 <p align="center">
   <a href="docs/assets/demo.mp4">
-    <img src="docs/assets/demo.gif" alt="rekody demo — hold ⌥Space, speak, release; the transcript lands at your cursor" width="760" />
+    <img src="docs/assets/demo.gif" alt="rekody — speak, and your words land in the app you're already in" width="760" />
   </a>
 </p>
 
-<p align="center"><a href="docs/assets/demo.mp4"><strong>▶ Watch the 1-minute demo with audio</strong></a></p>
+<p align="center"><a href="docs/assets/demo.mp4"><strong>▶ Watch the 30-second film with sound</strong></a></p>
 
 **New: streaming dictation.** With the on-device Nemotron engine, rekody transcribes *while you talk* — the live console shows your words as you speak, and the final text lands at your cursor **~50ms after you release the key** (batch engines take 1–3s).
 
@@ -421,3 +421,15 @@ make install                            # build + install to /usr/local/bin
 ## License
 
 [MIT](LICENSE)
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=rekody%2Frekody&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=rekody/rekody&type=date&theme=dark&legend=top-left&sealed_token=gJJbxrk-Lb4iFsbhZF8paUmzWIlWqBHuF3xvMWeWxHao9Jn30VKqgH0sXdeYM57xUn8kCz8o_Vqs5OSGynU36aAgjsrZOeGp9sDcFViiX8gk82uNCLJVpA" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=rekody/rekody&type=date&legend=top-left&sealed_token=gJJbxrk-Lb4iFsbhZF8paUmzWIlWqBHuF3xvMWeWxHao9Jn30VKqgH0sXdeYM57xUn8kCz8o_Vqs5OSGynU36aAgjsrZOeGp9sDcFViiX8gk82uNCLJVpA" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=rekody/rekody&type=date&legend=top-left&sealed_token=gJJbxrk-Lb4iFsbhZF8paUmzWIlWqBHuF3xvMWeWxHao9Jn30VKqgH0sXdeYM57xUn8kCz8o_Vqs5OSGynU36aAgjsrZOeGp9sDcFViiX8gk82uNCLJVpA" />
+ </picture>
+</a>
