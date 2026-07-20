@@ -50,34 +50,72 @@ pub fn inject_text(text: &str, method: InjectionMethod) -> Result<()> {
 // Clipboard-based injection (cross-platform)
 // ---------------------------------------------------------------------------
 
+/// Delay before restoring the user's previous clipboard, run on a background
+/// thread so it never blocks injection.
+///
+/// Cmd/Ctrl+V is asynchronous: the focused app reads the pasteboard on its own
+/// run loop. Restoring the previous clipboard too soon (the old fixed ~150ms
+/// inline delay) lets the app read the OLD content and paste it instead of the
+/// transcript, which shows up as "it pasted what was already on my clipboard,"
+/// especially after the process has been idle and is throttled. A generous,
+/// off-critical-path delay plus the "still holds our text" gate below removes
+/// that race.
+const RESTORE_DELAY_MS: u64 = 1200;
+
 /// Clipboard-based text injection (Phase 1 default).
 fn inject_clipboard(text: &str) -> Result<()> {
     use arboard::Clipboard;
+    use std::time::{Duration, Instant};
 
     debug!("injecting text via clipboard paste");
 
     let mut clipboard = Clipboard::new().map_err(|e| InjectError::Clipboard(e.to_string()))?;
 
-    // Save current clipboard contents
+    // Save the user's current clipboard so we can restore it after the paste.
     let previous = clipboard.get_text().ok();
 
-    // Set our text
+    // Put our transcript on the clipboard.
     clipboard
         .set_text(text)
         .map_err(|e| InjectError::Clipboard(e.to_string()))?;
 
-    // Brief delay after setting clipboard before simulating paste to avoid
-    // race conditions where the paste fires before the clipboard is ready.
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    // Verify our transcript is the CURRENT clipboard content before pasting. The
+    // write can lag (cross-process propagation), and pasting before it lands would
+    // insert stale/previous content. Poll briefly; if it never lands, abort rather
+    // than paste the wrong thing (a stale paste could leak a password or an old
+    // private message).
+    let deadline = Instant::now() + Duration::from_millis(250);
+    loop {
+        if matches!(clipboard.get_text().as_deref(), Ok(cur) if cur == text) {
+            break;
+        }
+        if Instant::now() >= deadline {
+            warn!("clipboard did not hold our text before paste; aborting to avoid a stale paste");
+            return Err(
+                InjectError::Clipboard("clipboard write did not land before paste".into()).into(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
 
-    // Simulate paste keystroke. Restore clipboard regardless of success/failure.
+    // Paste.
     let paste_result = simulate_paste();
 
-    // Restore previous clipboard contents after a short delay so the paste
-    // has time to be processed by the focused application.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Restore the user's previous clipboard WITHOUT racing the asynchronous paste:
+    // on a detached thread, after a generous delay, and only if the clipboard STILL
+    // holds exactly our transcript (so we never clobber something copied since). If
+    // the restore cannot run, the transcript simply stays on the clipboard, which
+    // is safe, rather than the app pasting the wrong thing.
     if let Some(prev) = previous {
-        let _ = clipboard.set_text(prev);
+        let injected = text.to_string();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(RESTORE_DELAY_MS));
+            if let Ok(mut cb) = Clipboard::new()
+                && cb.get_text().ok().as_deref() == Some(injected.as_str())
+            {
+                let _ = cb.set_text(prev);
+            }
+        });
     }
 
     paste_result
