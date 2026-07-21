@@ -1,13 +1,16 @@
 //! Personal dictionary and custom vocabulary management.
 //!
 //! Allows users to maintain a list of custom terms (technical jargon, proper
-//! names, domain-specific vocabulary). The dictionary is applied twice:
+//! names, domain-specific vocabulary). The dictionary is applied three ways:
 //!
-//! 1. [`correct_text`] runs a deterministic, zero-latency correction pass on
+//! 1. The STT engine biases decoding toward the terms before the transcript
+//!    exists (local Whisper initial prompt, Deepgram keyterms, Groq prompt;
+//!    see `SttEngine::set_bias_terms` in `rekody-stt`).
+//! 2. [`correct_text`] runs a deterministic, zero-latency correction pass on
 //!    every dictation, recasing exact matches and fixing near-miss STT
 //!    spellings of the user's terms. It needs no LLM, so it works with
 //!    cleanup off.
-//! 2. [`inject_vocabulary_prompt`] additionally lists the terms in the LLM
+//! 3. [`inject_vocabulary_prompt`] additionally lists the terms in the LLM
 //!    cleanup prompt when cleanup is enabled, so the model preserves them.
 
 use anyhow::{Context, Result};

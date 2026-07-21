@@ -449,6 +449,22 @@ impl SttBackend {
             }
         }
     }
+
+    /// Forward dictionary terms to the engine so decoding is biased toward
+    /// the user's vocabulary (local Whisper initial prompt, Deepgram
+    /// keyterms, Groq prompt). Engines without a biasing mechanism take the
+    /// trait's default no-op.
+    fn set_bias_terms(&self, terms: &[String]) {
+        use rekody_stt::SttEngine;
+        match self {
+            SttBackend::Local(e) => e.set_bias_terms(terms),
+            SttBackend::Groq(e) => e.set_bias_terms(terms),
+            SttBackend::Deepgram(e) => e.set_bias_terms(terms),
+            SttBackend::Cohere(e) => e.set_bias_terms(terms),
+            #[cfg(feature = "nemotron")]
+            SttBackend::NemotronStreaming { .. } => {}
+        }
+    }
 }
 
 /// The main rekody pipeline orchestrator.
@@ -988,6 +1004,14 @@ impl Pipeline {
         app_at_start: Option<rekody_llm::AppContext>,
     ) -> Result<()> {
         // --- STT (model already loaded at startup) ---
+        // Personal dictionary terms bias the engine's decoding (local
+        // Whisper initial prompt, Deepgram keyterms, Groq prompt) before
+        // the deterministic corrector ever sees the transcript. Read fresh
+        // per dictation, like the corrector's own read in
+        // `process_transcript`; that second read stays so the streaming
+        // path keeps working unchanged.
+        let dict = dictionary::Dictionary::load_or_empty();
+        self.stt.set_bias_terms(dict.terms());
         let transcript = self.stt.transcribe(&segment.samples).await?;
 
         if transcript.text.is_empty() {
