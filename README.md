@@ -79,7 +79,7 @@ Commands:
   doctor   Test STT and LLM provider connectivity
   key      Manage API keys in the system keychain
   skill      Pick the active dictation skill (email, notes, commit, ...)
-  dictionary Manage custom vocabulary the cleanup model should preserve
+  dictionary Manage custom vocabulary (instant corrections for your terms)
   fix        Correct the transcript of a recent dictation (trains your dataset)
   update     Update to the latest release
 
@@ -130,9 +130,12 @@ configured (or `llm_enabled = false`), the selected skill has no effect.
 
 ### Custom vocabulary
 
-If the cleanup model mangles your jargon, names, or product terms (e.g. writes
-"record" for "rekody"), add them to your personal dictionary. They get appended
-to the cleanup prompt so the model preserves them verbatim.
+If your jargon, names, or product terms come out with the wrong casing or a
+near-miss spelling (e.g. "recody" for "rekody"), add them to your personal
+dictionary. A deterministic pass fixes casing and near-misses of your terms on
+every dictation, on every engine, with no AI in the loop. When AI cleanup is
+enabled, your terms are also listed in the cleanup prompt so the model
+preserves them.
 
 ```bash
 rekody dictionary add rekody       # multi-word is fine, no quotes: add Core ML
@@ -140,8 +143,13 @@ rekody dictionary list
 rekody dictionary remove rekody
 ```
 
-Stored at `~/.config/rekody/dictionary.toml`. Like skills, this only affects the
-LLM cleanup step.
+Stored at `~/.config/rekody/dictionary.toml`. Honest limits: the corrector
+fixes near-misses ("recody"), not mishears where the engine heard a different
+real word ("recording" for "rekody"). Fixing those at the source, by biasing
+the engines themselves with your terms, is in progress: [#88](https://github.com/rekody/rekody/issues/88)
+(local Whisper), [#89](https://github.com/rekody/rekody/issues/89) (Deepgram),
+[#90](https://github.com/rekody/rekody/issues/90) (Groq),
+[#91](https://github.com/rekody/rekody/issues/91) (Rekody Streaming).
 
 ### Hotkey
 

@@ -112,7 +112,7 @@ enum Cmd {
         #[command(subcommand)]
         action: Option<SkillCmd>,
     },
-    /// Manage your personal vocabulary (terms the cleanup model should preserve)
+    /// Manage your personal vocabulary (instant corrections for your terms)
     Dictionary {
         #[command(subcommand)]
         action: Option<DictionaryCmd>,
