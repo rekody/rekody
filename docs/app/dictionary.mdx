@@ -21,6 +21,17 @@ Good candidates:
 - Product and company names, especially lowercase or invented ones.
 - Technical jargon and acronyms.
 
+## What it fixes today, and what it can't yet
+
+The corrector works on the final text of **every engine**: Rekody Streaming, local Whisper, Groq, and Deepgram all get the same pass before your text lands.
+
+Honest limits, so you know what to expect:
+
+- **Near-misses, yes. Different words, not yet.** "recody" becomes "Rekody", but if the engine heard a different real word entirely ("recording" when you said "rekody"), the corrector leaves it alone on purpose: rewriting real words would corrupt ordinary sentences.
+- **Streaming shows raw partials.** With Rekody Streaming, the live words in the pill are the engine's raw output; corrections apply to the text that actually lands at your cursor.
+
+The permanent fix for the hard mishears is to bias the engines themselves with your terms so they hear you correctly in the first place. That work is in progress per engine: local Whisper ([#88](https://github.com/rekody/rekody/issues/88)), Deepgram ([#89](https://github.com/rekody/rekody/issues/89)), Groq ([#90](https://github.com/rekody/rekody/issues/90)), and Rekody Streaming ([#91](https://github.com/rekody/rekody/issues/91)), where it is hardest and will land last.
+
 ## Dictionary or correction?
 
 - Fixing a one-off mistake? Correct the entry in the [Library](/app/library).
