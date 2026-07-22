@@ -39,10 +39,13 @@ pub struct BiasSettings {
     /// Logits added per matched token at depth 1. Default 3.0.
     pub boost: f32,
     /// A candidate is only boosted when its logit is within this distance
-    /// of the step's best logit. Default 6.0.
+    /// of the step's best logit. Default 10.0, tuned on the shipped int8
+    /// artifact where continuation-step logit gaps run about 5 to 10 (the
+    /// spec's paper default of 6.0 under-boosts there; see the eval in #91).
     pub margin: f32,
     /// Boost multiplier for tokens at trie depth >= 2, so a started phrase
-    /// is carried to completion instead of dying halfway. Default 1.5.
+    /// is carried to completion instead of dying halfway. Default 3.0,
+    /// tuned on the int8 artifact alongside `margin`.
     pub depth_factor: f32,
     /// Hard cap on the number of dictionary terms used. Default 200.
     pub max_terms: usize,
@@ -53,8 +56,8 @@ impl Default for BiasSettings {
         Self {
             terms: Vec::new(),
             boost: 3.0,
-            margin: 6.0,
-            depth_factor: 1.5,
+            margin: 10.0,
+            depth_factor: 3.0,
             max_terms: 200,
         }
     }
@@ -281,6 +284,21 @@ mod tests {
         .expect("paths must build a trie")
     }
 
+    /// Mechanism tests pin their own margin/depth so their hand-computed
+    /// fixtures stay valid regardless of the shipped (int8-tuned) defaults.
+    fn bias_from_pinned(paths: &[&[usize]]) -> TermBias {
+        TermBias::from_paths(
+            BiasSettings {
+                margin: 6.0,
+                depth_factor: 1.5,
+                ..BiasSettings::default()
+            },
+            paths.iter().map(|p| p.to_vec()).collect(),
+            vec![],
+        )
+        .expect("paths must build a trie")
+    }
+
     fn logits_of(len: usize, value: f32) -> Vec<f32> {
         vec![value; len]
     }
@@ -290,8 +308,8 @@ mod tests {
         let cfg = BiasSettings::default();
         assert!(cfg.terms.is_empty());
         assert_eq!(cfg.boost, 3.0);
-        assert_eq!(cfg.margin, 6.0);
-        assert_eq!(cfg.depth_factor, 1.5);
+        assert_eq!(cfg.margin, 10.0);
+        assert_eq!(cfg.depth_factor, 3.0);
         assert_eq!(cfg.max_terms, 200);
     }
 
@@ -327,7 +345,7 @@ mod tests {
 
     #[test]
     fn boost_applies_only_within_margin() {
-        let mut bias = bias_from(&[&[3]]);
+        let mut bias = bias_from_pinned(&[&[3]]);
         // Out of the margin: best 5.0, floor -1.0, candidate at -1.5.
         let mut logits = logits_of(11, 0.0);
         logits[1] = 5.0;
@@ -404,7 +422,7 @@ mod tests {
         // Terms [1,2] and [2]: after emitting 1, the active state proposes
         // token 2 at depth 2 (4.5) and the root proposes it at depth 1
         // (3.0). The applied boost is the max, never the sum.
-        let mut bias = bias_from(&[&[1, 2], &[2]]);
+        let mut bias = bias_from_pinned(&[&[1, 2], &[2]]);
         bias.on_emit(1);
         let mut logits = logits_of(11, 0.0);
         bias.process(&mut logits, BLANK);
@@ -413,7 +431,7 @@ mod tests {
 
     #[test]
     fn depth_factor_applies_from_depth_two_without_compounding() {
-        let mut bias = bias_from(&[&[1, 2, 3]]);
+        let mut bias = bias_from_pinned(&[&[1, 2, 3]]);
 
         // Depth 1 (root child): plain boost.
         let mut logits = logits_of(11, 0.0);
@@ -596,6 +614,8 @@ mod tests {
         let sp_model = tu::tiny_model();
         let cfg = BiasSettings {
             terms: vec!["core ml".into()],
+            margin: 6.0,
+            depth_factor: 1.5,
             ..BiasSettings::default()
         };
         let mut bias = TermBias::build(&sp_model, cfg).unwrap();

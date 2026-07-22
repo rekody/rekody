@@ -206,11 +206,12 @@ pub struct TermBiasingConfig {
     #[serde(default = "default_term_biasing_boost")]
     pub boost: f32,
     /// A token is only boosted when its logit is within this distance of
-    /// the step's best logit. Default 6.0.
+    /// the step's best logit. Default 10.0 (tuned on the shipped int8
+    /// model; see docs/design/nemotron-term-biasing-spec.md and #91).
     #[serde(default = "default_term_biasing_margin")]
     pub margin: f32,
     /// Boost multiplier for tokens at trie depth >= 2, so a started phrase
-    /// is carried to completion. Default 1.5.
+    /// is carried to completion. Default 3.0 (tuned on the int8 model).
     #[serde(default = "default_term_biasing_depth_factor")]
     pub depth_factor: f32,
     /// Hard cap on the number of dictionary terms biased. Default 200.
@@ -235,11 +236,11 @@ fn default_term_biasing_boost() -> f32 {
 }
 
 fn default_term_biasing_margin() -> f32 {
-    6.0
+    10.0
 }
 
 fn default_term_biasing_depth_factor() -> f32 {
-    1.5
+    3.0
 }
 
 fn default_term_biasing_max_terms() -> usize {
@@ -1531,8 +1532,8 @@ injection_method = "clipboard"
         let config = parse("");
         assert!(!config.term_biasing.enabled, "flag must default OFF");
         assert_eq!(config.term_biasing.boost, 3.0);
-        assert_eq!(config.term_biasing.margin, 6.0);
-        assert_eq!(config.term_biasing.depth_factor, 1.5);
+        assert_eq!(config.term_biasing.margin, 10.0);
+        assert_eq!(config.term_biasing.depth_factor, 3.0);
         assert_eq!(config.term_biasing.max_terms, 200);
     }
 
@@ -1541,8 +1542,8 @@ injection_method = "clipboard"
         let config = RekodyConfig::default();
         assert!(!config.term_biasing.enabled);
         assert_eq!(config.term_biasing.boost, 3.0);
-        assert_eq!(config.term_biasing.margin, 6.0);
-        assert_eq!(config.term_biasing.depth_factor, 1.5);
+        assert_eq!(config.term_biasing.margin, 10.0);
+        assert_eq!(config.term_biasing.depth_factor, 3.0);
         assert_eq!(config.term_biasing.max_terms, 200);
     }
 
@@ -1551,8 +1552,8 @@ injection_method = "clipboard"
         let config = parse("[term_biasing]\nenabled = true\n");
         assert!(config.term_biasing.enabled);
         assert_eq!(config.term_biasing.boost, 3.0);
-        assert_eq!(config.term_biasing.margin, 6.0);
-        assert_eq!(config.term_biasing.depth_factor, 1.5);
+        assert_eq!(config.term_biasing.margin, 10.0);
+        assert_eq!(config.term_biasing.depth_factor, 3.0);
         assert_eq!(config.term_biasing.max_terms, 200);
     }
 
