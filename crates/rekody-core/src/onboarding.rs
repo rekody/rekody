@@ -182,33 +182,40 @@ pub fn run_onboarding() -> Result<()> {
     };
 
     // --- Validate LLM API key --------------------------------------------
+    // Only for providers with a real endpoint check. Where none exists
+    // (custom base URLs), no spinner and no "valid": say what is true.
     let api_key: String = if needs_key && !api_key.is_empty() {
-        let mut current_key = api_key;
-        loop {
-            let sp = spinner();
-            sp.start("Validating API key...");
-            if validate_api_key(provider_name, &current_key) {
-                sp.stop("API key valid \u{2713}");
-                break current_key;
-            } else {
-                sp.stop("API key validation failed \u{2014} check your key");
-                let proceed: bool = confirm("Continue anyway?")
-                    .initial_value(false)
-                    .interact()
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                if proceed {
+        if provider_has_key_check(provider_name) {
+            let mut current_key = api_key;
+            loop {
+                let sp = spinner();
+                sp.start("Validating API key...");
+                if validate_api_key(provider_name, &current_key) {
+                    sp.stop("API key valid \u{2713}");
                     break current_key;
+                } else {
+                    sp.stop("API key validation failed \u{2014} check your key");
+                    let proceed: bool = confirm("Continue anyway?")
+                        .initial_value(false)
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if proceed {
+                        break current_key;
+                    }
+                    // Re-prompt for key
+                    let key: String = input("Enter your API key")
+                        .placeholder("sk-...")
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if !key.is_empty() {
+                        set_keychain(provider_name, &key);
+                    }
+                    current_key = key;
                 }
-                // Re-prompt for key
-                let key: String = input("Enter your API key")
-                    .placeholder("sk-...")
-                    .interact()
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                if !key.is_empty() {
-                    set_keychain(provider_name, &key);
-                }
-                current_key = key;
             }
+        } else {
+            println!("  Key saved. It will be verified on first use.");
+            api_key
         }
     } else {
         api_key
@@ -774,40 +781,75 @@ fn can_reuse_llm_key_for_groq_stt(stt_engine: &str, llm_provider: &str, llm_key:
     stt_engine == "groq" && llm_provider == "groq" && !llm_key.is_empty()
 }
 
+/// Providers whose keys [`validate_api_key`] can actually check against a
+/// stable, documented endpoint. For anything else (notably "custom", whose
+/// base URL is unknown) the wizard must not fake it: no spinner, and never
+/// the word "valid" without a real network check behind it.
+fn provider_has_key_check(provider: &str) -> bool {
+    matches!(
+        provider,
+        "groq"
+            | "deepgram"
+            | "openai"
+            | "cerebras"
+            | "anthropic"
+            | "gemini"
+            | "together"
+            | "openrouter"
+    )
+}
+
 /// Make a lightweight test call to verify an API key works.
 ///
-/// Returns `true` if the key appears valid (HTTP 2xx or 400),
-/// `false` on auth errors or network failures.
+/// Returns `true` if the key appears valid, `false` on auth errors or
+/// network failures. Only meaningful for providers where
+/// [`provider_has_key_check`] is true; anything else returns `true` without
+/// checking, and callers must not present that as validation.
 fn validate_api_key(provider: &str, key: &str) -> bool {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap_or_default();
 
-    let (url, auth) = match provider {
-        "groq" => (
-            "https://api.groq.com/openai/v1/models",
-            format!("Bearer {}", key),
-        ),
-        "deepgram" => (
-            "https://api.deepgram.com/v1/projects",
-            format!("Token {}", key),
-        ),
-        "openai" => (
-            "https://api.openai.com/v1/models",
-            format!("Bearer {}", key),
-        ),
-        "cerebras" => (
-            "https://api.cerebras.ai/v1/models",
-            format!("Bearer {}", key),
-        ),
-        "anthropic" => return true, // Anthropic has no lightweight endpoint
-        "gemini" => return true,    // Gemini validation is complex
-        _ => return true,           // Local providers don't need validation
+    let request = match provider {
+        "groq" => client
+            .get("https://api.groq.com/openai/v1/models")
+            .header("Authorization", format!("Bearer {key}")),
+        "deepgram" => client
+            .get("https://api.deepgram.com/v1/projects")
+            .header("Authorization", format!("Token {key}")),
+        "openai" => client
+            .get("https://api.openai.com/v1/models")
+            .header("Authorization", format!("Bearer {key}")),
+        "cerebras" => client
+            .get("https://api.cerebras.ai/v1/models")
+            .header("Authorization", format!("Bearer {key}")),
+        "anthropic" => client
+            .get("https://api.anthropic.com/v1/models")
+            .header("x-api-key", key)
+            .header("anthropic-version", "2023-06-01"),
+        "gemini" => client
+            .get("https://generativelanguage.googleapis.com/v1beta/models")
+            .query(&[("key", key)]),
+        "together" => client
+            .get("https://api.together.xyz/v1/models")
+            .header("Authorization", format!("Bearer {key}")),
+        "openrouter" => client
+            .get("https://openrouter.ai/api/v1/key")
+            .header("Authorization", format!("Bearer {key}")),
+        // No stable endpoint to check against (custom base URLs, local
+        // providers). Callers gate on provider_has_key_check.
+        _ => return true,
     };
 
-    match client.get(url).header("Authorization", &auth).send() {
-        Ok(resp) => resp.status().is_success() || resp.status().as_u16() == 400,
+    // A 400 from an OpenAI-style endpoint still means the key authenticated
+    // (the request itself was malformed). Gemini is the exception: it
+    // signals an invalid key WITH a 400, so only 2xx counts there.
+    let accept_bad_request = provider != "gemini";
+    match request.send() {
+        Ok(resp) => {
+            resp.status().is_success() || (accept_bad_request && resp.status().as_u16() == 400)
+        }
         Err(_) => false,
     }
 }
@@ -1590,5 +1632,30 @@ mod tests {
             !can_reuse_llm_key_for_groq_stt("local", "groq", "gsk_abc"),
             "non-Groq STT never writes groq_api_key from this path"
         );
+    }
+
+    /// The wizard may only show a "Validating..." spinner (and say "valid")
+    /// for providers with a real endpoint check. "custom" has an unknown
+    /// base URL, so it must fall through to the honest no-check path.
+    #[test]
+    fn only_providers_with_real_endpoint_checks_claim_validation() {
+        for p in [
+            "groq",
+            "deepgram",
+            "openai",
+            "cerebras",
+            "anthropic",
+            "gemini",
+            "together",
+            "openrouter",
+        ] {
+            assert!(provider_has_key_check(p), "{p} has a real endpoint check");
+        }
+        for p in ["custom", "ollama", "none", "apple"] {
+            assert!(
+                !provider_has_key_check(p),
+                "{p} has no stable endpoint and must not fake validation"
+            );
+        }
     }
 }
