@@ -16,7 +16,7 @@ thiserror.workspace = true
 
 # Windows: global low-level keyboard hook (SetWindowsHookEx WH_KEYBOARD_LL).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
