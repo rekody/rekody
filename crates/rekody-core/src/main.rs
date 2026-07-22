@@ -145,6 +145,10 @@ enum Cmd {
         /// Exit after this many seconds without page activity (0 = stay up)
         #[arg(long, default_value_t = 0, value_name = "N")]
         auto_exit_secs: u64,
+        /// Also listen on the local network so a phone on the same Wi-Fi
+        /// can open the page (anyone on the network can edit this dataset)
+        #[arg(long)]
+        lan: bool,
     },
     /// Drive the live status region through fake states (UI development aid)
     #[command(hide = true)]
@@ -271,7 +275,8 @@ async fn main() -> Result<()> {
             port,
             no_open,
             auto_exit_secs,
-        }) => cmd_review(dir, port, no_open, auto_exit_secs),
+            lan,
+        }) => cmd_review(dir, port, no_open, auto_exit_secs, lan),
         Some(Cmd::UiDemo) => cmd_ui_demo(),
     }
 }
@@ -288,6 +293,7 @@ fn cmd_review(
     port: u16,
     no_open: bool,
     auto_exit_secs: u64,
+    lan: bool,
 ) -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -304,6 +310,7 @@ fn cmd_review(
         port,
         open_browser: !no_open,
         auto_exit_secs,
+        lan,
     })
 }
 

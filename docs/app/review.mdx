@@ -1,0 +1,46 @@
+---
+title: "Review your dictation data"
+description: "Clean your dictation dataset before fine-tuning: fix transcripts, delete bad clips, export a training-ready manifest."
+---
+
+Rekody can save your dictations as training data. Review is the page where you clean that dataset: play each clip, fix its transcript, and end up with labels you trust.
+
+Open it from the Mac app under **Settings → Dictation → Review your dictation data**, or from the terminal:
+
+```bash
+rekody review
+```
+
+The page runs on your Mac at `http://127.0.0.1:7878`. Nothing about your audio or transcripts leaves the machine.
+
+## The second opinion
+
+On first run you choose how to review:
+
+- **Get a second opinion** (recommended). Whisper large-v3 re-listens to every clip and flags where it disagrees with your saved transcript, so you review only the differences. It is a one-time 3.1 GB download from Rekody's model repository, checksum verified, and it runs entirely on your Mac.
+- **Start from my transcripts**. No download. You read and fix each transcript yourself, and you can add the second opinion later.
+
+## Reviewing a clip
+
+Red words are your original, teal words are the suggested fix. Click any word to switch which one gets saved, then:
+
+- **Save correction** (`S`) saves exactly what the WILL SAVE line shows.
+- **Keep original** (`K`) marks the clip reviewed with no changes.
+- **Edit text** (`E`) opens the transcript for free editing.
+- **Delete clip** removes the audio and transcript from your dataset. It always asks first, and it always takes a click: deletion has no keyboard shortcut and cannot be undone.
+
+Use the two dropdowns to filter by status and by how much the suggestion differs.
+
+## Reviewing from your phone
+
+Start the server with the network flag and open the printed address on a phone connected to the same Wi-Fi:
+
+```bash
+rekody review --lan
+```
+
+Treat this as a trusted-network feature: while the server runs with `--lan`, anyone on your network can open, edit, and delete the dataset. The default (no flag) stays private to your Mac.
+
+## When you finish
+
+The done screen shows what changed and offers two paths: export `manifest.jsonl` for any training pipeline (your original files stay untouched), or send the dataset to Rekody's managed fine-tuning, which trains a model on your voice and vocabulary and delivers it back into the app.

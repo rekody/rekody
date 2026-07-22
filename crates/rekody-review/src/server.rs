@@ -1,6 +1,7 @@
 //! The localhost HTTP server: review page, state and clip JSON, audio
 //! files, the start/decide/export endpoints, and the ping probe. Binds
-//! 127.0.0.1 only; there is no remote surface.
+//! 127.0.0.1 by default; the opt-in `--lan` flag binds 0.0.0.0 so a phone
+//! on the same Wi-Fi can open the page.
 //!
 //! tiny_http keeps this synchronous and single-user simple: one accept loop,
 //! one request at a time, no async stack. Plenty for a personal review tool.
@@ -28,23 +29,24 @@ const PING_HEADER: (&str, &str) = ("X-Rekody-Review", "1");
 
 type Resp = Response<std::io::Cursor<Vec<u8>>>;
 
-/// Bind 127.0.0.1 on `preferred`, walking up through the next
-/// `PORT_FALLBACK_TRIES` ports when busy. Returns the server and the port
-/// it actually landed on.
-pub(crate) fn bind(preferred: u16) -> Result<(tiny_http::Server, u16)> {
+/// Bind on `preferred`, walking up through the next `PORT_FALLBACK_TRIES`
+/// ports when busy. Returns the server and the port it actually landed on.
+/// The host is 127.0.0.1 unless `lan` widens it to 0.0.0.0.
+pub(crate) fn bind(preferred: u16, lan: bool) -> Result<(tiny_http::Server, u16)> {
+    let host = if lan { "0.0.0.0" } else { "127.0.0.1" };
     let mut last_err = String::new();
     for offset in 0..=PORT_FALLBACK_TRIES {
         let Some(port) = preferred.checked_add(offset) else {
             break;
         };
-        match tiny_http::Server::http(("127.0.0.1", port)) {
+        match tiny_http::Server::http((host, port)) {
             Ok(server) => {
                 if offset > 0 {
                     tracing::info!("port {preferred} was busy; using {port} instead");
                 }
                 return Ok((server, port));
             }
-            Err(e) => last_err = format!("binding 127.0.0.1:{port}: {e}"),
+            Err(e) => last_err = format!("binding {host}:{port}: {e}"),
         }
     }
     anyhow::bail!(
@@ -488,7 +490,7 @@ mod tests {
         if busy > u16::MAX - PORT_FALLBACK_TRIES {
             return; // no fallback room above this port; skip the rare case
         }
-        let (server, chosen) = bind(busy).expect("a nearby port should be free");
+        let (server, chosen) = bind(busy, false).expect("a nearby port should be free");
         assert_ne!(chosen, busy, "must not claim the busy port");
         assert!(chosen > busy && chosen <= busy + PORT_FALLBACK_TRIES);
         drop(server);

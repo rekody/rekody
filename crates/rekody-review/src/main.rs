@@ -18,6 +18,11 @@ struct Args {
     /// Port for the localhost review page (the next nine are tried if busy).
     #[arg(long, default_value_t = 7878)]
     port: u16,
+    /// Also listen on the local network so a phone on the same Wi-Fi can
+    /// open the page. Anyone on the network can edit and delete clips
+    /// while the server runs.
+    #[arg(long)]
+    lan: bool,
 }
 
 fn main() -> Result<()> {
@@ -35,5 +40,6 @@ fn main() -> Result<()> {
         port: args.port,
         open_browser: false,
         auto_exit_secs: 0,
+        lan: args.lan,
     })
 }

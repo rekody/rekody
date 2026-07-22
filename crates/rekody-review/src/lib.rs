@@ -13,9 +13,11 @@
 //!      header, so a launcher can probe a port before spawning a second
 //!      server.
 //!
-//! Nothing leaves the machine: the server binds 127.0.0.1 only, and the
-//! sole outbound request this crate can make is the one-time whisper model
-//! download from the Rekody Hugging Face mirror (checksum-pinned).
+//! Nothing leaves the machine: the server binds 127.0.0.1 by default (the
+//! opt-in `lan` flag widens that to the local network so a phone on the
+//! same Wi-Fi can open the page), and the sole outbound request this crate
+//! can make is the one-time whisper model download from the Rekody Hugging
+//! Face mirror (checksum-pinned).
 
 mod server;
 mod store;
@@ -40,6 +42,11 @@ pub struct ReviewOptions {
     /// 0 disables auto-exit. The page pings every 30 s while a tab is open,
     /// so this fires only once every tab is closed.
     pub auto_exit_secs: u64,
+    /// Also listen on the local network (bind 0.0.0.0) so a phone on the
+    /// same Wi-Fi can open the page. Off by default: the dataset is
+    /// personal audio, and anyone on the network could review, edit, and
+    /// delete clips while the server runs.
+    pub lan: bool,
 }
 
 /// Dataset root resolution shared by the binary and the CLI subcommand:
@@ -92,7 +99,7 @@ pub fn serve(opts: ReviewOptions) -> Result<()> {
         spawn_teacher_once(&shared, &root, &run);
     }
 
-    let (http, port) = server::bind(opts.port)?;
+    let (http, port) = server::bind(opts.port, opts.lan)?;
     let url = format!("http://127.0.0.1:{port}");
 
     // Locked contract: exactly one stdout line, before serving. The Mac app
@@ -105,11 +112,34 @@ pub fn serve(opts: ReviewOptions) -> Result<()> {
         out.flush().context("flushing stdout")?;
     }
 
+    if opts.lan {
+        match lan_ip() {
+            Some(ip) => {
+                eprintln!("On your phone (same Wi-Fi): http://{ip}:{port}");
+                eprintln!(
+                    "Heads up: while this server runs, anyone on your network can open, edit, and delete this dataset."
+                );
+            }
+            None => eprintln!(
+                "Listening on the whole network (0.0.0.0:{port}), but no LAN address could be detected."
+            ),
+        }
+    }
+
     if opts.open_browser {
         open_in_browser(&url);
     }
 
     server::run(http, shared, run, root, opts.auto_exit_secs)
+}
+
+/// The machine's outbound-facing local address, for printing the phone URL
+/// in `--lan` mode. A UDP connect does a route lookup without sending a
+/// packet; the target is TEST-NET-1, never actually contacted.
+fn lan_ip() -> Option<std::net::IpAddr> {
+    let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("192.0.2.1:9").ok()?;
+    sock.local_addr().ok().map(|a| a.ip())
 }
 
 /// Start the teacher thread unless one is already running. Used at startup
