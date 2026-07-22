@@ -51,23 +51,40 @@
         "groups": [
           {
             "group": "Get started",
-            "pages": ["index", "app/install", "app/first-dictation"]
+            "pages": [
+              "index",
+              "app/install",
+              "app/first-dictation"
+            ]
           },
           {
             "group": "Everyday dictation",
-            "pages": ["app/the-pill"]
+            "pages": [
+              "app/the-pill"
+            ]
           },
           {
             "group": "Your workspace",
-            "pages": ["app/library", "app/dictionary", "app/snippets", "app/stats"]
+            "pages": [
+              "app/library",
+              "app/dictionary",
+              "app/snippets",
+              "app/stats",
+              "app/review"
+            ]
           },
           {
             "group": "Privacy",
-            "pages": ["app/privacy"]
+            "pages": [
+              "app/privacy"
+            ]
           },
           {
             "group": "Help",
-            "pages": ["app/troubleshooting", "app/faq"]
+            "pages": [
+              "app/troubleshooting",
+              "app/faq"
+            ]
           }
         ]
       },
@@ -77,15 +94,24 @@
         "groups": [
           {
             "group": "The CLI",
-            "pages": ["developers/install-cli", "developers/configuration"]
+            "pages": [
+              "developers/install-cli",
+              "developers/configuration"
+            ]
           },
           {
             "group": "Engines and models",
-            "pages": ["developers/engines", "developers/models"]
+            "pages": [
+              "developers/engines",
+              "developers/models"
+            ]
           },
           {
             "group": "Project",
-            "pages": ["developers/architecture", "developers/contributing"]
+            "pages": [
+              "developers/architecture",
+              "developers/contributing"
+            ]
           }
         ]
       }

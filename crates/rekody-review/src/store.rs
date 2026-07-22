@@ -1,22 +1,33 @@
-//! Dataset state for the review tool: the capture manifest plus the two
-//! review sidecars (teacher transcripts and human decisions).
+//! Dataset state for the review tool: the capture manifest plus the review
+//! sidecars (teacher transcripts, human decisions, session state).
 //!
 //! Files, all inside the training-data root:
 //!
 //!   manifest.jsonl            the raw capture manifest. Rewritten only for
-//!                             accept_teacher/edit decisions, with the same
-//!                             tmp + rename pattern rekody-core's
+//!                             accept_teacher/edit/delete decisions, with
+//!                             the same tmp + rename pattern rekody-core's
 //!                             training_data::correct_text uses.
 //!   manifest.jsonl.bak-review one-time backup taken before this tool's
 //!                             first manifest write, ever.
 //!   review.jsonl              append-only teacher transcripts, one line per
 //!                             clip: audio_filepath, teacher_text,
-//!                             teacher_model, wer, created.
+//!                             teacher_model, wer, created. An originals-only
+//!                             session seeds placeholder rows with null
+//!                             teacher_text/wer; a real score appended later
+//!                             replaces the placeholder (last line wins on
+//!                             replay).
 //!   decisions.jsonl           append-only decision log, "undo" lines
 //!                             included, replayed on startup to compute the
 //!                             active decision per clip. Each decision line
 //!                             carries the pre-decision manifest fields so
-//!                             undo is lossless.
+//!                             undo is lossless. "delete" lines additionally
+//!                             carry duration/app_context so the done list
+//!                             can still describe the clip; deletes are the
+//!                             one decision undo refuses (the audio file is
+//!                             gone).
+//!   review-state.json         how the session was started: second_opinion
+//!                             plus started_at. Absent while review.jsonl is
+//!                             also absent = the first-run screen.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -50,30 +61,73 @@ pub fn dataset_dir() -> PathBuf {
         })
 }
 
+/// Session state sidecar filename (inside the training-data root).
+pub const REVIEW_STATE_FILE: &str = "review-state.json";
+
+/// Which screen the page opens on, derived from the sidecars on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Nothing recorded yet: the page shows the first-run choice.
+    FirstRun,
+    /// A session is underway, with or without the second opinion.
+    Session { second_opinion: bool },
+}
+
+/// Read review-state.json, `None` when absent or unreadable.
+pub fn read_review_state(root: &Path) -> Option<Value> {
+    let raw = std::fs::read_to_string(root.join(REVIEW_STATE_FILE)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Write review-state.json (tmp + rename). An existing started_at is kept:
+/// upgrading an originals-only session to a second opinion does not restart
+/// the session clock.
+pub fn write_review_state(root: &Path, second_opinion: bool) -> Result<()> {
+    let started_at = read_review_state(root)
+        .and_then(|v| v["started_at"].as_str().map(String::from))
+        .unwrap_or_else(iso_now);
+    let v = json!({ "second_opinion": second_opinion, "started_at": started_at });
+    let path = root.join(REVIEW_STATE_FILE);
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, v.to_string()).context("writing review-state tmp")?;
+    std::fs::rename(&tmp, &path).context("replacing review-state.json")?;
+    Ok(())
+}
+
 /// In-memory view of the dataset. Manifest lines are kept as raw JSON values
 /// so unknown fields survive rewrites untouched.
 pub struct Store {
     root: PathBuf,
+    /// Whether manifest.jsonl existed at load time (false = the first-run
+    /// screen shows its "not found" state; the server still runs).
+    manifest_found: bool,
     /// Manifest lines in file order.
     entries: Vec<Value>,
     /// audio_filepath -> index into `entries` (first occurrence wins).
     index: HashMap<String, usize>,
-    /// audio_filepath -> teacher sidecar line.
+    /// audio_filepath -> teacher sidecar line (placeholders included).
     teacher: HashMap<String, Value>,
     /// audio_filepath -> active (not undone) decision line.
     decisions: HashMap<String, Value>,
 }
 
 impl Store {
-    /// Load the manifest and replay both sidecars.
+    /// Load the manifest and replay both sidecars. A missing manifest is an
+    /// empty dataset, not an error, so the first-run screen can say so.
     pub fn load(root: PathBuf) -> Result<Self> {
         let manifest = root.join("manifest.jsonl");
-        let contents = std::fs::read_to_string(&manifest)
-            .with_context(|| format!("reading {}", manifest.display()))?;
+        let contents = match std::fs::read_to_string(&manifest) {
+            Ok(c) => Some(c),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(e).with_context(|| format!("reading {}", manifest.display()));
+            }
+        };
+        let manifest_found = contents.is_some();
 
         let mut entries = Vec::new();
         let mut index = HashMap::new();
-        for (n, line) in contents.lines().enumerate() {
+        for (n, line) in contents.unwrap_or_default().lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
@@ -113,13 +167,41 @@ impl Store {
             }
         })?;
 
-        Ok(Self {
+        let mut store = Self {
             root,
+            manifest_found,
             entries,
             index,
             teacher,
             decisions,
-        })
+        };
+        store.heal_interrupted_deletes()?;
+        Ok(store)
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn manifest_found(&self) -> bool {
+        self.manifest_found
+    }
+
+    /// Which screen the page opens on. review-state.json is authoritative;
+    /// a dataset with teacher scores but no state file (from before the
+    /// state file existed) is a running second-opinion session.
+    pub fn effective_mode(&self) -> Mode {
+        if let Some(state) = read_review_state(&self.root) {
+            return Mode::Session {
+                second_opinion: state["second_opinion"].as_bool().unwrap_or(false),
+            };
+        }
+        if self.root.join("review.jsonl").exists() {
+            return Mode::Session {
+                second_opinion: true,
+            };
+        }
+        Mode::FirstRun
     }
 
     pub fn clip_count(&self) -> usize {
@@ -133,14 +215,20 @@ impl Store {
             .sum()
     }
 
-    /// Clips already scored by the teacher (and still present in the manifest).
+    /// Clips actually scored by the teacher (still present in the manifest;
+    /// originals-only placeholder rows do not count).
     pub fn teacher_count(&self) -> usize {
         self.index
             .keys()
-            .filter(|p| self.teacher.contains_key(*p))
+            .filter(|p| {
+                self.teacher
+                    .get(*p)
+                    .is_some_and(|t| !t["teacher_text"].is_null())
+            })
             .count()
     }
 
+    /// Live clips with an active decision.
     pub fn decision_count(&self) -> usize {
         self.index
             .keys()
@@ -148,15 +236,42 @@ impl Store {
             .count()
     }
 
+    /// Clips removed by a delete decision (no longer in the manifest).
+    pub fn deleted_count(&self) -> usize {
+        self.deleted_paths().len()
+    }
+
+    /// Every decided clip, deletes included: the "reviewed" number.
+    pub fn reviewed_count(&self) -> usize {
+        self.decision_count() + self.deleted_count()
+    }
+
+    fn deleted_paths(&self) -> Vec<String> {
+        let mut paths: Vec<String> = self
+            .decisions
+            .iter()
+            .filter(|(p, d)| d["decision"] == "delete" && !self.index.contains_key(*p))
+            .map(|(p, _)| p.clone())
+            .collect();
+        paths.sort();
+        paths
+    }
+
     /// `(audio_filepath, label_text)` for every clip the teacher pass still
     /// needs to score, in manifest order. This is the resumability check:
-    /// anything already in review.jsonl is skipped.
+    /// anything with a real transcript in review.jsonl is skipped, while
+    /// originals-only placeholder rows stay pending so "add a second
+    /// opinion" can score them later.
     pub fn pending_for_teacher(&self) -> Vec<(String, String)> {
         self.entries
             .iter()
             .filter_map(|e| {
                 let path = e["audio_filepath"].as_str()?;
-                if self.teacher.contains_key(path) {
+                if self
+                    .teacher
+                    .get(path)
+                    .is_some_and(|t| !t["teacher_text"].is_null())
+                {
                     return None;
                 }
                 Some((
@@ -167,10 +282,16 @@ impl Store {
             .collect()
     }
 
-    /// Append one teacher transcript to review.jsonl. A clip that somehow
-    /// got scored twice keeps its first line.
+    /// Append one teacher transcript to review.jsonl. A clip that already
+    /// has a real transcript keeps its first line; a placeholder row from an
+    /// originals-only start is replaced, and the replay rule (last line
+    /// wins) agrees with that on reload.
     pub fn record_teacher(&mut self, path: &str, teacher_text: &str, wer: f64) -> Result<()> {
-        if self.teacher.contains_key(path) {
+        if self
+            .teacher
+            .get(path)
+            .is_some_and(|t| !t["teacher_text"].is_null())
+        {
             return Ok(());
         }
         let line = json!({
@@ -185,18 +306,63 @@ impl Store {
         Ok(())
     }
 
+    /// Originals-only start: give every clip a review.jsonl row with no
+    /// suggestion (null teacher_text/wer). The page then reviews the
+    /// manifest labels as-is; a later upgrade scores exactly these rows.
+    /// Returns how many rows were seeded (already-present rows are kept).
+    pub fn seed_null_reviews(&mut self) -> Result<usize> {
+        let missing: Vec<String> = self
+            .entries
+            .iter()
+            .filter_map(|e| {
+                let p = e["audio_filepath"].as_str()?;
+                (!self.teacher.contains_key(p)).then(|| p.to_string())
+            })
+            .collect();
+        for path in &missing {
+            let line = json!({
+                "audio_filepath": path,
+                "teacher_text": Value::Null,
+                "teacher_model": Value::Null,
+                "wer": Value::Null,
+                "created": iso_now(),
+            });
+            append_line(&self.root.join("review.jsonl"), &line)?;
+            self.teacher.insert(path.clone(), line);
+        }
+        Ok(missing.len())
+    }
+
     /// Apply one review decision and return the clip's updated JSON.
     ///
     /// accept_teacher and edit rewrite the manifest entry (text, corrected,
-    /// label_source); keep_original only logs. A decision over an existing
-    /// one first undoes it, so the log replays cleanly. "undo" reverts the
-    /// manifest from the pre-decision fields stored in the decision line.
+    /// label_source); keep_original only logs; delete drops the manifest row
+    /// and the audio file. A decision over an existing one first undoes it,
+    /// so the log replays cleanly. "undo" reverts the manifest from the
+    /// pre-decision fields stored in the decision line, except for deletes,
+    /// which cannot be undone (the file is gone).
     pub fn apply_decision(
         &mut self,
         path: &str,
         decision: &str,
         final_text: Option<&str>,
     ) -> Result<Value> {
+        // Deletes run before the index lookup so a repeated delete for a
+        // clip that is already gone stays a calm no-op.
+        if decision == "delete" {
+            return self.delete_clip(path);
+        }
+        // Any other action against a deleted clip gets the real reason,
+        // not a generic "unknown clip".
+        if !self.index.contains_key(path)
+            && self
+                .decisions
+                .get(path)
+                .is_some_and(|d| d["decision"] == "delete")
+        {
+            anyhow::bail!("that clip was deleted; its audio file is gone and cannot be restored");
+        }
+
         let idx = *self
             .index
             .get(path)
@@ -215,7 +381,7 @@ impl Store {
                         .teacher
                         .get(path)
                         .and_then(|t| t["teacher_text"].as_str())
-                        .context("teacher transcript is not ready for this clip yet")?
+                        .context("the second opinion is not ready for this clip yet")?
                         .to_string(),
                     "keep_original" => self.entries[idx]["text"]
                         .as_str()
@@ -267,14 +433,94 @@ impl Store {
         Ok(self.clip_json(idx))
     }
 
+    /// Delete a clip: log the decision, drop the manifest row (atomic
+    /// rewrite, same one-time backup), and remove the audio file from disk.
+    /// Deliberate product behavior: not recoverable, so the page confirms
+    /// first and the done list offers no undo. Ordering matters: the
+    /// decision line lands first, so a crash mid-delete is finished by
+    /// `heal_interrupted_deletes` on the next load.
+    fn delete_clip(&mut self, path: &str) -> Result<Value> {
+        if !self.index.contains_key(path) {
+            if self
+                .decisions
+                .get(path)
+                .is_some_and(|d| d["decision"] == "delete")
+            {
+                return Ok(self.deleted_clip_json(path));
+            }
+            anyhow::bail!("unknown clip {path}");
+        }
+        // Replace semantics like every other decision: a prior decision is
+        // undone first so prev_* describes the pre-review manifest.
+        if self.decisions.contains_key(path) {
+            self.undo(path)?;
+        }
+        let entry = &self.entries[self.index[path]];
+        let mut line = json!({
+            "audio_filepath": path,
+            "decision": "delete",
+            "prev_text": entry["text"].as_str().unwrap_or_default(),
+            "prev_corrected": entry["corrected"].as_bool().unwrap_or(false),
+            "duration": entry["duration"].as_f64().unwrap_or(0.0),
+            "decided": iso_now(),
+        });
+        if let Some(src) = entry["label_source"].as_str() {
+            line["prev_label_source"] = Value::String(src.to_string());
+        }
+        if let Some(app) = entry.get("app_context").and_then(Value::as_str) {
+            line["app_context"] = Value::String(app.to_string());
+        }
+        append_line(&self.root.join("decisions.jsonl"), &line)?;
+        self.decisions.insert(path.to_string(), line);
+        self.remove_manifest_entry(path)?;
+        self.remove_audio_file(path);
+        Ok(self.deleted_clip_json(path))
+    }
+
+    /// Finish deletes that were logged but not applied (a crash between the
+    /// decision append and the manifest rewrite). Idempotent.
+    fn heal_interrupted_deletes(&mut self) -> Result<()> {
+        let stranded: Vec<String> = self
+            .index
+            .keys()
+            .filter(|p| {
+                self.decisions
+                    .get(*p)
+                    .is_some_and(|d| d["decision"] == "delete")
+            })
+            .cloned()
+            .collect();
+        for path in stranded {
+            tracing::warn!(clip = %path, "finishing an interrupted delete from a previous run");
+            self.remove_manifest_entry(&path)?;
+            self.remove_audio_file(&path);
+        }
+        Ok(())
+    }
+
+    /// Remove the clip's audio from disk; a missing file is already the goal.
+    fn remove_audio_file(&self, path: &str) {
+        let abs = self.root.join(path);
+        match std::fs::remove_file(&abs) {
+            Ok(()) => tracing::info!(clip = %path, "audio file deleted"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => tracing::warn!(clip = %path, "could not delete the audio file: {e}"),
+        }
+    }
+
     /// Revert the clip's active decision: restore the pre-decision manifest
     /// fields (when the decision wrote the manifest) and log an undo line.
+    /// Deletes are refused: the audio file is gone.
     fn undo(&mut self, path: &str) -> Result<()> {
         let record = self
             .decisions
             .get(path)
             .cloned()
             .with_context(|| format!("no decision to undo for {path}"))?;
+        anyhow::ensure!(
+            record["decision"] != "delete",
+            "deleted clips cannot be restored; the audio file is gone"
+        );
         let wrote_manifest = matches!(
             record["decision"].as_str(),
             Some("accept_teacher") | Some("edit")
@@ -314,13 +560,13 @@ impl Store {
         Ok(())
     }
 
-    /// Rewrite one manifest entry atomically (tmp + rename), re-reading the
-    /// file first so dictations the daemon appended since startup survive.
-    /// Takes the one-time backup before the first write.
-    fn rewrite_manifest_entry(
+    /// Rewrite manifest.jsonl atomically (tmp + rename) via `mutate` over
+    /// its non-empty lines, re-reading the file first so dictations the
+    /// daemon appended since startup survive. Takes the one-time backup
+    /// before this tool's first write, ever.
+    fn rewrite_manifest_lines(
         &mut self,
-        path: &str,
-        mutate: impl FnOnce(&mut Value),
+        mutate: impl FnOnce(&mut Vec<String>) -> Result<()>,
     ) -> Result<()> {
         let manifest = self.root.join("manifest.jsonl");
         let backup = self.root.join("manifest.jsonl.bak-review");
@@ -335,34 +581,83 @@ impl Store {
             .filter(|l| !l.trim().is_empty())
             .map(String::from)
             .collect();
-        let pos = lines
-            .iter()
-            .position(|l| {
-                serde_json::from_str::<Value>(l)
-                    .ok()
-                    .is_some_and(|v| v["audio_filepath"].as_str() == Some(path))
-            })
-            .with_context(|| format!("clip {path} vanished from the manifest"))?;
-        let mut v: Value = serde_json::from_str(&lines[pos]).context("manifest line parse")?;
-        mutate(&mut v);
-        lines[pos] = v.to_string();
-        if let Some(&i) = self.index.get(path) {
-            self.entries[i] = v;
-        }
+        mutate(&mut lines)?;
 
+        let body = if lines.is_empty() {
+            String::new()
+        } else {
+            lines.join("\n") + "\n"
+        };
         let tmp = manifest.with_extension("jsonl.tmp");
-        std::fs::write(&tmp, lines.join("\n") + "\n").context("writing manifest tmp")?;
+        std::fs::write(&tmp, body).context("writing manifest tmp")?;
         std::fs::rename(&tmp, &manifest).context("replacing manifest")?;
         Ok(())
     }
 
-    /// One clip's JSON for the API: manifest fields plus teacher and
-    /// decision state.
+    /// Rewrite one manifest entry in place.
+    fn rewrite_manifest_entry(
+        &mut self,
+        path: &str,
+        mutate: impl FnOnce(&mut Value),
+    ) -> Result<()> {
+        let mut updated: Option<Value> = None;
+        self.rewrite_manifest_lines(|lines| {
+            let pos = lines
+                .iter()
+                .position(|l| {
+                    serde_json::from_str::<Value>(l)
+                        .ok()
+                        .is_some_and(|v| v["audio_filepath"].as_str() == Some(path))
+                })
+                .with_context(|| format!("clip {path} vanished from the manifest"))?;
+            let mut v: Value = serde_json::from_str(&lines[pos]).context("manifest line parse")?;
+            mutate(&mut v);
+            lines[pos] = v.to_string();
+            updated = Some(v);
+            Ok(())
+        })?;
+        if let (Some(v), Some(&i)) = (updated, self.index.get(path)) {
+            self.entries[i] = v;
+        }
+        Ok(())
+    }
+
+    /// Drop one manifest entry entirely (the delete path).
+    fn remove_manifest_entry(&mut self, path: &str) -> Result<()> {
+        self.rewrite_manifest_lines(|lines| {
+            let before = lines.len();
+            lines.retain(|l| {
+                serde_json::from_str::<Value>(l)
+                    .ok()
+                    .is_none_or(|v| v["audio_filepath"].as_str() != Some(path))
+            });
+            anyhow::ensure!(
+                lines.len() < before,
+                "clip {path} vanished from the manifest"
+            );
+            Ok(())
+        })?;
+        if let Some(i) = self.index.remove(path) {
+            self.entries.remove(i);
+            self.index = self
+                .entries
+                .iter()
+                .enumerate()
+                .filter_map(|(n, e)| e["audio_filepath"].as_str().map(|p| (p.to_string(), n)))
+                .collect();
+        }
+        Ok(())
+    }
+
+    /// One live clip's JSON for the API: manifest fields plus teacher and
+    /// decision state. `prev_text` rides along on decisions so the page can
+    /// count corrected words without another endpoint.
     fn clip_json(&self, idx: usize) -> Value {
         let e = &self.entries[idx];
         let path = e["audio_filepath"].as_str().unwrap_or_default();
         let mut out = json!({
             "audio_filepath": path,
+            "deleted": false,
             "text": e["text"],
             "duration": e["duration"].as_f64().unwrap_or(0.0),
             "engine": e["engine"],
@@ -382,18 +677,49 @@ impl Store {
                 "decision": d["decision"],
                 "final_text": d["final_text"],
                 "decided": d["decided"],
+                "prev_text": d["prev_text"],
             });
         }
         out
     }
 
-    /// The `/api/clips` payload: every clip plus dataset-level counts.
-    pub fn clips_json(&self) -> Value {
-        let clips: Vec<Value> = (0..self.entries.len()).map(|i| self.clip_json(i)).collect();
+    /// A deleted clip's JSON: enough for the done list (source, duration,
+    /// what the label said) plus the decision record.
+    fn deleted_clip_json(&self, path: &str) -> Value {
+        let d = self
+            .decisions
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         json!({
-            "total": self.entries.len(),
+            "audio_filepath": path,
+            "deleted": true,
+            "text": d["prev_text"].clone(),
+            "duration": d["duration"].as_f64().unwrap_or(0.0),
+            "app_context": d.get("app_context").cloned().unwrap_or(Value::Null),
+            "corrected": false,
+            "teacher_text": Value::Null,
+            "wer": Value::Null,
+            "decision": {
+                "decision": "delete",
+                "final_text": Value::Null,
+                "decided": d["decided"].clone(),
+                "prev_text": d["prev_text"].clone(),
+            },
+        })
+    }
+
+    /// The `/api/clips` payload: every clip (deleted ones included, for the
+    /// done list) plus dataset-level counts.
+    pub fn clips_json(&self) -> Value {
+        let mut clips: Vec<Value> = (0..self.entries.len()).map(|i| self.clip_json(i)).collect();
+        for path in self.deleted_paths() {
+            clips.push(self.deleted_clip_json(&path));
+        }
+        json!({
+            "total": self.clip_count() + self.deleted_count(),
             "transcribed": self.teacher_count(),
-            "decided": self.decision_count(),
+            "decided": self.reviewed_count(),
             "total_duration_secs": self.total_duration_secs(),
             "clips": clips,
         })
@@ -500,6 +826,34 @@ mod tests {
         ];
         let body = lines.map(|v| v.to_string()).join("\n") + "\n";
         std::fs::write(dir.path().join("manifest.jsonl"), body).unwrap();
+        dir
+    }
+
+    /// Three clips with real (tiny) audio files on disk, for delete tests.
+    fn seed_three_with_audio() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("audio");
+        std::fs::create_dir_all(&audio).unwrap();
+        let mut lines = Vec::new();
+        for (name, text) in [
+            ("a", "alpha one"),
+            ("b", "bravo two"),
+            ("c", "charlie three"),
+        ] {
+            lines.push(
+                json!({
+                    "audio_filepath": format!("audio/{name}.flac"),
+                    "text": text,
+                    "duration": 2.0,
+                    "engine": "nemotron",
+                    "timestamp": "2026-07-01T10-00-00",
+                    "app_context": "Ghostty",
+                })
+                .to_string(),
+            );
+            std::fs::write(audio.join(format!("{name}.flac")), b"fLaC").unwrap();
+        }
+        std::fs::write(dir.path().join("manifest.jsonl"), lines.join("\n") + "\n").unwrap();
         dir
     }
 
@@ -616,5 +970,201 @@ mod tests {
             reloaded.pending_for_teacher(),
             vec![("audio/b.flac".to_string(), "second utterance".to_string())]
         );
+    }
+
+    #[test]
+    fn delete_removes_row_and_audio_and_repeats_are_noops() {
+        let dir = seed_three_with_audio();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+
+        let out = store
+            .apply_decision("audio/b.flac", "delete", None)
+            .unwrap();
+        assert_eq!(out["deleted"], true);
+        assert_eq!(out["decision"]["decision"], "delete");
+        assert!(!dir.path().join("audio").join("b.flac").exists());
+        let manifest = std::fs::read_to_string(dir.path().join("manifest.jsonl")).unwrap();
+        assert!(!manifest.contains("audio/b.flac"));
+        assert!(manifest.contains("audio/a.flac") && manifest.contains("audio/c.flac"));
+        assert!(dir.path().join("manifest.jsonl.bak-review").exists());
+
+        // Repeat delete: calm no-op, still reported deleted.
+        let again = store
+            .apply_decision("audio/b.flac", "delete", None)
+            .unwrap();
+        assert_eq!(again["deleted"], true);
+
+        // Undo is refused: the audio file is gone.
+        assert!(store.apply_decision("audio/b.flac", "undo", None).is_err());
+
+        assert_eq!(store.clip_count(), 2);
+        assert_eq!(store.deleted_count(), 1);
+        assert_eq!(store.reviewed_count(), 1);
+    }
+
+    #[test]
+    fn mixed_decisions_and_delete_replay_together() {
+        let dir = seed_three_with_audio();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        store
+            .record_teacher("audio/a.flac", "alpha won", 0.5)
+            .unwrap();
+        store
+            .apply_decision("audio/a.flac", "accept_teacher", None)
+            .unwrap();
+        store
+            .apply_decision("audio/b.flac", "delete", None)
+            .unwrap();
+        store
+            .apply_decision("audio/c.flac", "edit", Some("charlie tree"))
+            .unwrap();
+
+        let reloaded = Store::load(dir.path().to_path_buf()).unwrap();
+        assert_eq!(reloaded.clip_count(), 2);
+        assert_eq!(reloaded.deleted_count(), 1);
+        assert_eq!(reloaded.reviewed_count(), 3);
+        let clips = reloaded.clips_json();
+        assert_eq!(clips["total"], 3);
+        assert_eq!(clips["decided"], 3);
+
+        // The deleted clip still shows up for the done list, marked deleted,
+        // and carries what the label said plus the decision record.
+        let rows = clips["clips"].as_array().unwrap();
+        let deleted: Vec<&Value> = rows.iter().filter(|c| c["deleted"] == true).collect();
+        assert_eq!(deleted.len(), 1);
+        assert_eq!(deleted[0]["audio_filepath"], "audio/b.flac");
+        assert_eq!(deleted[0]["text"], "bravo two");
+        assert_eq!(deleted[0]["decision"]["decision"], "delete");
+
+        // Survivors carry their decisions with prev_text for the page.
+        assert_eq!(
+            manifest_entry(dir.path(), "audio/a.flac")["text"],
+            "alpha won"
+        );
+        assert_eq!(
+            manifest_entry(dir.path(), "audio/c.flac")["text"],
+            "charlie tree"
+        );
+        let a = rows
+            .iter()
+            .find(|c| c["audio_filepath"] == "audio/a.flac")
+            .unwrap();
+        assert_eq!(a["decision"]["prev_text"], "alpha one");
+
+        // Undo of a surviving decision still replays losslessly next to a
+        // delete in the same log.
+        let mut reloaded = reloaded;
+        reloaded
+            .apply_decision("audio/a.flac", "undo", None)
+            .unwrap();
+        assert_eq!(
+            manifest_entry(dir.path(), "audio/a.flac")["text"],
+            "alpha one"
+        );
+        let replayed = Store::load(dir.path().to_path_buf()).unwrap();
+        assert_eq!(replayed.reviewed_count(), 2);
+        assert_eq!(replayed.deleted_count(), 1);
+    }
+
+    #[test]
+    fn interrupted_delete_is_healed_on_load() {
+        let dir = seed_three_with_audio();
+        // Simulate a crash after the decision append, before the manifest
+        // rewrite: log the delete by hand, leave manifest + file in place.
+        append_line(
+            &dir.path().join("decisions.jsonl"),
+            &json!({
+                "audio_filepath": "audio/c.flac",
+                "decision": "delete",
+                "prev_text": "charlie three",
+                "prev_corrected": false,
+                "duration": 2.0,
+                "decided": "2026-07-01T10:00:00Z",
+            }),
+        )
+        .unwrap();
+
+        let store = Store::load(dir.path().to_path_buf()).unwrap();
+        assert_eq!(store.clip_count(), 2);
+        assert_eq!(store.deleted_count(), 1);
+        let manifest = std::fs::read_to_string(dir.path().join("manifest.jsonl")).unwrap();
+        assert!(!manifest.contains("audio/c.flac"));
+        assert!(!dir.path().join("audio").join("c.flac").exists());
+    }
+
+    #[test]
+    fn first_run_transitions_to_both_session_modes() {
+        let dir = seed_dataset();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        assert_eq!(store.effective_mode(), Mode::FirstRun);
+
+        // Originals-only start: state file plus placeholder rows.
+        write_review_state(dir.path(), false).unwrap();
+        assert_eq!(store.seed_null_reviews().unwrap(), 2);
+        assert_eq!(
+            store.effective_mode(),
+            Mode::Session {
+                second_opinion: false
+            }
+        );
+        assert_eq!(store.teacher_count(), 0, "placeholder rows are not scores");
+        assert_eq!(
+            store.pending_for_teacher().len(),
+            2,
+            "placeholder rows stay pending for a later upgrade"
+        );
+        let clip = store.clips_json()["clips"][0].clone();
+        assert!(clip["teacher_text"].is_null() && clip["wer"].is_null());
+
+        // Upgrading to the second opinion keeps the original start time.
+        let started = read_review_state(dir.path()).unwrap()["started_at"].clone();
+        write_review_state(dir.path(), true).unwrap();
+        assert_eq!(
+            store.effective_mode(),
+            Mode::Session {
+                second_opinion: true
+            }
+        );
+        assert_eq!(
+            read_review_state(dir.path()).unwrap()["started_at"],
+            started
+        );
+
+        // A real score replaces the placeholder, on reload too (last line
+        // wins in the replay).
+        store
+            .record_teacher("audio/a.flac", "the Spark DGX", 0.4)
+            .unwrap();
+        assert_eq!(store.teacher_count(), 1);
+        let reloaded = Store::load(dir.path().to_path_buf()).unwrap();
+        assert_eq!(reloaded.teacher_count(), 1);
+        assert_eq!(reloaded.pending_for_teacher().len(), 1);
+    }
+
+    #[test]
+    fn legacy_dataset_with_scores_is_a_second_opinion_session() {
+        let dir = seed_dataset();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        assert_eq!(store.effective_mode(), Mode::FirstRun);
+        store
+            .record_teacher("audio/a.flac", "the Spark DGX", 0.4)
+            .unwrap();
+        // review.jsonl now exists without review-state.json: that is the
+        // pre-product layout, treated as a scored session in progress.
+        assert_eq!(
+            store.effective_mode(),
+            Mode::Session {
+                second_opinion: true
+            }
+        );
+    }
+
+    #[test]
+    fn missing_manifest_loads_as_an_empty_first_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().to_path_buf()).unwrap();
+        assert!(!store.manifest_found());
+        assert_eq!(store.clip_count(), 0);
+        assert_eq!(store.effective_mode(), Mode::FirstRun);
     }
 }
