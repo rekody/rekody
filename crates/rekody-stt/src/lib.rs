@@ -5,6 +5,7 @@
 //! - Cloud Whisper via Groq API (optional)
 
 use std::path::Path;
+use std::sync::Mutex;
 use std::time::Instant;
 
 /// Nemotron cache-aware streaming engine (feature `nemotron`).
@@ -85,6 +86,52 @@ pub trait SttEngine: Send + Sync {
         &self,
         samples: &[f32],
     ) -> impl std::future::Future<Output = Result<Transcript>> + Send;
+
+    /// Bias decoding toward custom vocabulary terms for subsequent
+    /// transcriptions. The pipeline calls this with the user's personal
+    /// dictionary before each dictation; engines without a biasing
+    /// mechanism keep this default no-op. An empty slice clears any
+    /// previously set terms.
+    fn set_bias_terms(&self, _terms: &[String]) {}
+}
+
+// ---------------------------------------------------------------------------
+// Dictionary term biasing
+// ---------------------------------------------------------------------------
+
+/// Byte cap for the terms-only Whisper biasing prompt (local decoder context
+/// and the Groq `prompt` field). Whisper conditions on at most 224 prompt
+/// tokens and keeps the TAIL when the prompt is longer, which would silently
+/// drop the user's first terms; 800 bytes stays safely inside that window.
+/// Bytes are at least as strict as characters, so multibyte terms only make
+/// the prompt shorter.
+const MAX_BIAS_PROMPT_BYTES: usize = 800;
+
+/// Join dictionary terms into a Whisper biasing prompt.
+///
+/// A Whisper prompt is decoder context, not an instruction: the model
+/// conditions on it as if that text preceded the audio, so the output is the
+/// terms joined with ", " and nothing else. Terms are taken in file order
+/// until the next one would pass [`MAX_BIAS_PROMPT_BYTES`]. Interior null
+/// bytes are stripped because whisper-rs panics on them. Returns `None` when
+/// no usable terms exist, so callers skip the prompt entirely.
+fn build_bias_prompt(terms: &[String]) -> Option<String> {
+    let mut prompt = String::new();
+    for term in terms {
+        let term = term.trim().replace('\0', "");
+        if term.is_empty() {
+            continue;
+        }
+        let sep_len = if prompt.is_empty() { 0 } else { 2 };
+        if prompt.len() + sep_len + term.len() > MAX_BIAS_PROMPT_BYTES {
+            break;
+        }
+        if !prompt.is_empty() {
+            prompt.push_str(", ");
+        }
+        prompt.push_str(&term);
+    }
+    (!prompt.is_empty()).then_some(prompt)
 }
 
 /// Available Whisper model sizes.
@@ -141,6 +188,11 @@ pub struct LocalWhisperEngine {
     /// BCP-47 language code to force (e.g. `"en"`, `"sw"`, `"fr"`).
     /// `None` enables auto language detection (requires a multilingual model file).
     language: Option<String>,
+    /// Comma-joined dictionary terms set as the decoder's initial prompt,
+    /// built by [`build_bias_prompt`]. `None` = no biasing. Behind a mutex
+    /// because `transcribe` takes `&self` and the pipeline refreshes the
+    /// terms per dictation.
+    bias_prompt: Mutex<Option<String>>,
 }
 
 // Safety: WhisperContext internally manages thread safety for the whisper.cpp
@@ -194,6 +246,7 @@ impl LocalWhisperEngine {
             model,
             ctx,
             language: Some("en".to_string()),
+            bias_prompt: Mutex::new(None),
         })
     }
 
@@ -233,6 +286,16 @@ impl LocalWhisperEngine {
 
         // Set language: None enables Whisper's built-in auto language detection.
         params.set_language(self.language.as_deref());
+
+        // Bias decoding toward the user's dictionary terms: Whisper treats
+        // the initial prompt as text that preceded the audio, nudging it to
+        // spell those terms correctly. whisper-rs copies the string into the
+        // params, so the lock guard is released right after this call.
+        if let Ok(guard) = self.bias_prompt.lock()
+            && let Some(prompt) = guard.as_deref()
+        {
+            params.set_initial_prompt(prompt);
+        }
 
         if long_audio {
             // Let whisper.cpp run multi-segment with its sliding-window decoder.
@@ -345,6 +408,12 @@ impl SttEngine for LocalWhisperEngine {
 
         Ok(Transcript { text, latency_ms })
     }
+
+    fn set_bias_terms(&self, terms: &[String]) {
+        if let Ok(mut prompt) = self.bias_prompt.lock() {
+            *prompt = build_bias_prompt(terms);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +436,9 @@ pub struct GroqWhisperEngine {
     client: reqwest::Client,
     /// BCP-47 language code hint (e.g. `"en"`, `"sw"`). `None` = auto-detect.
     language: Option<String>,
+    /// Comma-joined dictionary terms sent as the multipart `prompt` field,
+    /// built by [`build_bias_prompt`]. `None` = field omitted.
+    bias_prompt: Mutex<Option<String>>,
 }
 
 impl GroqWhisperEngine {
@@ -380,6 +452,7 @@ impl GroqWhisperEngine {
             model: "whisper-large-v3".to_string(),
             client: reqwest::Client::new(),
             language: None,
+            bias_prompt: Mutex::new(None),
         }
     }
 
@@ -390,6 +463,7 @@ impl GroqWhisperEngine {
             model,
             client: reqwest::Client::new(),
             language: None,
+            bias_prompt: Mutex::new(None),
         }
     }
 
@@ -403,6 +477,7 @@ impl GroqWhisperEngine {
             model: "whisper-large-v3".to_string(),
             client: reqwest::Client::new(),
             language,
+            bias_prompt: Mutex::new(None),
         }
     }
 }
@@ -449,8 +524,16 @@ fn encode_wav(samples: &[f32]) -> Vec<u8> {
 /// `language` is an optional BCP-47 code (e.g. `"en"`, `"sw"`). When `None`,
 /// the language field is omitted and Groq Whisper auto-detects the language.
 ///
+/// `prompt` is an optional terms-only biasing prompt (see
+/// [`build_bias_prompt`]). When `None`, the prompt field is omitted.
+///
 /// Returns `(content_type_header, body_bytes)`.
-fn build_multipart_body(wav_data: &[u8], model: &str, language: Option<&str>) -> (String, Vec<u8>) {
+fn build_multipart_body(
+    wav_data: &[u8],
+    model: &str,
+    language: Option<&str>,
+    prompt: Option<&str>,
+) -> (String, Vec<u8>) {
     let boundary = "----RekodyBoundary9876543210";
     let mut body = Vec::new();
 
@@ -474,6 +557,15 @@ fn build_multipart_body(wav_data: &[u8], model: &str, language: Option<&str>) ->
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
         body.extend_from_slice(b"Content-Disposition: form-data; name=\"language\"\r\n\r\n");
         body.extend_from_slice(lang.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+
+    // prompt field: dictionary terms as decoder context, biasing Whisper
+    // toward the user's vocabulary. Omitted when the dictionary is empty.
+    if let Some(prompt) = prompt {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"prompt\"\r\n\r\n");
+        body.extend_from_slice(prompt.as_bytes());
         body.extend_from_slice(b"\r\n");
     }
 
@@ -510,9 +602,15 @@ impl SttEngine for GroqWhisperEngine {
         // Encode samples to WAV in memory
         let wav_data = encode_wav(samples);
 
-        // Build the multipart body (language=None → Groq auto-detects)
-        let (content_type, body) =
-            build_multipart_body(&wav_data, &self.model, self.language.as_deref());
+        // Build the multipart body (language=None → Groq auto-detects;
+        // bias_prompt=None → no prompt field).
+        let bias_prompt = self.bias_prompt.lock().ok().and_then(|guard| guard.clone());
+        let (content_type, body) = build_multipart_body(
+            &wav_data,
+            &self.model,
+            self.language.as_deref(),
+            bias_prompt.as_deref(),
+        );
 
         // Send to Groq API
         let response = self
@@ -554,6 +652,12 @@ impl SttEngine for GroqWhisperEngine {
         );
 
         Ok(Transcript { text, latency_ms })
+    }
+
+    fn set_bias_terms(&self, terms: &[String]) {
+        if let Ok(mut prompt) = self.bias_prompt.lock() {
+            *prompt = build_bias_prompt(terms);
+        }
     }
 }
 
@@ -704,6 +808,9 @@ pub struct DeepgramEngine {
     client: reqwest::Client,
     /// BCP-47 language code, or `"multi"` for auto-detection (default).
     language: String,
+    /// Dictionary terms sent as one `keyterm` query param each, capped at
+    /// [`DEEPGRAM_MAX_KEYTERMS`]. Empty = no biasing.
+    bias_terms: Mutex<Vec<String>>,
 }
 
 impl DeepgramEngine {
@@ -714,6 +821,7 @@ impl DeepgramEngine {
             model: "nova-3".to_string(),
             client: reqwest::Client::new(),
             language: "multi".to_string(),
+            bias_terms: Mutex::new(Vec::new()),
         }
     }
 
@@ -724,6 +832,7 @@ impl DeepgramEngine {
             model,
             client: reqwest::Client::new(),
             language: "multi".to_string(),
+            bias_terms: Mutex::new(Vec::new()),
         }
     }
 
@@ -738,8 +847,42 @@ impl DeepgramEngine {
             model: "nova-3".to_string(),
             client: reqwest::Client::new(),
             language,
+            bias_terms: Mutex::new(Vec::new()),
         }
     }
+}
+
+/// Maximum number of dictionary terms forwarded as Deepgram `keyterm` query
+/// params. Covers any realistic personal dictionary while keeping the
+/// request URL well under practical URL-length limits.
+const DEEPGRAM_MAX_KEYTERMS: usize = 50;
+
+/// Build the query parameters for Deepgram's `/v1/listen` endpoint.
+///
+/// Each dictionary term becomes one Nova-3 `keyterm` param, which boosts
+/// recognition of rare words at decode time. Older models (nova-2 and
+/// earlier) use the `keywords` param instead; rekody pins Deepgram to
+/// Nova-3. Only the first [`DEEPGRAM_MAX_KEYTERMS`] terms are sent, in file
+/// order. reqwest URL-encodes every pair, so multi-word terms and special
+/// characters are safe.
+fn build_deepgram_query<'a>(
+    model: &'a str,
+    language: &'a str,
+    bias_terms: &'a [String],
+) -> Vec<(&'static str, &'a str)> {
+    let mut query: Vec<(&'static str, &'a str)> = vec![
+        ("model", model),
+        ("language", language),
+        ("smart_format", "true"),
+        ("punctuate", "true"),
+    ];
+    query.extend(
+        bias_terms
+            .iter()
+            .take(DEEPGRAM_MAX_KEYTERMS)
+            .map(|term| ("keyterm", term.as_str())),
+    );
+    query
 }
 
 impl SttEngine for DeepgramEngine {
@@ -763,16 +906,22 @@ impl SttEngine for DeepgramEngine {
 
         // Use reqwest query params so values are URL-encoded automatically,
         // preventing parameter injection if the config contains special characters.
-        // language="multi" enables Nova-3's real-time multilingual auto-detection.
+        // language="multi" enables Nova-3's real-time multilingual auto-detection;
+        // dictionary terms ride along as `keyterm` params (see
+        // `build_deepgram_query`).
+        let bias_terms = self
+            .bias_terms
+            .lock()
+            .map(|terms| terms.clone())
+            .unwrap_or_default();
         let response = self
             .client
             .post("https://api.deepgram.com/v1/listen")
-            .query(&[
-                ("model", self.model.as_str()),
-                ("language", self.language.as_str()),
-                ("smart_format", "true"),
-                ("punctuate", "true"),
-            ])
+            .query(&build_deepgram_query(
+                &self.model,
+                &self.language,
+                &bias_terms,
+            ))
             .header("Authorization", format!("Token {}", self.api_key))
             .header("Content-Type", "audio/wav")
             .body(wav_data)
@@ -812,5 +961,154 @@ impl SttEngine for DeepgramEngine {
         );
 
         Ok(Transcript { text, latency_ms })
+    }
+
+    fn set_bias_terms(&self, terms: &[String]) {
+        if let Ok(mut stored) = self.bias_terms.lock() {
+            *stored = terms
+                .iter()
+                .map(|term| term.trim())
+                .filter(|term| !term.is_empty())
+                .map(str::to_owned)
+                .collect();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn terms(list: &[&str]) -> Vec<String> {
+        list.iter().map(|t| t.to_string()).collect()
+    }
+
+    // ----- build_bias_prompt -----
+
+    #[test]
+    fn bias_prompt_joins_terms_with_commas() {
+        let prompt = build_bias_prompt(&terms(&["Rekody", "Chamgei", "Core ML"]));
+        assert_eq!(prompt.as_deref(), Some("Rekody, Chamgei, Core ML"));
+    }
+
+    #[test]
+    fn bias_prompt_empty_and_whitespace_terms_yield_none() {
+        assert_eq!(build_bias_prompt(&[]), None);
+        assert_eq!(build_bias_prompt(&terms(&["", "   "])), None);
+        // Whitespace padding is trimmed off surviving terms.
+        assert_eq!(
+            build_bias_prompt(&terms(&["  Rekody ", ""])).as_deref(),
+            Some("Rekody")
+        );
+    }
+
+    #[test]
+    fn bias_prompt_caps_total_length_in_file_order() {
+        // 8-byte terms cost 10 bytes each after the first (", " separator),
+        // so the 800-byte cap admits exactly the first 80 terms.
+        let many: Vec<String> = (0..200).map(|i| format!("term{i:04}")).collect();
+        let prompt = build_bias_prompt(&many).unwrap();
+        assert!(prompt.len() <= MAX_BIAS_PROMPT_BYTES);
+        assert!(prompt.starts_with("term0000, term0001"));
+        assert!(prompt.ends_with("term0079"));
+        assert!(!prompt.contains("term0080"));
+    }
+
+    #[test]
+    fn bias_prompt_strips_null_bytes() {
+        // whisper-rs's set_initial_prompt panics on interior null bytes.
+        assert_eq!(
+            build_bias_prompt(&terms(&["Re\0kody"])).as_deref(),
+            Some("Rekody")
+        );
+        assert_eq!(build_bias_prompt(&terms(&["\0"])), None);
+    }
+
+    // ----- Deepgram query construction -----
+
+    #[test]
+    fn deepgram_query_has_no_keyterms_when_empty() {
+        let query = build_deepgram_query("nova-3", "multi", &[]);
+        assert_eq!(
+            query,
+            vec![
+                ("model", "nova-3"),
+                ("language", "multi"),
+                ("smart_format", "true"),
+                ("punctuate", "true"),
+            ]
+        );
+    }
+
+    #[test]
+    fn deepgram_query_adds_one_keyterm_per_term() {
+        let bias = terms(&["Rekody", "Kipkemboi"]);
+        let query = build_deepgram_query("nova-3", "en", &bias);
+        let keyterms: Vec<&str> = query
+            .iter()
+            .filter(|(key, _)| *key == "keyterm")
+            .map(|(_, value)| *value)
+            .collect();
+        assert_eq!(keyterms, vec!["Rekody", "Kipkemboi"]);
+        // Base params are untouched.
+        assert!(query.contains(&("model", "nova-3")));
+        assert!(query.contains(&("language", "en")));
+    }
+
+    #[test]
+    fn deepgram_query_caps_keyterms() {
+        let many: Vec<String> = (0..80).map(|i| format!("term{i}")).collect();
+        let query = build_deepgram_query("nova-3", "multi", &many);
+        let count = query.iter().filter(|(key, _)| *key == "keyterm").count();
+        assert_eq!(count, DEEPGRAM_MAX_KEYTERMS);
+        // File order: the first terms survive the cap.
+        assert!(query.contains(&("keyterm", "term0")));
+        assert!(!query.contains(&("keyterm", "term50")));
+    }
+
+    #[test]
+    fn deepgram_set_bias_terms_stores_trimmed_nonempty_terms() {
+        let engine = DeepgramEngine::new("test-key".to_string());
+        engine.set_bias_terms(&terms(&["  Rekody ", "   ", "Chamgei"]));
+        let stored = engine.bias_terms.lock().unwrap().clone();
+        assert_eq!(stored, terms(&["Rekody", "Chamgei"]));
+        // Empty input clears previous terms.
+        engine.set_bias_terms(&[]);
+        assert!(engine.bias_terms.lock().unwrap().is_empty());
+    }
+
+    // ----- Groq multipart body -----
+
+    #[test]
+    fn groq_multipart_includes_prompt_field_when_terms_exist() {
+        let wav = encode_wav(&[0.0f32; 16]);
+        let (_, body) =
+            build_multipart_body(&wav, "whisper-large-v3", None, Some("Rekody, Chamgei"));
+        let body_text = String::from_utf8_lossy(&body);
+        assert!(body_text.contains("name=\"prompt\""));
+        assert!(body_text.contains("Rekody, Chamgei"));
+    }
+
+    #[test]
+    fn groq_multipart_omits_prompt_field_when_none() {
+        let wav = encode_wav(&[0.0f32; 16]);
+        let (_, body) = build_multipart_body(&wav, "whisper-large-v3", Some("en"), None);
+        let body_text = String::from_utf8_lossy(&body);
+        assert!(!body_text.contains("name=\"prompt\""));
+        // Existing fields are unaffected.
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains("name=\"language\""));
+    }
+
+    #[test]
+    fn groq_set_bias_terms_builds_prompt_and_clears_on_empty() {
+        let engine = GroqWhisperEngine::new("test-key".to_string());
+        engine.set_bias_terms(&terms(&["Rekody"]));
+        assert_eq!(
+            engine.bias_prompt.lock().unwrap().as_deref(),
+            Some("Rekody")
+        );
+        engine.set_bias_terms(&[]);
+        assert_eq!(*engine.bias_prompt.lock().unwrap(), None);
     }
 }
