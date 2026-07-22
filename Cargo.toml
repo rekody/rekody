@@ -9,6 +9,8 @@ members = [
     "crates/rekody-hotkey",
     "crates/rekody-review",
 ]
+# Vendored crates are patch sources, not workspace members.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.5.20"
@@ -36,3 +38,14 @@ anyhow = "1"
 thiserror = "2"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 clap = { version = "4", features = ["derive"] }
+
+# Engine-level dictionary term biasing (issue #91, spec at
+# docs/design/nemotron-term-biasing-spec.md, section 5 step 1).
+# vendor/parakeet-rs is upstream 0.3.6 byte-identical except for one additive
+# hook: a LogitsProcessor trait + setter called from the Nemotron greedy
+# decode loop (process before argmax, on_emit after a token commits,
+# on_reset on utterance reset). MIT OR Apache-2.0, upstream attribution kept.
+# The hook will be offered upstream as a PR; drop this patch entry once a
+# parakeet-rs release ships it.
+[patch.crates-io]
+parakeet-rs = { path = "vendor/parakeet-rs" }

@@ -12,6 +12,12 @@ use std::time::Instant;
 #[cfg(feature = "nemotron")]
 pub mod nemotron;
 
+/// Decode-time dictionary term biasing for the Nemotron streaming engine
+/// (feature `nemotron`): SentencePiece term encoding plus the trie-based
+/// logits processor. Spec: docs/design/nemotron-term-biasing-spec.md.
+#[cfg(feature = "nemotron")]
+pub mod biasing;
+
 use anyhow::Result;
 use serde::Deserialize;
 use thiserror::Error;

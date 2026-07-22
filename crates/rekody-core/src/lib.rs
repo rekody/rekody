@@ -181,6 +181,69 @@ pub struct RekodyConfig {
     /// Set via `hud = true` / `hud = false` in config.toml.
     #[serde(default)]
     pub hud: Option<bool>,
+
+    /// Decode-time dictionary term biasing for the Nemotron streaming
+    /// engine (`[term_biasing]` table; spec:
+    /// docs/design/nemotron-term-biasing-spec.md). Serde-defaulted so every
+    /// existing config.toml keeps parsing; when the table is absent the
+    /// feature is OFF. `enabled = true` has an effect only when
+    /// `stt_engine = "nemotron"`; every other engine ignores the table.
+    #[serde(default)]
+    pub term_biasing: TermBiasingConfig,
+}
+
+/// The `[term_biasing]` config table: engine-level dictionary term biasing
+/// on the Nemotron greedy decode path (issue #91). Defaults are the spec's
+/// starting values; they stay behind `enabled = false` until the evaluation
+/// gate in the spec's section 6 passes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TermBiasingConfig {
+    /// Feature flag, default false. Only effective when
+    /// `stt_engine = "nemotron"`.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Logits added per matched token at trie depth 1. Default 3.0.
+    #[serde(default = "default_term_biasing_boost")]
+    pub boost: f32,
+    /// A token is only boosted when its logit is within this distance of
+    /// the step's best logit. Default 6.0.
+    #[serde(default = "default_term_biasing_margin")]
+    pub margin: f32,
+    /// Boost multiplier for tokens at trie depth >= 2, so a started phrase
+    /// is carried to completion. Default 1.5.
+    #[serde(default = "default_term_biasing_depth_factor")]
+    pub depth_factor: f32,
+    /// Hard cap on the number of dictionary terms biased. Default 200.
+    #[serde(default = "default_term_biasing_max_terms")]
+    pub max_terms: usize,
+}
+
+impl Default for TermBiasingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            boost: default_term_biasing_boost(),
+            margin: default_term_biasing_margin(),
+            depth_factor: default_term_biasing_depth_factor(),
+            max_terms: default_term_biasing_max_terms(),
+        }
+    }
+}
+
+fn default_term_biasing_boost() -> f32 {
+    3.0
+}
+
+fn default_term_biasing_margin() -> f32 {
+    6.0
+}
+
+fn default_term_biasing_depth_factor() -> f32 {
+    1.5
+}
+
+fn default_term_biasing_max_terms() -> usize {
+    200
 }
 
 fn default_save_training_data() -> bool {
@@ -225,6 +288,7 @@ impl Default for RekodyConfig {
             max_recording_secs: default_max_recording_secs(),
             save_training_data: true,
             hud: None,
+            term_biasing: TermBiasingConfig::default(),
         }
     }
 }
@@ -418,6 +482,32 @@ fn resolve_model_dir() -> std::path::PathBuf {
                 })
                 .unwrap_or_else(|_| std::path::PathBuf::from("models"))
         })
+}
+
+/// Modification time of the personal dictionary file, `None` when the file
+/// (or `HOME`) is missing. Used by the streaming path to notice edits.
+#[cfg(feature = "nemotron")]
+fn dictionary_mtime() -> Option<std::time::SystemTime> {
+    dictionary::Dictionary::default_path()
+        .ok()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .and_then(|meta| meta.modified().ok())
+}
+
+/// Re-stat the dictionary file against the recorded mtime. When it moved
+/// (edit, create, or delete), update the stamp and return the fresh term
+/// list for a `StreamMsg::ReloadTerms`; `None` means nothing changed. One
+/// `stat` per utterance start, off the audio hot path.
+#[cfg(feature = "nemotron")]
+fn dictionary_terms_if_changed(
+    last_mtime: &mut Option<std::time::SystemTime>,
+) -> Option<Vec<String>> {
+    let mtime = dictionary_mtime();
+    if mtime == *last_mtime {
+        return None;
+    }
+    *last_mtime = mtime;
+    Some(dictionary::Dictionary::load_or_empty().terms().to_vec())
 }
 
 /// Wraps the different STT engine types behind a common enum.
@@ -778,8 +868,40 @@ impl Pipeline {
         let mut segment_rx = audio_capture.open(audio_config)?;
         tracing::info!("audio capture initialized (live tap active)");
 
-        // 3. Engine thread (model loads there, ~3.4s; samples queue meanwhile).
-        let (stream_tx, mut stream_rx) = streaming::spawn(model_dir);
+        // 3. Decode-time dictionary term biasing (issue #91), config-flagged
+        //    and DEFAULT OFF. Disabled means `None` reaches the engine thread
+        //    and no logits processor is ever installed: decoding stays
+        //    byte-identical to a build without the feature. Enabled builds
+        //    the initial settings from the `[term_biasing]` table plus the
+        //    personal dictionary; later dictionary edits are picked up per
+        //    utterance via the mtime re-stat below (`StreamMsg::ReloadTerms`),
+        //    preserving the Dictionary v1 behavior that `rekody dictionary
+        //    add` applies without a daemon restart.
+        let bias_enabled = self.config.term_biasing.enabled;
+        let mut dict_mtime: Option<std::time::SystemTime> = None;
+        let bias = if bias_enabled {
+            dict_mtime = dictionary_mtime();
+            let tb = &self.config.term_biasing;
+            let dict = dictionary::Dictionary::load_or_empty();
+            tracing::info!(
+                terms = dict.terms().len(),
+                boost = tb.boost,
+                margin = tb.margin,
+                "term biasing enabled for the Nemotron streaming engine"
+            );
+            Some(rekody_stt::biasing::BiasSettings {
+                terms: dict.terms().to_vec(),
+                boost: tb.boost,
+                margin: tb.margin,
+                depth_factor: tb.depth_factor,
+                max_terms: tb.max_terms,
+            })
+        } else {
+            None
+        };
+
+        // 4. Engine thread (model loads there, ~3.4s; samples queue meanwhile).
+        let (stream_tx, mut stream_rx) = streaming::spawn(model_dir, bias);
 
         let llm_enabled = has_llm_providers(&self.config);
         if llm_enabled {
@@ -830,6 +952,19 @@ impl Pipeline {
                                 tracing::debug!("recording resumed within release tail");
                             } else {
                                 tracing::info!(source = "hotkey", "recording started");
+                                // Utterance start: re-stat the dictionary file
+                                // and rebuild the biasing trie when it changed
+                                // (`rekody dictionary add` with no restart).
+                                // The reload lands on the engine thread ahead
+                                // of this utterance's samples (same channel,
+                                // in order), between utterances by design.
+                                if bias_enabled
+                                    && let Some(terms) =
+                                        dictionary_terms_if_changed(&mut dict_mtime)
+                                {
+                                    let _ = stream_tx
+                                        .send(streaming::StreamMsg::ReloadTerms(terms));
+                                }
                                 recording = true;
                                 utterance_samples.clear();
                                 utterance_sample_count = 0;
@@ -1366,6 +1501,87 @@ mod prompt_composition_tests {
         let base = skill.system_prompt();
         let composed = inject_vocabulary_prompt(&base, &Dictionary::new());
         assert_eq!(composed, base);
+    }
+}
+
+#[cfg(test)]
+mod term_biasing_config_tests {
+    //! The `[term_biasing]` config table (issue #91): absent table means the
+    //! feature is OFF with the spec's default tunables, partial tables fill
+    //! in spec defaults, and the nested table round-trips through the same
+    //! `toml::to_string_pretty` the config TUI uses to save.
+
+    use crate::RekodyConfig;
+
+    /// The four keys every existing config.toml already has (no serde
+    /// defaults on these fields).
+    const MINIMAL: &str = r#"
+activation_mode = "both"
+whisper_model = "turbo"
+vad_threshold = 0.01
+injection_method = "clipboard"
+"#;
+
+    fn parse(extra: &str) -> RekodyConfig {
+        toml::from_str(&format!("{MINIMAL}{extra}")).expect("config parses")
+    }
+
+    #[test]
+    fn absent_table_is_off_with_spec_defaults() {
+        let config = parse("");
+        assert!(!config.term_biasing.enabled, "flag must default OFF");
+        assert_eq!(config.term_biasing.boost, 3.0);
+        assert_eq!(config.term_biasing.margin, 6.0);
+        assert_eq!(config.term_biasing.depth_factor, 1.5);
+        assert_eq!(config.term_biasing.max_terms, 200);
+    }
+
+    #[test]
+    fn default_config_matches_absent_table() {
+        let config = RekodyConfig::default();
+        assert!(!config.term_biasing.enabled);
+        assert_eq!(config.term_biasing.boost, 3.0);
+        assert_eq!(config.term_biasing.margin, 6.0);
+        assert_eq!(config.term_biasing.depth_factor, 1.5);
+        assert_eq!(config.term_biasing.max_terms, 200);
+    }
+
+    #[test]
+    fn partial_table_fills_spec_defaults() {
+        let config = parse("[term_biasing]\nenabled = true\n");
+        assert!(config.term_biasing.enabled);
+        assert_eq!(config.term_biasing.boost, 3.0);
+        assert_eq!(config.term_biasing.margin, 6.0);
+        assert_eq!(config.term_biasing.depth_factor, 1.5);
+        assert_eq!(config.term_biasing.max_terms, 200);
+    }
+
+    #[test]
+    fn full_table_overrides_every_tunable() {
+        let config = parse(
+            "[term_biasing]\nenabled = true\nboost = 2.5\nmargin = 4.0\n\
+             depth_factor = 2.0\nmax_terms = 50\n",
+        );
+        assert!(config.term_biasing.enabled);
+        assert_eq!(config.term_biasing.boost, 2.5);
+        assert_eq!(config.term_biasing.margin, 4.0);
+        assert_eq!(config.term_biasing.depth_factor, 2.0);
+        assert_eq!(config.term_biasing.max_terms, 50);
+    }
+
+    #[test]
+    fn config_round_trips_through_config_tui_save_path() {
+        // `config_tui` saves via `toml::to_string_pretty(&config)`; the new
+        // nested table must serialize (no value-after-table ordering issue)
+        // and re-parse to the same settings.
+        let mut config = RekodyConfig::default();
+        config.term_biasing.enabled = true;
+        config.term_biasing.boost = 2.0;
+        let serialized = toml::to_string_pretty(&config).expect("config serializes");
+        let reparsed: RekodyConfig = toml::from_str(&serialized).expect("round-trip parses");
+        assert!(reparsed.term_biasing.enabled);
+        assert_eq!(reparsed.term_biasing.boost, 2.0);
+        assert_eq!(reparsed.term_biasing.max_terms, 200);
     }
 }
 

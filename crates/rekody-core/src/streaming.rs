@@ -14,6 +14,7 @@
 
 use std::time::Instant;
 
+use rekody_stt::biasing::BiasSettings;
 use rekody_stt::nemotron::NemotronStreamingEngine;
 
 /// Messages from the pipeline to the engine thread.
@@ -22,6 +23,11 @@ pub enum StreamMsg {
     Samples(Vec<f32>),
     /// Key released: flush the tail, emit `StreamEvent::Final`, reset state.
     Flush,
+    /// The personal dictionary changed on disk: rebuild the term-biasing
+    /// trie so `rekody dictionary add` applies without a daemon restart.
+    /// Sent between utterances; the engine defers mid-utterance calls to
+    /// its next `finish()` anyway. Ignored when biasing is off.
+    ReloadTerms(Vec<String>),
 }
 
 /// Events from the engine thread back to the pipeline.
@@ -40,8 +46,13 @@ pub enum StreamEvent {
 /// pipeline starts immediately; samples sent before loading completes queue
 /// in the channel and are processed once ready. If loading fails, a single
 /// `StreamEvent::Error` is emitted and the thread exits.
+///
+/// `bias` arms decode-time dictionary term biasing (config `[term_biasing]`,
+/// default off). `None` keeps the engine byte-identical to a build without
+/// the feature: no processor is installed and no biasing log lines fire.
 pub fn spawn(
     model_dir: std::path::PathBuf,
+    bias: Option<BiasSettings>,
 ) -> (
     std::sync::mpsc::Sender<StreamMsg>,
     tokio::sync::mpsc::UnboundedReceiver<StreamEvent>,
@@ -55,7 +66,7 @@ pub fn spawn(
             let dir = model_dir.to_string_lossy();
             tracing::info!(dir = %dir, "loading Nemotron streaming model");
             let t_load = Instant::now();
-            let mut engine = match NemotronStreamingEngine::new(&dir) {
+            let mut engine = match NemotronStreamingEngine::new_with_bias(&dir, bias) {
                 Ok(e) => e,
                 Err(e) => {
                     let _ = event_tx.send(StreamEvent::Error(format!(
@@ -91,6 +102,14 @@ pub fn spawn(
                         match engine.finish() {
                             Ok(text) => {
                                 let latency_ms = t.elapsed().as_millis() as u64;
+                                // Observability for dogfooding (spec section
+                                // 5, step 5.4): how often biasing completed a
+                                // term this utterance. `None` when the
+                                // feature is off, keeping the off path free
+                                // of even this log line.
+                                if let Some(bias_hits) = engine.bias_hits() {
+                                    tracing::info!(bias_hits, "term biasing utterance summary");
+                                }
                                 if event_tx
                                     .send(StreamEvent::Final { text, latency_ms })
                                     .is_err()
@@ -104,6 +123,10 @@ pub fn spawn(
                                 )));
                             }
                         }
+                    }
+                    StreamMsg::ReloadTerms(terms) => {
+                        // No-op (with a debug log) when biasing is off.
+                        engine.set_terms(terms);
                     }
                 }
             }
