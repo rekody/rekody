@@ -960,10 +960,11 @@ fn download_verified(url: &str, dest: &std::path::Path, expected_sha256: &str) -
 /// to the secondary source when the primary fails for any reason: non-2xx
 /// status, network error, or checksum mismatch. Each attempt verifies
 /// against its own source's pinned SHA-256 (see [`download_verified`]);
-/// whisper artifacts are byte-identical on both sources so their two pins
-/// are equal, while Nemotron artifacts are distinct conversions per source.
-/// The source that served the file is echoed so it is always clear where
-/// the bytes came from.
+/// whisper artifacts are byte-identical on both sources (Rekody mirror,
+/// upstream whisper.cpp) so their two pins are equal. Nemotron artifacts
+/// never come through here: the Rekody org is their sole source, with no
+/// fallback. The source that served the file is echoed so it is always
+/// clear where the bytes came from.
 fn download_with_fallback(
     primary_url: &str,
     fallback_url: &str,
@@ -996,13 +997,14 @@ fn download_with_fallback(
 }
 
 // ---------------------------------------------------------------------------
-// Nemotron streaming model sources (Rekody model first, prior conversion fallback)
+// Nemotron streaming model sources (Rekody model repo, the sole source)
 // ---------------------------------------------------------------------------
 
 /// Rekody's branded streaming model on Hugging Face: an int8 ONNX conversion
-/// of the current (March 2026) NVIDIA Nemotron streaming checkpoint. Tried
-/// first for every artifact so availability stays under Rekody's control,
-/// mirroring the whisper setup above.
+/// of the current (March 2026) NVIDIA Nemotron streaming checkpoint. The
+/// sole source for every streaming artifact (unlike whisper, which keeps
+/// upstream whisper.cpp as a fallback), so availability stays under
+/// Rekody's control.
 #[cfg(feature = "nemotron")]
 const REKODY_NEMOTRON_BASE: &str =
     "https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8/resolve/main";
@@ -1543,7 +1545,6 @@ mod tests {
         );
     }
 
-    /// Every Nemotron artifact must carry a well-formed pin for BOTH sources.
     /// Every streaming artifact must carry a real pin for the Rekody-published
     /// model, the engine's sole download source.
     #[cfg(feature = "nemotron")]
