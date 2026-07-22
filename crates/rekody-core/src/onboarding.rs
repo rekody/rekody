@@ -344,6 +344,90 @@ pub fn run_onboarding() -> Result<()> {
         deepgram_api_key
     };
 
+    // Groq STT needs a Groq key. The LLM step's key is only a Groq key when
+    // that provider is itself Groq; any other provider's key must never be
+    // written to groq_api_key. Otherwise prompt for one, Keychain first
+    // (same pattern as the Deepgram key above).
+    let reuse_llm_key_for_groq_stt =
+        can_reuse_llm_key_for_groq_stt(stt_engine, provider_name, &api_key);
+    let groq_stt_api_key: Option<String> = if stt_engine != "groq" {
+        None
+    } else if reuse_llm_key_for_groq_stt {
+        Some(api_key.clone())
+    } else if let Some(masked) = get_keychain_masked("groq") {
+        println!("  Found in Keychain: {masked}");
+        let use_existing: bool = confirm("Use existing key? (No = enter a new one)")
+            .initial_value(true)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if use_existing {
+            // Retrieve the actual key from Keychain and write it to config
+            get_keychain_full("groq")
+        } else {
+            let key: String = input("Enter your new Groq API key")
+                .placeholder("gsk_...")
+                .interact()
+                .map_err(|e| anyhow::anyhow!(e))?;
+            if key.is_empty() {
+                None
+            } else {
+                set_keychain("groq", &key);
+                Some(key)
+            }
+        }
+    } else {
+        let key: String = input("Enter your Groq API key")
+            .placeholder("gsk_...")
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if key.is_empty() {
+            None
+        } else {
+            set_keychain("groq", &key);
+            Some(key)
+        }
+    };
+
+    // --- Validate Groq STT API key ----------------------------------------
+    // Skipped when the key was reused from the LLM step, which already
+    // validated it.
+    let groq_stt_api_key: Option<String> = if reuse_llm_key_for_groq_stt {
+        groq_stt_api_key
+    } else if let Some(ref groq_key) = groq_stt_api_key {
+        if !groq_key.is_empty() {
+            let mut current_key = groq_key.clone();
+            loop {
+                let sp = spinner();
+                sp.start("Validating Groq API key...");
+                if validate_api_key("groq", &current_key) {
+                    sp.stop("Groq API key valid \u{2713}");
+                    break Some(current_key);
+                } else {
+                    sp.stop("Groq API key validation failed: check your key");
+                    let proceed: bool = confirm("Continue anyway?")
+                        .initial_value(false)
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if proceed {
+                        break Some(current_key);
+                    }
+                    let key: String = input("Enter your Groq API key")
+                        .placeholder("gsk_...")
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if !key.is_empty() {
+                        set_keychain("groq", &key);
+                    }
+                    current_key = key;
+                }
+            }
+        } else {
+            groq_stt_api_key
+        }
+    } else {
+        groq_stt_api_key
+    };
+
     // For local Whisper, ask model size and download
     let whisper_size: &str = if stt_engine == "local" {
         select("Choose local Whisper model size")
@@ -559,11 +643,12 @@ pub fn run_onboarding() -> Result<()> {
         _ => String::new(),
     };
 
-    // If STT is groq, we need groq_api_key for STT (separate from the provider key)
-    let groq_stt_line = if stt_engine == "groq" {
-        format!("groq_api_key = \"{api_key}\"")
-    } else {
-        String::new()
+    // If STT is groq, groq_api_key carries the STT key: a real Groq key,
+    // either reused from a Groq LLM step or prompted for above. Never
+    // another provider's key.
+    let groq_stt_line = match &groq_stt_api_key {
+        Some(key) if !key.is_empty() => format!("groq_api_key = \"{key}\""),
+        _ => String::new(),
     };
 
     let provider_block = if provider_name == "none" {
@@ -676,6 +761,15 @@ save_training_data = {save_training_data}
 // ---------------------------------------------------------------------------
 // API key validation
 // ---------------------------------------------------------------------------
+
+/// Whether the Groq STT step may reuse the key collected in the LLM step.
+///
+/// Only a Groq LLM provider's key is a Groq key. Reusing any other
+/// provider's key (Anthropic, OpenAI, ...) as `groq_api_key` stores a key
+/// Groq will reject; the wizard prompts for a real one instead.
+fn can_reuse_llm_key_for_groq_stt(stt_engine: &str, llm_provider: &str, llm_key: &str) -> bool {
+    stt_engine == "groq" && llm_provider == "groq" && !llm_key.is_empty()
+}
 
 /// Make a lightweight test call to verify an API key works.
 ///
@@ -1466,6 +1560,32 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000000"
             ),
             "mismatch must fail"
+        );
+    }
+
+    /// The Groq STT step reuses the LLM step's key ONLY when that provider is
+    /// itself Groq. The regression: Anthropic LLM + Groq STT wrote the
+    /// Anthropic key to groq_api_key; keyless providers left it empty.
+    #[test]
+    fn groq_stt_reuses_llm_key_only_when_llm_provider_is_groq() {
+        assert!(can_reuse_llm_key_for_groq_stt("groq", "groq", "gsk_abc"));
+        assert!(!can_reuse_llm_key_for_groq_stt(
+            "groq",
+            "anthropic",
+            "sk-ant"
+        ));
+        assert!(!can_reuse_llm_key_for_groq_stt("groq", "openai", "sk-xyz"));
+        assert!(
+            !can_reuse_llm_key_for_groq_stt("groq", "none", ""),
+            "keyless LLM choice must trigger a Groq prompt, not an empty key"
+        );
+        assert!(
+            !can_reuse_llm_key_for_groq_stt("groq", "groq", ""),
+            "an empty Groq LLM key is not reusable"
+        );
+        assert!(
+            !can_reuse_llm_key_for_groq_stt("local", "groq", "gsk_abc"),
+            "non-Groq STT never writes groq_api_key from this path"
         );
     }
 }
