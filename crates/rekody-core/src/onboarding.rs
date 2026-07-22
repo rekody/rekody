@@ -105,7 +105,7 @@ pub fn run_onboarding() -> Result<()> {
         .item(
             "none",
             "None — skip LLM cleanup",
-            "use raw STT output (Deepgram/Parakeet already include punctuation)",
+            "use raw STT output (Rekody Streaming and Deepgram already punctuate)",
         )
         .item(
             "apple",
@@ -750,7 +750,7 @@ save_training_data = {save_training_data}
     let stt_display = match stt_engine {
         "groq" => "Groq Cloud Whisper Large v3".to_string(),
         "deepgram" => "Deepgram Nova-3".to_string(),
-        "nemotron" => "Nemotron streaming (English)".to_string(),
+        "nemotron" => "Rekody Streaming (English)".to_string(),
         _ => format!("Local Whisper ({whisper_size})"),
     };
 

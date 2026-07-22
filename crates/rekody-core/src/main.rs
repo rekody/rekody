@@ -2102,7 +2102,7 @@ fn stt_display_name(config: &RekodyConfig) -> String {
         "groq" => "Groq Cloud Whisper Large v3".to_string(),
         "deepgram" => "Deepgram Nova-3".to_string(),
         "cohere" => format!("Cohere local (port {})", config.cohere_stt_port),
-        "nemotron" => "Nemotron streaming (English)".to_string(),
+        "nemotron" => "Rekody Streaming (English)".to_string(),
         _ => format!("Local Whisper ({})", config.whisper_model),
     }
 }
@@ -2337,7 +2337,7 @@ fn inject_keychain_keys(config: &mut RekodyConfig) {
 // indicatif MultiProgress (scrollback above it stays intact — completed
 // dictations are printed into it):
 //
-//   rekody. v0.5.9   [● nemotron · en] [groq cleanup] [⌥space]
+//   rekody. v0.5.9   [● streaming · en] [groq cleanup] [⌥space]
 //
 //   <transcript hero — live partials, dim head / bright tail, block cursor>
 //
@@ -2405,7 +2405,7 @@ impl Ui {
 
         // Header chips: (accented, label).
         let engine = match config.stt_engine.to_lowercase().as_str() {
-            "nemotron" => "● nemotron · en".to_string(),
+            "nemotron" => "● streaming · en".to_string(),
             "groq" => "● groq whisper".to_string(),
             "deepgram" => "● deepgram nova-3".to_string(),
             "cohere" => "● cohere local".to_string(),
