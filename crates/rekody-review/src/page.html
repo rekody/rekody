@@ -83,6 +83,25 @@ textarea{
 }
 .edit-hint{font-size:12px;color:var(--dim);margin-top:6px}
 .empty-note{color:var(--faint);font-size:13px;padding:6px 2px 4px}
+.filters{display:flex;gap:14px;flex-wrap:wrap;align-items:center;max-width:980px;margin:0 auto;padding:0 0 10px}
+.fgroup{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fgroup .flabel{font-size:12px;color:var(--faint)}
+.fchip{font-size:12.5px;padding:3px 11px;border-radius:99px;border:1px solid var(--line);background:#FFF;color:var(--dim);cursor:pointer}
+.fchip:hover{border-color:var(--teal);color:var(--teal)}
+.fchip.on{background:var(--teal);border-color:var(--teal);color:#FFF}
+.fchip .n{opacity:.75;font-size:11px;margin-left:4px}
+article.clip.hide{display:none}
+section.hide{display:none}
+.tok{padding:0 3px;border-radius:3px;cursor:default}
+.tok.del{text-decoration:line-through;background:var(--red-soft);color:var(--red);cursor:pointer}
+.tok.ins{background:var(--teal-soft);color:#175E68;cursor:pointer}
+.tok.del.on{text-decoration:none;outline:1.5px solid var(--red);background:#FFF}
+.tok.ins.off{text-decoration:line-through;opacity:.55}
+.tok.var{border-bottom:2px dotted var(--teal);cursor:pointer}
+.tok.var.alt{border-bottom:2px dotted var(--red);background:var(--red-soft)}
+.preview{margin-top:8px;font-size:13px;color:var(--dim);background:#FFF;border:1px dashed var(--line);border-radius:8px;padding:7px 10px;overflow-wrap:anywhere}
+.preview b{color:var(--ink);font-weight:500}
+.done-line a{margin-left:8px}
 </style>
 </head>
 <body>
@@ -94,6 +113,7 @@ textarea{
       <span><kbd>A</kbd> accept teacher</span>
       <span><kbd>O</kbd> keep original</span>
       <span><kbd>E</kbd> edit</span>
+      <span><kbd>S</kbd> save as shown</span>
       <span><kbd>Space</kbd> play</span>
       <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span>
     </div>
@@ -101,6 +121,23 @@ textarea{
   <div class="summary">
     <span id="sum-main"><b>Loading</b> the dataset&#8230;</span>
     <span class="legend"><del>label only</del> <ins>teacher only</ins></span>
+  </div>
+  <div class="filters">
+    <div class="fgroup" data-filter="status">
+      <span class="flabel">Show</span>
+      <button class="fchip on" data-v="review">To review</button>
+      <button class="fchip" data-v="done">Done</button>
+      <button class="fchip" data-v="all">All</button>
+    </div>
+    <div class="fgroup" data-filter="band">
+      <span class="flabel">Disagreement</span>
+      <button class="fchip on" data-v="all">All</button>
+      <button class="fchip" data-v="hi">&#8805;25%</button>
+      <button class="fchip" data-v="mid">5&#8211;25%</button>
+      <button class="fchip" data-v="lt5">&lt;5%</button>
+      <button class="fchip" data-v="agree">Agree</button>
+      <button class="fchip" data-v="pending">Transcribing</button>
+    </div>
   </div>
   <div class="bar"><i id="bar-fill"></i></div>
 </header>
@@ -138,12 +175,14 @@ textarea{
   <div class="body"></div>
   <div class="actions">
     <button class="primary" data-act="accept">Accept teacher <kbd>A</kbd></button>
+    <button data-act="save_shown">Save as shown <kbd>S</kbd></button>
     <button data-act="keep">Keep original <kbd>O</kbd></button>
     <button data-act="edit">Edit <kbd>E</kbd></button>
   </div>
   <div class="done-line" style="display:none">
     <span class="badge"></span>
     <span class="final"></span>
+    <a href="#" class="reedit">Edit</a>
     <a href="#" class="undo">Undo</a>
   </div>
 </article>
@@ -161,7 +200,10 @@ document.querySelectorAll("section[data-group]").forEach(s => {
   };
 });
 const rowT = document.getElementById("row-t");
-const state = { clips: new Map(), rows: new Map(), selected: null, totalDuration: 0 };
+const state = {
+  clips: new Map(), rows: new Map(), selected: null, totalDuration: 0,
+  filters: { status: "review", band: "all" },
+};
 let bulkRunning = false;
 
 // --- grouping -------------------------------------------------------------
@@ -172,6 +214,47 @@ function groupOf(c) {
   if (c.wer > 0) return "quick";
   return "agree";
 }
+
+// Disagreement bands for the filter chips (review triage buckets).
+function bandOf(c) {
+  if (c.teacher_text === null || c.teacher_text === undefined) return "pending";
+  if (c.wer === 0) return "agree";
+  if (c.wer < 0.05) return "lt5";
+  if (c.wer < 0.25) return "mid";
+  return "hi";
+}
+
+function matchesFilters(c) {
+  const f = state.filters;
+  if (f.status === "review" && c.decision) return false;
+  if (f.status === "done" && !c.decision) return false;
+  if (f.band !== "all" && bandOf(c) !== f.band) return false;
+  return true;
+}
+
+function applyFilters() {
+  for (const [id, row] of state.rows) {
+    const c = state.clips.get(id);
+    row.classList.toggle("hide", !(c && matchesFilters(c)));
+  }
+  for (const g of Object.keys(groupEls)) {
+    const rows = groupEls[g].rows;
+    const visible = Array.from(rows.children).filter(r => !r.classList.contains("hide")).length;
+    groupEls[g].count.textContent = visible;
+    groupEls[g].section.classList.toggle("hide", visible === 0);
+  }
+}
+
+document.querySelectorAll(".fgroup").forEach(group => {
+  group.addEventListener("click", e => {
+    const chip = e.target.closest(".fchip");
+    if (!chip) return;
+    group.querySelectorAll(".fchip").forEach(c => c.classList.remove("on"));
+    chip.classList.add("on");
+    state.filters[group.dataset.filter] = chip.dataset.v;
+    applyFilters();
+  });
+});
 
 function fmtDur(s) {
   return s >= 60 ? Math.floor(s / 60) + "m " + Math.round(s % 60) + "s" : s.toFixed(1) + "s";
@@ -199,7 +282,7 @@ function diffWords(a, b) {
   const ops = [];
   let i = 0, j = 0;
   while (i < n && j < m) {
-    if (an[i] === bn[j]) { ops.push(["eq", a[i]]); i++; j++; }
+    if (an[i] === bn[j]) { ops.push(["eq", a[i], b[j]]); i++; j++; }
     else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push(["del", a[i]]); i++; }
     else { ops.push(["ins", b[j]]); j++; }
   }
@@ -208,18 +291,76 @@ function diffWords(a, b) {
   return ops;
 }
 
+// Interactive diff: the composed final text starts as the teacher's version.
+// Click a red (label-only) word to bring it back; click a teal (teacher-only)
+// word to drop it; click a dotted word to flip between the teacher's and the
+// label's casing/punctuation. The preview shows exactly what Save will write.
 function renderDiff(el, label, teacher) {
   el.replaceChildren();
-  for (const [kind, word] of diffWords(toks(label), toks(teacher))) {
+  el.classList.add("idiff");
+  for (const [kind, word, tword] of diffWords(toks(label), toks(teacher))) {
+    const tok = document.createElement("span");
+    tok.className = "tok " + kind;
     if (kind === "eq") {
-      el.append(document.createTextNode(word));
+      if (word === tword) {
+        tok.textContent = tword;
+        tok.classList.remove("eq");
+      } else {
+        // Same word, different casing/punctuation: teacher raw by default,
+        // click flips to the label's raw form.
+        tok.classList.add("var");
+        tok.textContent = tword;
+        tok.dataset.teacher = tword;
+        tok.dataset.label = word;
+        tok.title = "click to use: " + word;
+        tok.addEventListener("click", e => {
+          e.stopPropagation();
+          const useLabel = !tok.classList.toggle("alt") ? false : true;
+          tok.textContent = useLabel ? tok.dataset.label : tok.dataset.teacher;
+          tok.title = "click to use: " + (useLabel ? tok.dataset.teacher : tok.dataset.label);
+          refreshPreview(el);
+        });
+      }
     } else {
-      const node = document.createElement(kind === "del" ? "del" : "ins");
-      node.textContent = word;
-      el.append(node);
+      // del = label-only (off by default), ins = teacher-only (on by default).
+      tok.textContent = word;
+      tok.title = kind === "del" ? "click to keep this word" : "click to drop this word";
+      tok.addEventListener("click", e => {
+        e.stopPropagation();
+        tok.classList.toggle(kind === "del" ? "on" : "off");
+        refreshPreview(el);
+      });
     }
-    el.append(document.createTextNode(" "));
+    el.append(tok, document.createTextNode(" "));
   }
+  const prev = document.createElement("div");
+  prev.className = "preview";
+  el.append(prev);
+  refreshPreview(el);
+}
+
+/// The text Save-as-shown writes: walk tokens in order, include what's on.
+function composeFinal(el) {
+  const parts = [];
+  el.querySelectorAll(".tok").forEach(tok => {
+    if (tok.classList.contains("del")) {
+      if (tok.classList.contains("on")) parts.push(tok.textContent);
+    } else if (tok.classList.contains("ins")) {
+      if (!tok.classList.contains("off")) parts.push(tok.textContent);
+    } else {
+      parts.push(tok.textContent);
+    }
+  });
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function refreshPreview(el) {
+  const prev = el.querySelector(".preview");
+  if (!prev) return;
+  prev.replaceChildren();
+  const b = document.createElement("b");
+  b.textContent = composeFinal(el);
+  prev.append(document.createTextNode("save as shown \u2192 "), b);
 }
 
 // --- rows -------------------------------------------------------------------
@@ -232,7 +373,7 @@ function ensureRow(c) {
   row.querySelector("audio").src = "/audio/" + encodeURIComponent(fileOf(c));
   row.querySelector(".fname").textContent = fileOf(c);
   row.addEventListener("click", e => { if (!e.target.closest("a")) select(row); });
-  for (const act of ["accept", "keep", "edit"]) {
+  for (const act of ["accept", "keep", "edit", "save_shown"]) {
     row.querySelector("[data-act=" + act + "]").addEventListener("click", e => {
       e.stopPropagation();
       select(row);
@@ -243,6 +384,19 @@ function ensureRow(c) {
     e.preventDefault();
     e.stopPropagation();
     decide(state.clips.get(row.dataset.id), "undo");
+  });
+  // Re-open a decided clip for another pass: full row (audio + editor)
+  // comes back, prefilled with the decision's final text. Saving posts a
+  // fresh decision (the store has replace semantics); Esc restores.
+  row.querySelector(".reedit").addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const clip = state.clips.get(row.dataset.id);
+    if (!clip || !clip.decision) return;
+    select(row);
+    row.classList.remove("done");
+    row.querySelector(".done-line").style.display = "none";
+    openEdit(row, clip, clip.decision.final_text || clip.text || "");
   });
   state.rows.set(c.audio_filepath, row);
   return row;
@@ -307,7 +461,8 @@ function placeRow(row, c) {
 // --- selection + keyboard ----------------------------------------------------
 
 function navRows() {
-  return Array.from(document.querySelectorAll("article.clip")).filter(r => !r.classList.contains("done"));
+  return Array.from(document.querySelectorAll("article.clip"))
+    .filter(r => !r.classList.contains("done") && !r.classList.contains("hide"));
 }
 function select(row) {
   if (state.selected === row) return;
@@ -348,6 +503,14 @@ function doAct(kind) {
     decide(clip, "keep_original");
   } else if (kind === "edit") {
     openEdit(row, clip);
+  } else if (kind === "save_shown") {
+    const diffEl = row.querySelector(".body.idiff");
+    if (!diffEl) return;
+    const composed = composeFinal(diffEl);
+    if (!composed) return;
+    // Identical to the teacher's text = a clean accept; anything else is an edit.
+    if (composed === (clip.teacher_text || "").trim()) decide(clip, "accept_teacher");
+    else decide(clip, "edit", composed);
   }
 }
 
@@ -362,21 +525,24 @@ document.addEventListener("keydown", e => {
     case "a": case "A": doAct("accept"); break;
     case "o": case "O": doAct("keep"); break;
     case "e": case "E": e.preventDefault(); doAct("edit"); break;
+    case "s": case "S": e.preventDefault(); doAct("save_shown"); break;
   }
 });
 
 // --- edit ---------------------------------------------------------------------
 
-function openEdit(row, clip) {
+function openEdit(row, clip, prefill) {
   if (row.classList.contains("editing")) return;
   row.classList.add("editing");
   row.querySelector(".actions").style.display = "none";
   const body = row.querySelector(".body");
   body.replaceChildren();
   const area = document.createElement("textarea");
-  area.value = clip.teacher_text !== null && clip.teacher_text !== undefined
-    ? clip.teacher_text
-    : (clip.text || "");
+  area.value = prefill !== undefined
+    ? prefill
+    : clip.teacher_text !== null && clip.teacher_text !== undefined
+      ? clip.teacher_text
+      : (clip.text || "");
   const hint = document.createElement("div");
   hint.className = "edit-hint";
   hint.textContent = "Enter saves as the corrected label · Shift+Enter for a newline · Esc cancels";
@@ -455,9 +621,7 @@ document.getElementById("bulk").addEventListener("click", async () => {
 // --- summary + polling --------------------------------------------------------------
 
 function refreshCounts() {
-  for (const g of Object.keys(groupEls)) {
-    groupEls[g].count.textContent = groupEls[g].rows.children.length;
-  }
+  applyFilters();
 }
 
 function refreshSummary() {
