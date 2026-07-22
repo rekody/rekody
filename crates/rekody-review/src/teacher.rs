@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use rekody_stt::{LocalWhisperEngine, SttEngine, WhisperModel};
 
+use crate::SharedRun;
 use crate::store::{self, SharedStore};
 use crate::wer;
 
@@ -36,11 +37,17 @@ const LARGE_LOCAL_FILE: &str = "ggml-large.bin";
 const LARGE_REMOTE_FILE: &str = "ggml-large-v3.bin";
 
 /// Pinned SHA-256 of the ggml-large-v3.bin content, identical bytes on both
-/// sources. Matches EXPECTED_CHECKSUMS in rekody-core onboarding.rs.
+/// sources. Matches EXPECTED_CHECKSUMS ("ggml-large.bin") in rekody-core
+/// onboarding.rs, and cross-checked 2026-07-22 against the Hugging Face LFS
+/// metadata for Rekody/rekody-models whisper/ggml-large-v3.bin (the
+/// x-linked-etag header on the resolve URL is the LFS object's SHA-256).
 const LARGE_SHA256: &str = "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2";
 
 /// Log a download progress line every this many bytes (~12 lines for 3.1 GB).
 const PROGRESS_STEP: u64 = 256 * 1024 * 1024;
+
+/// Report download progress to /api/state every this many bytes.
+const PROGRESS_REPORT_STEP: u64 = 8 * 1024 * 1024;
 
 /// Model directory: `$REKODY_MODEL_DIR` or `~/.local/share/rekody/models`,
 /// the same resolution onboarding uses.
@@ -54,15 +61,21 @@ fn model_dir() -> PathBuf {
         })
 }
 
+/// Whether the large-v3 weights are already on disk. Drives the first-run
+/// screen's "installed" copy and the /api/state model_present flag.
+pub fn model_present() -> bool {
+    model_dir().join(LARGE_LOCAL_FILE).exists()
+}
+
 /// Thread entry point. Errors are logged, never propagated: a failed teacher
 /// pass must not take the review server down with it.
-pub fn run(store: &SharedStore, dataset_root: &Path) {
-    if let Err(e) = run_inner(store, dataset_root) {
+pub fn run(store: &SharedStore, dataset_root: &Path, run_state: &SharedRun) {
+    if let Err(e) = run_inner(store, dataset_root, run_state) {
         tracing::error!("teacher pass failed: {e:#}");
     }
 }
 
-fn run_inner(shared: &SharedStore, dataset_root: &Path) -> Result<()> {
+fn run_inner(shared: &SharedStore, dataset_root: &Path, run_state: &SharedRun) -> Result<()> {
     let (pending, total) = {
         let s = store::lock(shared);
         (s.pending_for_teacher(), s.clip_count())
@@ -80,7 +93,21 @@ fn run_inner(shared: &SharedStore, dataset_root: &Path) -> Result<()> {
         "teacher pass starting (resumable; already-scored clips are skipped)"
     );
 
-    let model_path = ensure_large_model()?;
+    // While the model downloads, /api/state carries {received, total} so
+    // the page can show real progress; cleared as soon as the file is in
+    // place and verified.
+    let model_path = ensure_large_model(&mut |received, total| {
+        let mut r = run_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        r.model_download = Some((received, total));
+    })?;
+    {
+        let mut r = run_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        r.model_download = None;
+    }
     tracing::info!(model = %model_path.display(), "loading whisper large-v3");
     let engine = LocalWhisperEngine::with_language(
         WhisperModel::Large,
@@ -228,8 +255,9 @@ fn decode_via_afconvert(src: &Path) -> Result<Vec<f32>> {
 // ---------------------------------------------------------------------------
 
 /// Make sure ggml-large.bin is on disk, downloading and verifying it when
-/// missing. This is the only network call in the whole tool.
-fn ensure_large_model() -> Result<PathBuf> {
+/// missing. This is the only network call in the whole tool. `progress`
+/// receives `(received, total)` bytes as the download streams.
+fn ensure_large_model(progress: &mut dyn FnMut(u64, u64)) -> Result<PathBuf> {
     let dir = model_dir();
     let dest = dir.join(LARGE_LOCAL_FILE);
     if dest.exists() {
@@ -240,11 +268,11 @@ fn ensure_large_model() -> Result<PathBuf> {
     tracing::info!("whisper large model missing; downloading ~3.1 GB from the Rekody model mirror");
     let primary = format!("{REKODY_WHISPER_BASE}/{LARGE_REMOTE_FILE}");
     let fallback = format!("{UPSTREAM_WHISPER_BASE}/{LARGE_REMOTE_FILE}");
-    match download_verified(&primary, &dest, LARGE_SHA256) {
+    match download_verified(&primary, &dest, LARGE_SHA256, progress) {
         Ok(()) => tracing::info!("downloaded from the Rekody model mirror"),
         Err(primary_err) => {
             tracing::warn!("Rekody model mirror failed for {primary}: {primary_err:#}");
-            download_verified(&fallback, &dest, LARGE_SHA256)
+            download_verified(&fallback, &dest, LARGE_SHA256, progress)
                 .context("fallback source failed too")?;
             tracing::info!("downloaded from the upstream whisper.cpp repo");
         }
@@ -255,8 +283,13 @@ fn ensure_large_model() -> Result<PathBuf> {
 /// Download `url` to `dest`, then enforce the expected SHA-256. On mismatch
 /// the corrupt file is deleted before returning an error, so nothing
 /// unverified is left for the engine (or a retry) to pick up.
-fn download_verified(url: &str, dest: &Path, expected_sha256: &str) -> Result<()> {
-    download_stream(url, dest)?;
+fn download_verified(
+    url: &str,
+    dest: &Path,
+    expected_sha256: &str,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<()> {
+    download_stream(url, dest, progress)?;
     if !verify_sha256(dest, expected_sha256) {
         let _ = std::fs::remove_file(dest);
         anyhow::bail!("SHA-256 checksum mismatch for {}", dest.display());
@@ -266,7 +299,7 @@ fn download_verified(url: &str, dest: &Path, expected_sha256: &str) -> Result<()
 }
 
 /// Stream `url` to `dest.partial`, logging progress, then atomically rename.
-fn download_stream(url: &str, dest: &Path) -> Result<()> {
+fn download_stream(url: &str, dest: &Path, progress: &mut dyn FnMut(u64, u64)) -> Result<()> {
     use std::io::{Read, Write};
 
     let partial = dest.with_extension(
@@ -297,6 +330,7 @@ fn download_stream(url: &str, dest: &Path) -> Result<()> {
     let mut buf = [0u8; 1 << 16];
     let mut downloaded: u64 = 0;
     let mut next_log = PROGRESS_STEP;
+    let mut next_report = 0u64;
     loop {
         let n = reader.read(&mut buf).context("reading download stream")?;
         if n == 0 {
@@ -304,6 +338,10 @@ fn download_stream(url: &str, dest: &Path) -> Result<()> {
         }
         file.write_all(&buf[..n]).context("writing model bytes")?;
         downloaded += n as u64;
+        if downloaded >= next_report {
+            progress(downloaded, total);
+            next_report = downloaded + PROGRESS_REPORT_STEP;
+        }
         if downloaded >= next_log {
             if total > 0 {
                 tracing::info!(
@@ -320,6 +358,7 @@ fn download_stream(url: &str, dest: &Path) -> Result<()> {
     }
     file.flush().context("flushing model file")?;
     drop(file);
+    progress(downloaded, total);
     tracing::info!("model download finished ({} MB)", downloaded >> 20);
 
     // Atomic rename: only move to the final path after a complete download.
