@@ -121,6 +121,9 @@ pub fn run_onboarding() -> Result<()> {
         .item("gemini", "Google Gemini", "Gemini Flash")
         .item("ollama", "Ollama", "local, no API key needed")
         .item("custom", "Custom endpoint", "any OpenAI-compatible API")
+        // The cursor starts on the recommended provider, not on "none":
+        // Enter-through picks Groq instead of silently skipping cleanup.
+        .initial_value("groq")
         .interact()
         .map_err(|e| anyhow::anyhow!(e))?;
 
