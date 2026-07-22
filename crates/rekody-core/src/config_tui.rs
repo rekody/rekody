@@ -286,18 +286,22 @@ impl App {
 
 // ── Edit dialog construction ────────────────────────────────────────────────
 
+/// Engines the STT picker offers. Nemotron, the flagship streaming engine
+/// and the wizard's preselected default, leads when the build includes it.
+#[cfg(feature = "nemotron")]
+const STT_ENGINE_OPTIONS: &[&str] = &["nemotron", "local", "groq", "deepgram", "cohere"];
+#[cfg(not(feature = "nemotron"))]
+const STT_ENGINE_OPTIONS: &[&str] = &["local", "groq", "deepgram", "cohere"];
+
+/// Whisper sizes Setup can actually download and the engine can load.
+/// "base" is not one of them: the Pipeline maps it to turbo and the
+/// downloader to tiny, so offering it here only misleads users.
+const WHISPER_MODEL_OPTIONS: &[&str] = &["tiny", "small", "medium", "large", "turbo"];
+
 fn open_editor_for(field: FieldId, cfg: &RekodyConfig) -> Editor {
     match field {
-        FieldId::SttEngine => picker(
-            field,
-            &["local", "groq", "deepgram", "cohere"],
-            &cfg.stt_engine,
-        ),
-        FieldId::WhisperModel => picker(
-            field,
-            &["tiny", "base", "small", "medium", "large", "turbo"],
-            &cfg.whisper_model,
-        ),
+        FieldId::SttEngine => picker(field, STT_ENGINE_OPTIONS, &cfg.stt_engine),
+        FieldId::WhisperModel => picker(field, WHISPER_MODEL_OPTIONS, &cfg.whisper_model),
         FieldId::ActivationMode => picker(
             field,
             &["push_to_talk", "toggle", "hold"],
@@ -1098,4 +1102,40 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_y[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn picker_options(field: FieldId) -> Vec<&'static str> {
+        match open_editor_for(field, &RekodyConfig::default()) {
+            Editor::Picker { options, .. } => options,
+            _ => panic!("expected a picker editor"),
+        }
+    }
+
+    /// The engine picker must match what this build's pipeline supports.
+    /// The regression: nemotron, the flagship engine, was not selectable.
+    #[test]
+    fn stt_engine_picker_matches_supported_engines() {
+        let opts = picker_options(FieldId::SttEngine);
+        #[cfg(feature = "nemotron")]
+        assert_eq!(
+            opts,
+            vec!["nemotron", "local", "groq", "deepgram", "cohere"]
+        );
+        #[cfg(not(feature = "nemotron"))]
+        assert_eq!(opts, vec!["local", "groq", "deepgram", "cohere"]);
+    }
+
+    /// Every size offered maps to a model Setup downloads and the engine
+    /// loads. "base" was neither (Pipeline mapped it to turbo, the
+    /// downloader to tiny) and must stay out of the list.
+    #[test]
+    fn whisper_model_picker_offers_only_supported_sizes() {
+        let opts = picker_options(FieldId::WhisperModel);
+        assert_eq!(opts, vec!["tiny", "small", "medium", "large", "turbo"]);
+        assert!(!opts.contains(&"base"));
+    }
 }

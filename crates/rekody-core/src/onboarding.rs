@@ -105,7 +105,7 @@ pub fn run_onboarding() -> Result<()> {
         .item(
             "none",
             "None — skip LLM cleanup",
-            "use raw STT output (Deepgram/Parakeet already include punctuation)",
+            "use raw STT output (Rekody Streaming and Deepgram already punctuate)",
         )
         .item(
             "apple",
@@ -121,6 +121,9 @@ pub fn run_onboarding() -> Result<()> {
         .item("gemini", "Google Gemini", "Gemini Flash")
         .item("ollama", "Ollama", "local, no API key needed")
         .item("custom", "Custom endpoint", "any OpenAI-compatible API")
+        // The cursor starts on the recommended provider, not on "none":
+        // Enter-through picks Groq instead of silently skipping cleanup.
+        .initial_value("groq")
         .interact()
         .map_err(|e| anyhow::anyhow!(e))?;
 
@@ -179,33 +182,40 @@ pub fn run_onboarding() -> Result<()> {
     };
 
     // --- Validate LLM API key --------------------------------------------
+    // Only for providers with a real endpoint check. Where none exists
+    // (custom base URLs), no spinner and no "valid": say what is true.
     let api_key: String = if needs_key && !api_key.is_empty() {
-        let mut current_key = api_key;
-        loop {
-            let sp = spinner();
-            sp.start("Validating API key...");
-            if validate_api_key(provider_name, &current_key) {
-                sp.stop("API key valid \u{2713}");
-                break current_key;
-            } else {
-                sp.stop("API key validation failed \u{2014} check your key");
-                let proceed: bool = confirm("Continue anyway?")
-                    .initial_value(false)
-                    .interact()
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                if proceed {
+        if provider_has_key_check(provider_name) {
+            let mut current_key = api_key;
+            loop {
+                let sp = spinner();
+                sp.start("Validating API key...");
+                if validate_api_key(provider_name, &current_key) {
+                    sp.stop("API key valid \u{2713}");
                     break current_key;
+                } else {
+                    sp.stop("API key validation failed \u{2014} check your key");
+                    let proceed: bool = confirm("Continue anyway?")
+                        .initial_value(false)
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if proceed {
+                        break current_key;
+                    }
+                    // Re-prompt for key
+                    let key: String = input("Enter your API key")
+                        .placeholder("sk-...")
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if !key.is_empty() {
+                        set_keychain(provider_name, &key);
+                    }
+                    current_key = key;
                 }
-                // Re-prompt for key
-                let key: String = input("Enter your API key")
-                    .placeholder("sk-...")
-                    .interact()
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                if !key.is_empty() {
-                    set_keychain(provider_name, &key);
-                }
-                current_key = key;
             }
+        } else {
+            println!("  Key saved. It will be verified on first use.");
+            api_key
         }
     } else {
         api_key
@@ -344,6 +354,90 @@ pub fn run_onboarding() -> Result<()> {
         deepgram_api_key
     };
 
+    // Groq STT needs a Groq key. The LLM step's key is only a Groq key when
+    // that provider is itself Groq; any other provider's key must never be
+    // written to groq_api_key. Otherwise prompt for one, Keychain first
+    // (same pattern as the Deepgram key above).
+    let reuse_llm_key_for_groq_stt =
+        can_reuse_llm_key_for_groq_stt(stt_engine, provider_name, &api_key);
+    let groq_stt_api_key: Option<String> = if stt_engine != "groq" {
+        None
+    } else if reuse_llm_key_for_groq_stt {
+        Some(api_key.clone())
+    } else if let Some(masked) = get_keychain_masked("groq") {
+        println!("  Found in Keychain: {masked}");
+        let use_existing: bool = confirm("Use existing key? (No = enter a new one)")
+            .initial_value(true)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if use_existing {
+            // Retrieve the actual key from Keychain and write it to config
+            get_keychain_full("groq")
+        } else {
+            let key: String = input("Enter your new Groq API key")
+                .placeholder("gsk_...")
+                .interact()
+                .map_err(|e| anyhow::anyhow!(e))?;
+            if key.is_empty() {
+                None
+            } else {
+                set_keychain("groq", &key);
+                Some(key)
+            }
+        }
+    } else {
+        let key: String = input("Enter your Groq API key")
+            .placeholder("gsk_...")
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if key.is_empty() {
+            None
+        } else {
+            set_keychain("groq", &key);
+            Some(key)
+        }
+    };
+
+    // --- Validate Groq STT API key ----------------------------------------
+    // Skipped when the key was reused from the LLM step, which already
+    // validated it.
+    let groq_stt_api_key: Option<String> = if reuse_llm_key_for_groq_stt {
+        groq_stt_api_key
+    } else if let Some(ref groq_key) = groq_stt_api_key {
+        if !groq_key.is_empty() {
+            let mut current_key = groq_key.clone();
+            loop {
+                let sp = spinner();
+                sp.start("Validating Groq API key...");
+                if validate_api_key("groq", &current_key) {
+                    sp.stop("Groq API key valid \u{2713}");
+                    break Some(current_key);
+                } else {
+                    sp.stop("Groq API key validation failed: check your key");
+                    let proceed: bool = confirm("Continue anyway?")
+                        .initial_value(false)
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if proceed {
+                        break Some(current_key);
+                    }
+                    let key: String = input("Enter your Groq API key")
+                        .placeholder("gsk_...")
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if !key.is_empty() {
+                        set_keychain("groq", &key);
+                    }
+                    current_key = key;
+                }
+            }
+        } else {
+            groq_stt_api_key
+        }
+    } else {
+        groq_stt_api_key
+    };
+
     // For local Whisper, ask model size and download
     let whisper_size: &str = if stt_engine == "local" {
         select("Choose local Whisper model size")
@@ -360,8 +454,11 @@ pub fn run_onboarding() -> Result<()> {
             .interact()
             .map_err(|e| anyhow::anyhow!(e))?
     } else {
-        // Cloud STT doesn't need a local model, but keep tiny as a fallback
-        "tiny"
+        // Non-local STT downloads nothing here, but whisper_model still gets
+        // written to config. Write the recommended default so a later hand
+        // edit to stt_engine = "local" points at the model Setup and the app
+        // actually fetch, not at a never-downloaded tiny.
+        "turbo"
     };
 
     let (whisper_file, whisper_remote) = whisper_download_spec(whisper_size);
@@ -559,11 +656,12 @@ pub fn run_onboarding() -> Result<()> {
         _ => String::new(),
     };
 
-    // If STT is groq, we need groq_api_key for STT (separate from the provider key)
-    let groq_stt_line = if stt_engine == "groq" {
-        format!("groq_api_key = \"{api_key}\"")
-    } else {
-        String::new()
+    // If STT is groq, groq_api_key carries the STT key: a real Groq key,
+    // either reused from a Groq LLM step or prompted for above. Never
+    // another provider's key.
+    let groq_stt_line = match &groq_stt_api_key {
+        Some(key) if !key.is_empty() => format!("groq_api_key = \"{key}\""),
+        _ => String::new(),
     };
 
     let provider_block = if provider_name == "none" {
@@ -652,7 +750,7 @@ save_training_data = {save_training_data}
     let stt_display = match stt_engine {
         "groq" => "Groq Cloud Whisper Large v3".to_string(),
         "deepgram" => "Deepgram Nova-3".to_string(),
-        "nemotron" => "Nemotron streaming (English)".to_string(),
+        "nemotron" => "Rekody Streaming (English)".to_string(),
         _ => format!("Local Whisper ({whisper_size})"),
     };
 
@@ -677,40 +775,84 @@ save_training_data = {save_training_data}
 // API key validation
 // ---------------------------------------------------------------------------
 
+/// Whether the Groq STT step may reuse the key collected in the LLM step.
+///
+/// Only a Groq LLM provider's key is a Groq key. Reusing any other
+/// provider's key (Anthropic, OpenAI, ...) as `groq_api_key` stores a key
+/// Groq will reject; the wizard prompts for a real one instead.
+fn can_reuse_llm_key_for_groq_stt(stt_engine: &str, llm_provider: &str, llm_key: &str) -> bool {
+    stt_engine == "groq" && llm_provider == "groq" && !llm_key.is_empty()
+}
+
+/// Providers whose keys [`validate_api_key`] can actually check against a
+/// stable, documented endpoint. For anything else (notably "custom", whose
+/// base URL is unknown) the wizard must not fake it: no spinner, and never
+/// the word "valid" without a real network check behind it.
+fn provider_has_key_check(provider: &str) -> bool {
+    matches!(
+        provider,
+        "groq"
+            | "deepgram"
+            | "openai"
+            | "cerebras"
+            | "anthropic"
+            | "gemini"
+            | "together"
+            | "openrouter"
+    )
+}
+
 /// Make a lightweight test call to verify an API key works.
 ///
-/// Returns `true` if the key appears valid (HTTP 2xx or 400),
-/// `false` on auth errors or network failures.
+/// Returns `true` if the key appears valid, `false` on auth errors or
+/// network failures. Only meaningful for providers where
+/// [`provider_has_key_check`] is true; anything else returns `true` without
+/// checking, and callers must not present that as validation.
 fn validate_api_key(provider: &str, key: &str) -> bool {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap_or_default();
 
-    let (url, auth) = match provider {
-        "groq" => (
-            "https://api.groq.com/openai/v1/models",
-            format!("Bearer {}", key),
-        ),
-        "deepgram" => (
-            "https://api.deepgram.com/v1/projects",
-            format!("Token {}", key),
-        ),
-        "openai" => (
-            "https://api.openai.com/v1/models",
-            format!("Bearer {}", key),
-        ),
-        "cerebras" => (
-            "https://api.cerebras.ai/v1/models",
-            format!("Bearer {}", key),
-        ),
-        "anthropic" => return true, // Anthropic has no lightweight endpoint
-        "gemini" => return true,    // Gemini validation is complex
-        _ => return true,           // Local providers don't need validation
+    let request = match provider {
+        "groq" => client
+            .get("https://api.groq.com/openai/v1/models")
+            .header("Authorization", format!("Bearer {key}")),
+        "deepgram" => client
+            .get("https://api.deepgram.com/v1/projects")
+            .header("Authorization", format!("Token {key}")),
+        "openai" => client
+            .get("https://api.openai.com/v1/models")
+            .header("Authorization", format!("Bearer {key}")),
+        "cerebras" => client
+            .get("https://api.cerebras.ai/v1/models")
+            .header("Authorization", format!("Bearer {key}")),
+        "anthropic" => client
+            .get("https://api.anthropic.com/v1/models")
+            .header("x-api-key", key)
+            .header("anthropic-version", "2023-06-01"),
+        "gemini" => client
+            .get("https://generativelanguage.googleapis.com/v1beta/models")
+            .query(&[("key", key)]),
+        "together" => client
+            .get("https://api.together.xyz/v1/models")
+            .header("Authorization", format!("Bearer {key}")),
+        "openrouter" => client
+            .get("https://openrouter.ai/api/v1/key")
+            .header("Authorization", format!("Bearer {key}")),
+        // No stable endpoint to check against (custom base URLs, local
+        // providers). Callers gate on provider_has_key_check.
+        _ => return true,
     };
 
-    match client.get(url).header("Authorization", &auth).send() {
-        Ok(resp) => resp.status().is_success() || resp.status().as_u16() == 400,
+    // A 400 from an OpenAI-style endpoint still means the key authenticated
+    // (the request itself was malformed). Gemini is the exception: it
+    // signals an invalid key WITH a 400, so only 2xx counts there.
+    let accept_bad_request = provider != "gemini";
+    match request.send() {
+        Ok(resp) => {
+            resp.status().is_success() || (accept_bad_request && resp.status().as_u16() == 400)
+        }
         Err(_) => false,
     }
 }
@@ -818,10 +960,11 @@ fn download_verified(url: &str, dest: &std::path::Path, expected_sha256: &str) -
 /// to the secondary source when the primary fails for any reason: non-2xx
 /// status, network error, or checksum mismatch. Each attempt verifies
 /// against its own source's pinned SHA-256 (see [`download_verified`]);
-/// whisper artifacts are byte-identical on both sources so their two pins
-/// are equal, while Nemotron artifacts are distinct conversions per source.
-/// The source that served the file is echoed so it is always clear where
-/// the bytes came from.
+/// whisper artifacts are byte-identical on both sources (Rekody mirror,
+/// upstream whisper.cpp) so their two pins are equal. Nemotron artifacts
+/// never come through here: the Rekody org is their sole source, with no
+/// fallback. The source that served the file is echoed so it is always
+/// clear where the bytes came from.
 fn download_with_fallback(
     primary_url: &str,
     fallback_url: &str,
@@ -854,13 +997,14 @@ fn download_with_fallback(
 }
 
 // ---------------------------------------------------------------------------
-// Nemotron streaming model sources (Rekody model first, prior conversion fallback)
+// Nemotron streaming model sources (Rekody model repo, the sole source)
 // ---------------------------------------------------------------------------
 
 /// Rekody's branded streaming model on Hugging Face: an int8 ONNX conversion
-/// of the current (March 2026) NVIDIA Nemotron streaming checkpoint. Tried
-/// first for every artifact so availability stays under Rekody's control,
-/// mirroring the whisper setup above.
+/// of the current (March 2026) NVIDIA Nemotron streaming checkpoint. The
+/// sole source for every streaming artifact (unlike whisper, which keeps
+/// upstream whisper.cpp as a fallback), so availability stays under
+/// Rekody's control.
 #[cfg(feature = "nemotron")]
 const REKODY_NEMOTRON_BASE: &str =
     "https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8/resolve/main";
@@ -1401,7 +1545,6 @@ mod tests {
         );
     }
 
-    /// Every Nemotron artifact must carry a well-formed pin for BOTH sources.
     /// Every streaming artifact must carry a real pin for the Rekody-published
     /// model, the engine's sole download source.
     #[cfg(feature = "nemotron")]
@@ -1467,5 +1610,56 @@ mod tests {
             ),
             "mismatch must fail"
         );
+    }
+
+    /// The Groq STT step reuses the LLM step's key ONLY when that provider is
+    /// itself Groq. The regression: Anthropic LLM + Groq STT wrote the
+    /// Anthropic key to groq_api_key; keyless providers left it empty.
+    #[test]
+    fn groq_stt_reuses_llm_key_only_when_llm_provider_is_groq() {
+        assert!(can_reuse_llm_key_for_groq_stt("groq", "groq", "gsk_abc"));
+        assert!(!can_reuse_llm_key_for_groq_stt(
+            "groq",
+            "anthropic",
+            "sk-ant"
+        ));
+        assert!(!can_reuse_llm_key_for_groq_stt("groq", "openai", "sk-xyz"));
+        assert!(
+            !can_reuse_llm_key_for_groq_stt("groq", "none", ""),
+            "keyless LLM choice must trigger a Groq prompt, not an empty key"
+        );
+        assert!(
+            !can_reuse_llm_key_for_groq_stt("groq", "groq", ""),
+            "an empty Groq LLM key is not reusable"
+        );
+        assert!(
+            !can_reuse_llm_key_for_groq_stt("local", "groq", "gsk_abc"),
+            "non-Groq STT never writes groq_api_key from this path"
+        );
+    }
+
+    /// The wizard may only show a "Validating..." spinner (and say "valid")
+    /// for providers with a real endpoint check. "custom" has an unknown
+    /// base URL, so it must fall through to the honest no-check path.
+    #[test]
+    fn only_providers_with_real_endpoint_checks_claim_validation() {
+        for p in [
+            "groq",
+            "deepgram",
+            "openai",
+            "cerebras",
+            "anthropic",
+            "gemini",
+            "together",
+            "openrouter",
+        ] {
+            assert!(provider_has_key_check(p), "{p} has a real endpoint check");
+        }
+        for p in ["custom", "ollama", "none", "apple"] {
+            assert!(
+                !provider_has_key_check(p),
+                "{p} has no stable endpoint and must not fake validation"
+            );
+        }
     }
 }
