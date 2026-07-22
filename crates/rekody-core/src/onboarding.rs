@@ -454,8 +454,11 @@ pub fn run_onboarding() -> Result<()> {
             .interact()
             .map_err(|e| anyhow::anyhow!(e))?
     } else {
-        // Cloud STT doesn't need a local model, but keep tiny as a fallback
-        "tiny"
+        // Non-local STT downloads nothing here, but whisper_model still gets
+        // written to config. Write the recommended default so a later hand
+        // edit to stt_engine = "local" points at the model Setup and the app
+        // actually fetch, not at a never-downloaded tiny.
+        "turbo"
     };
 
     let (whisper_file, whisper_remote) = whisper_download_spec(whisper_size);

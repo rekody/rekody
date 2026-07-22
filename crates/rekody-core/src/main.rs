@@ -909,9 +909,21 @@ async fn cmd_doctor() -> Result<()> {
             }
         }
         _ => {
-            println!(
-                "  {BRAND}│{RESET}     {BRAND_LIGHT}○{RESET}  {DIM}Local Whisper (no network check needed){RESET}"
-            );
+            // Local Whisper needs no network, but it does need the GGML file
+            // on disk. Without this probe a missing model (e.g. a hand edit
+            // to stt_engine = "local") only surfaces on the first dictation.
+            let ggml_file = whisper_ggml_file(&config.whisper_model);
+            if rekody_models_dir().join(ggml_file).exists() {
+                println!(
+                    "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {DIM}model present ({}){RESET}",
+                    stt_name, ggml_file
+                );
+            } else {
+                println!(
+                    "  {BRAND}│{RESET}     {SLOW}{BOLD}✗{RESET}  {CREAM}{}{RESET}  {WARN}missing {} · re-run: rekody setup to download it{RESET}",
+                    stt_name, ggml_file
+                );
+            }
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             {
                 let (label, ok) = coreml_status(&config.whisper_model);
@@ -2103,6 +2115,21 @@ fn format_activation_mode(mode: &str) -> String {
     }
 }
 
+/// GGML file the local Whisper engine loads for a configured model size.
+/// Mirrors the Pipeline mapping in rekody-core: rekody-stt's multilingual
+/// filenames, with unknown sizes falling back to turbo.
+fn whisper_ggml_file(whisper_model: &str) -> &'static str {
+    use rekody_stt::WhisperModel;
+    let model = match whisper_model.to_lowercase().as_str() {
+        "tiny" => WhisperModel::Tiny,
+        "small" => WhisperModel::Small,
+        "medium" => WhisperModel::Medium,
+        "large" => WhisperModel::Large,
+        _ => WhisperModel::Turbo,
+    };
+    model.file_name()
+}
+
 /// Detect whether the Core ML encoder is installed for the configured local
 /// model. Returns a human label + an ok flag. Only compiled on Apple Silicon
 /// macOS, where Core ML offers a ~2× speedup over Metal-only inference.
@@ -3245,6 +3272,31 @@ impl tracing::field::Visit for EventVisitor {
         // logs and are unharmed by keeping precision.
         self.fields
             .insert(field.name().to_string(), value.to_string());
+    }
+}
+
+#[cfg(test)]
+mod doctor_whisper_tests {
+    use super::whisper_ggml_file;
+
+    /// Doctor must probe the exact GGML file the engine will load: the
+    /// rekody-stt multilingual filenames.
+    #[test]
+    fn sizes_map_to_the_files_the_engine_loads() {
+        assert_eq!(whisper_ggml_file("tiny"), "ggml-tiny.bin");
+        assert_eq!(whisper_ggml_file("small"), "ggml-small.bin");
+        assert_eq!(whisper_ggml_file("medium"), "ggml-medium.bin");
+        assert_eq!(whisper_ggml_file("large"), "ggml-large.bin");
+        assert_eq!(whisper_ggml_file("turbo"), "ggml-large-v3-turbo-q5_0.bin");
+        assert_eq!(whisper_ggml_file("TURBO"), "ggml-large-v3-turbo-q5_0.bin");
+    }
+
+    /// Unknown sizes (incl. the retired "base") follow the Pipeline's
+    /// fallback to turbo, so doctor and the engine always agree.
+    #[test]
+    fn unknown_sizes_fall_back_to_turbo_like_the_pipeline() {
+        assert_eq!(whisper_ggml_file("base"), "ggml-large-v3-turbo-q5_0.bin");
+        assert_eq!(whisper_ggml_file(""), "ggml-large-v3-turbo-q5_0.bin");
     }
 }
 
