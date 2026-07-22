@@ -12,6 +12,7 @@ rekody-stt = { workspace = true }
 rekody-llm = { workspace = true }
 rekody-inject = { workspace = true }
 rekody-hotkey = { workspace = true }
+rekody-review = { workspace = true }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

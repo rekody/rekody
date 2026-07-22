@@ -129,6 +129,23 @@ enum Cmd {
         #[arg(short, long)]
         play: bool,
     },
+    /// Review your dictation dataset in a local page: fix transcripts,
+    /// remove bad clips, and export a fine-tuning-ready manifest
+    Review {
+        /// Dataset directory (default: $REKODY_TRAINING_DIR, then
+        /// ~/.local/share/rekody/training-data)
+        #[arg(long)]
+        dir: Option<std::path::PathBuf>,
+        /// Port for the local page; the next nine ports are tried when busy
+        #[arg(long, default_value_t = 7878)]
+        port: u16,
+        /// Do not open the browser automatically
+        #[arg(long)]
+        no_open: bool,
+        /// Exit after this many seconds without page activity (0 = stay up)
+        #[arg(long, default_value_t = 0, value_name = "N")]
+        auto_exit_secs: u64,
+    },
     /// Drive the live status region through fake states (UI development aid)
     #[command(hide = true)]
     UiDemo,
@@ -249,8 +266,45 @@ async fn main() -> Result<()> {
         Some(Cmd::Skill { action }) => cmd_skill(action),
         Some(Cmd::Dictionary { action }) => cmd_dictionary(action),
         Some(Cmd::Fix { text, n, play }) => cmd_fix(text, n, play),
+        Some(Cmd::Review {
+            dir,
+            port,
+            no_open,
+            auto_exit_secs,
+        }) => cmd_review(dir, port, no_open, auto_exit_secs),
         Some(Cmd::UiDemo) => cmd_ui_demo(),
     }
+}
+
+// ── Subcommand: review ───────────────────────────────────────────────────────
+
+/// Serve the dataset review page (the rekody-review crate) on localhost.
+///
+/// stdout is a machine surface here: the library prints exactly one line,
+/// `REVIEW_URL=http://127.0.0.1:<port>`, which the Mac app parses to find
+/// the page. Everything else logs to stderr, so that contract stays clean.
+fn cmd_review(
+    dir: Option<std::path::PathBuf>,
+    port: u16,
+    no_open: bool,
+    auto_exit_secs: u64,
+) -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_writer(std::io::stderr)
+        .init();
+    // Precedence: --dir beats $REKODY_TRAINING_DIR beats the default
+    // training-data location (the latter two live in the library).
+    let dir = dir.unwrap_or_else(rekody_review::default_dataset_dir);
+    rekody_review::serve(rekody_review::ReviewOptions {
+        dir,
+        port,
+        open_browser: !no_open,
+        auto_exit_secs,
+    })
 }
 
 /// Correct the transcript label of a recent training pair, while the context

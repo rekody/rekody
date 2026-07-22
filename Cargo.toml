@@ -26,6 +26,7 @@ rekody-stt = { path = "crates/rekody-stt" }
 rekody-llm = { path = "crates/rekody-llm" }
 rekody-inject = { path = "crates/rekody-inject" }
 rekody-hotkey = { path = "crates/rekody-hotkey" }
+rekody-review = { path = "crates/rekody-review" }
 
 # Shared dependencies
 tokio = { version = "1", features = ["full"] }
