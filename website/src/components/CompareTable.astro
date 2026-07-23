@@ -1,0 +1,231 @@
+---
+// Reusable comparison table. Data lives in src/lib/compare.ts; this component
+// only renders. Used twice: compact on the homepage (compactRows, short cell
+// text), deep on /compare (all rows, full text + footnote superscripts).
+//
+// Rendering rules (fairness is part of the design):
+//   - teal check = yes, gray cross = no, dot = the vendor doesn't publish it.
+//   - The dot is neutral, never styled as a miss.
+//   - Rekody column gets a quiet tint + teal hairline, nothing louder.
+// Mobile: the table scrolls horizontally and the row-label column stays
+// sticky (same pattern as the site's other overflow surfaces, no JS).
+import { columns, type Row } from '../lib/compare';
+
+export interface Props {
+  rows: Row[];
+  /** Use each cell's `short` text and tighter cell padding (homepage). */
+  compact?: boolean;
+  /** Render footnote superscripts linking to #fn-N (used on /compare). */
+  showNotes?: boolean;
+  caption: string;
+}
+
+const { rows, compact = false, showNotes = false, caption } = Astro.props;
+const cellText = (c: { text?: string; short?: string }) =>
+  compact ? (c.short ?? c.text) : c.text;
+---
+
+<div class="cmp-card" data-compact={compact ? 'true' : undefined}>
+  <div class="cmp-scroll scrollbar-none">
+    <table class="cmp-table">
+      <caption class="sr-only">{caption}</caption>
+      <thead>
+        <tr>
+          <th scope="col" class="cmp-label cmp-corner"><span class="sr-only">Feature</span></th>
+          {columns.map((name, i) => (
+            <th scope="col" class:list={['cmp-col', { 'cmp-rekody': i === 0 }]}>
+              {i === 0
+                ? <span class="cmp-wordmark">rekody<span style="color:var(--color-teal);">.</span></span>
+                : <span>{name}</span>}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr>
+            <th scope="row" class="cmp-label">{row.label}</th>
+            {row.cells.map((cell, i) => (
+              <td class:list={['cmp-cell', { 'cmp-rekody': i === 0 }]}>
+                {cell.kind === 'yes' && (
+                  <span class="cmp-flex">
+                    <svg class="cmp-ic cmp-ic-yes" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <span>{cellText(cell) ?? 'Yes'}{showNotes && cell.note && <sup class="cmp-fn"><a href={`#fn-${cell.note}`}>{cell.note}</a></sup>}</span>
+                  </span>
+                )}
+                {cell.kind === 'no' && (
+                  <span class="cmp-flex">
+                    <svg class="cmp-ic cmp-ic-no" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                    <span>{cellText(cell) ?? 'No'}{showNotes && cell.note && <sup class="cmp-fn"><a href={`#fn-${cell.note}`}>{cell.note}</a></sup>}</span>
+                  </span>
+                )}
+                {cell.kind === 'text' && (
+                  <span>{cellText(cell)}{showNotes && cell.note && <sup class="cmp-fn"><a href={`#fn-${cell.note}`}>{cell.note}</a></sup>}</span>
+                )}
+                {cell.kind === 'na' && (
+                  <span class="cmp-na" role="img" aria-label="Not published by the vendor" title="Not published by the vendor">
+                    <span class="cmp-na-dot" aria-hidden="true">·{(compact || !cell.text) && showNotes && cell.note ? <sup class="cmp-fn"><a href={`#fn-${cell.note}`}>{cell.note}</a></sup> : null}</span>
+                    {!compact && cell.text && <span class="cmp-na-text">{cell.text}{showNotes && cell.note && <sup class="cmp-fn"><a href={`#fn-${cell.note}`}>{cell.note}</a></sup>}</span>}
+                  </span>
+                )}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cmp-legend">
+    <span class="cmp-legend-item">
+      <svg class="cmp-ic cmp-ic-yes" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      yes
+    </span>
+    <span class="cmp-legend-item">
+      <svg class="cmp-ic cmp-ic-no" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      no
+    </span>
+    <span class="cmp-legend-item"><span class="cmp-na-dot" aria-hidden="true">·</span> not published by the vendor</span>
+  </div>
+</div>
+
+<style>
+  .cmp-card {
+    background: #FFFFFF;
+    border: 1px solid var(--color-hairline);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .cmp-scroll { overflow-x: auto; }
+
+  .cmp-table {
+    width: 100%;
+    min-width: 880px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .cmp-card[data-compact] .cmp-table { min-width: 780px; }
+
+  /* Header row */
+  thead th {
+    padding: 14px 16px 12px;
+    text-align: left;
+    vertical-align: bottom;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-ink-soft);
+    background: #FFFFFF;
+    border-bottom: 1px solid var(--color-hairline);
+    white-space: nowrap;
+  }
+  .cmp-wordmark {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 17px;
+    letter-spacing: -0.02em;
+    color: var(--color-ink);
+  }
+
+  /* Row labels: sticky so the mobile horizontal scroll keeps context */
+  .cmp-label {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #FFFFFF;
+    padding: 13px 16px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-ink);
+    line-height: 1.4;
+    width: 172px;
+    min-width: 132px;
+    max-width: 192px;
+    border-right: 1px solid var(--color-hairline-soft);
+  }
+  thead .cmp-corner { z-index: 3; }
+
+  tbody .cmp-label,
+  tbody .cmp-cell { border-top: 1px solid var(--color-hairline-soft); }
+  tbody tr:first-child .cmp-label,
+  tbody tr:first-child .cmp-cell { border-top: none; }
+
+  .cmp-cell {
+    padding: 13px 16px;
+    font-size: 13px;
+    color: var(--color-ink-mute);
+    line-height: 1.5;
+    vertical-align: top;
+    min-width: 132px;
+  }
+  .cmp-card:not([data-compact]) .cmp-cell { max-width: 240px; }
+
+  /* Rekody column: a quiet tint, teal hairline over the header. Honest, not loud. */
+  .cmp-rekody { background: rgba(32, 128, 141, 0.045); }
+  thead .cmp-rekody {
+    background: var(--color-teal-soft);
+    box-shadow: inset 0 2px 0 var(--color-teal);
+  }
+  td.cmp-rekody { color: var(--color-ink-soft); }
+
+  .cmp-flex { display: flex; align-items: flex-start; gap: 7px; }
+  .cmp-ic { width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px; }
+  .cmp-ic-yes { color: var(--color-teal); }
+  .cmp-ic-no { color: var(--color-ink-faint); }
+
+  .cmp-na { display: flex; align-items: flex-start; gap: 7px; }
+  .cmp-na-dot {
+    font-size: 18px;
+    line-height: 1;
+    color: var(--color-ink-faint);
+    margin-top: 1px;
+  }
+  .cmp-na-text { font-size: 12px; color: var(--color-ink-faint); line-height: 1.5; }
+
+  .cmp-fn { line-height: 0; }
+  .cmp-fn a {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--color-teal);
+    text-decoration: none;
+    padding-left: 1px;
+  }
+  .cmp-fn a:hover { text-decoration: underline; }
+
+  .cmp-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--color-hairline-soft);
+    background: #FFFFFF;
+  }
+  .cmp-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-ink-faint);
+    letter-spacing: 0.02em;
+  }
+  .cmp-legend-item .cmp-ic { margin-top: 0; }
+  .cmp-legend-item .cmp-na-dot { margin-top: 0; font-size: 16px; }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  @media (max-width: 720px) {
+    .cmp-label { width: 132px; min-width: 116px; padding: 12px 12px; font-size: 12px; }
+    .cmp-cell { padding: 12px 12px; font-size: 12.5px; }
+    thead th { padding: 12px 12px 10px; }
+  }
+</style>

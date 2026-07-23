@@ -1,0 +1,37 @@
+---
+// Homepage comparison section: the 7 highest-contrast rows, honestly told,
+// linking to the full table on /compare. Sits after the privacy proof and
+// before the final download CTA (Closer), so the reader compares at peak
+// context and then gets the ask.
+// Data + fairness policy: src/lib/compare.ts.
+import CompareTable from './CompareTable.astro';
+import { compactRows, checkedLabel, correctionsEmail } from '../lib/compare';
+---
+
+<section id="compare" style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline);">
+  <div class="max-w-6xl mx-auto px-6 py-20 md:py-24 flex flex-col gap-10">
+
+    <div class="flex flex-col gap-3.5 items-start">
+      <p class="font-mono text-[12px] uppercase" style="color:var(--color-teal); letter-spacing:0.16em;">How it compares</p>
+      <h2 class="display" style="font-size:clamp(34px,4.5vw,54px); line-height:1.08;">
+        Where Rekody wins. And where it doesn't.
+      </h2>
+      <p class="text-[16px] max-w-[620px]" style="color:var(--color-ink-mute); line-height:1.65;">
+        Rekody next to Apple Dictation, Wispr Flow, MacWhisper and Superwhisper.
+        Every cell comes from the vendor's own site, docs, or privacy policy.
+        The rows we lose stay in the table.
+      </p>
+    </div>
+
+    <CompareTable rows={compactRows} compact caption="Compact comparison of Rekody, Apple Dictation, Wispr Flow, MacWhisper and Superwhisper" />
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">
+        {checkedLabel} Corrections welcome: <a href={`mailto:${correctionsEmail}`} class="underline underline-offset-2" style="color:var(--color-ink-mute);">{correctionsEmail}</a>
+      </p>
+      <a href="/compare" class="text-[14px] underline decoration-[rgba(32,128,141,0.35)] underline-offset-2 shrink-0" style="color:var(--color-ink-soft);">
+        See the full comparison, sources and all
+      </a>
+    </div>
+  </div>
+</section>

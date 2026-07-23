@@ -1,0 +1,94 @@
+---
+// /compare: the deep comparison table. Same data source as the homepage
+// section (src/lib/compare.ts), all rows, footnotes, and the official
+// sources used. Research log with access dates lives in the marketing vault.
+import Base from '../layouts/Base.astro';
+import Navbar from '../components/Navbar.astro';
+import CompareTable from '../components/CompareTable.astro';
+import Closer from '../components/Closer.astro';
+import Footer from '../components/Footer.astro';
+import { rows, footnotes, sources, checkedLabel, correctionsEmail } from '../lib/compare';
+
+const title = 'Compare · Rekody vs Apple Dictation, Wispr Flow, MacWhisper, Superwhisper';
+const description = 'An honest comparison of Mac dictation tools: pricing, accounts, offline use, where audio is processed, storage, engines, and languages. Official sources only, checked July 2026.';
+---
+
+<Base title={title} description={description}>
+  <Navbar />
+  <main>
+    <!-- Top spacer so content clears the fixed navbar -->
+    <div style="height:6rem;"></div>
+
+    <section style="background:#FFFFFF;">
+      <div class="max-w-6xl mx-auto px-6 pt-10 md:pt-14 pb-12 flex flex-col gap-5">
+        <p class="font-mono text-[12px] uppercase" style="color:var(--color-teal); letter-spacing:0.16em;">Compare</p>
+        <h1 class="display" style="font-size:clamp(38px,5vw,60px); line-height:1.08;">How Rekody compares.</h1>
+        <p class="text-[17px] max-w-[640px]" style="color:var(--color-ink-mute); line-height:1.65;">
+          Rekody next to Apple Dictation, Wispr Flow, MacWhisper and Superwhisper.
+          Every competitor cell comes from that vendor's own site, docs, or privacy
+          policy; the pages we used are linked at the bottom. Where a vendor doesn't
+          publish a fact, the cell shows a dot instead of a guess. And where a
+          competitor is better at something, the table says so.
+        </p>
+        <p class="font-mono text-[12px]" style="color:var(--color-ink-faint);">
+          {checkedLabel} Corrections welcome: <a href={`mailto:${correctionsEmail}`} class="underline underline-offset-2" style="color:var(--color-ink-mute);">{correctionsEmail}</a>
+        </p>
+      </div>
+    </section>
+
+    <section style="background:var(--color-cream-warm); border-top:1px solid var(--color-hairline);">
+      <div class="max-w-6xl mx-auto px-6 py-14 md:py-16 flex flex-col gap-10">
+        <CompareTable rows={rows} showNotes caption="Full comparison of Rekody, Apple Dictation, Wispr Flow, MacWhisper and Superwhisper" />
+
+        <div class="flex flex-col gap-4 max-w-[760px]">
+          <h2 class="font-mono text-[12px] uppercase" style="color:var(--color-ink-faint); letter-spacing:0.14em;">Notes</h2>
+          <ol class="flex flex-col gap-2.5" style="list-style:none; padding:0; margin:0;">
+            {footnotes.map((f) => (
+              <li id={`fn-${f.n}`} class="flex gap-3 text-[13px]" style="color:var(--color-ink-mute); line-height:1.6;">
+                <span class="font-mono text-[11px] shrink-0" style="color:var(--color-teal); margin-top:2px;">{f.n}</span>
+                <span>{f.text}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section style="background:#FFFFFF; border-top:1px solid var(--color-hairline);">
+      <div class="max-w-6xl mx-auto px-6 py-14 md:py-16 flex flex-col gap-8">
+        <div class="flex flex-col gap-3">
+          <h2 class="font-mono text-[12px] uppercase" style="color:var(--color-teal); letter-spacing:0.16em;">Sources</h2>
+          <p class="text-[14px] max-w-[620px]" style="color:var(--color-ink-mute); line-height:1.6;">
+            The official pages every cell was checked against, accessed July 2026.
+            If one of them changes and a cell above is stale, tell us:
+            <a href={`mailto:${correctionsEmail}`} class="underline underline-offset-2" style="color:var(--color-ink-soft);">{correctionsEmail}</a>.
+          </p>
+        </div>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-8">
+          {sources.map((group) => (
+            <div>
+              <h3 class="text-[13px] font-semibold mb-2.5" style="color:var(--color-ink);">{group.vendor}</h3>
+              <ul class="flex flex-col gap-1.5">
+                {group.links.map((l) => (
+                  <li>
+                    <a
+                      href={l.href}
+                      target={l.href.startsWith('/') ? undefined : '_blank'}
+                      rel={l.href.startsWith('/') ? undefined : 'noopener noreferrer'}
+                      class="text-[13px] underline decoration-[rgba(15,23,23,0.2)] underline-offset-2 hover:decoration-[rgba(32,128,141,0.5)]"
+                      style="color:var(--color-ink-mute);"
+                    >{l.label}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <Closer />
+  </main>
+  <Footer />
+</Base>
