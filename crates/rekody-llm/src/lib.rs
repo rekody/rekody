@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -1325,12 +1325,23 @@ impl ProviderChain {
 
     /// Try each provider in order. Returns the first successful result, or the
     /// last error if all providers fail.
+    ///
+    /// Every attempt is capped at `PROVIDER_TIMEOUT`: dictated text that
+    /// isn't injected promptly is worth more raw than cleaned, so a stalled
+    /// provider (a wedged local server, a network black hole) fails the
+    /// chain forward instead of pinning the stop pipeline at "finishing"
+    /// indefinitely.
     pub async fn format(
         &self,
         raw_transcript: &str,
         context: &AppContext,
         system_prompt: &str,
     ) -> Result<FormattedText> {
+        /// Hard cap on a single provider's generation call.
+        const PROVIDER_TIMEOUT: Duration = Duration::from_secs(30);
+        /// Availability probes are metadata checks; anything slower is down.
+        const AVAILABILITY_TIMEOUT: Duration = Duration::from_secs(3);
+
         if self.providers.is_empty() {
             return Err(LlmError::ProviderUnavailable("no providers configured".into()).into());
         }
@@ -1338,19 +1349,34 @@ impl ProviderChain {
         let mut last_error: Option<anyhow::Error> = None;
 
         for provider in &self.providers {
-            if !provider.is_available_boxed().await {
+            let available =
+                tokio::time::timeout(AVAILABILITY_TIMEOUT, provider.is_available_boxed())
+                    .await
+                    .unwrap_or_else(|_| {
+                        tracing::warn!("provider availability check timed out, skipping");
+                        false
+                    });
+            if !available {
                 tracing::debug!("provider not available, skipping");
                 continue;
             }
 
-            match provider
-                .format_boxed(raw_transcript, context, system_prompt)
-                .await
+            match tokio::time::timeout(
+                PROVIDER_TIMEOUT,
+                provider.format_boxed(raw_transcript, context, system_prompt),
+            )
+            .await
             {
-                Ok(result) => return Ok(result),
-                Err(e) => {
+                Ok(Ok(result)) => return Ok(result),
+                Ok(Err(e)) => {
                     tracing::warn!(error = %e, "provider failed, trying next");
                     last_error = Some(e);
+                }
+                Err(_) => {
+                    let secs = PROVIDER_TIMEOUT.as_secs();
+                    tracing::warn!(timeout_secs = secs, "provider timed out, trying next");
+                    last_error =
+                        Some(LlmError::ApiError(format!("timed out after {secs}s")).into());
                 }
             }
         }
@@ -1395,6 +1421,56 @@ mod tests {
     async fn test_is_available_with_key() {
         let provider = CerebrasProvider::new("some-key");
         assert!(provider.is_available().await);
+    }
+
+    /// A provider whose generation call never returns — models a wedged
+    /// local server. The chain must time it out and fail forward.
+    struct HangingProvider;
+
+    impl LlmProvider for HangingProvider {
+        async fn format(
+            &self,
+            _raw_transcript: &str,
+            _context: &AppContext,
+            _system_prompt: &str,
+        ) -> Result<FormattedText> {
+            std::future::pending().await
+        }
+
+        async fn is_available(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn chain_times_out_hung_provider_and_falls_through() {
+        let chain = ProviderChain::new()
+            .add(HangingProvider)
+            .add(RawTranscriptFallback::new());
+        let ctx = AppContext {
+            app_name: "Test".into(),
+            bundle_id: None,
+        };
+        let out = chain
+            .format("hello world", &ctx, "prompt")
+            .await
+            .expect("chain must fall through to the raw fallback");
+        assert_eq!(out.provider, "raw-fallback");
+        assert_eq!(out.text, "hello world");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn chain_surfaces_timeout_when_no_fallback() {
+        let chain = ProviderChain::new().add(HangingProvider);
+        let ctx = AppContext {
+            app_name: "Test".into(),
+            bundle_id: None,
+        };
+        let err = chain
+            .format("hello world", &ctx, "prompt")
+            .await
+            .expect_err("a hung sole provider must error, not hang");
+        assert!(err.to_string().contains("timed out"), "got: {err}");
     }
 
     #[tokio::test]

@@ -63,6 +63,7 @@ mod windows_only {
             HotkeyEvent::RecordStart => "Start",
             HotkeyEvent::RecordLatched => "Latched",
             HotkeyEvent::RecordStop => "Stop",
+            HotkeyEvent::RecordStopForced => "StopForced",
             HotkeyEvent::CommandMode => "CommandMode",
             HotkeyEvent::CycleSkill => "CycleSkill",
         }
@@ -143,10 +144,10 @@ mod windows_only {
                     expect(&mut rx, "latch on", &["Start", "Latched"]).await;
                     // Walk away: the 2s deadman watchdog must force a stop.
                     match tokio::time::timeout(Duration::from_secs(6), rx.recv()).await {
-                        Ok(Some(HotkeyEvent::RecordStop)) => {
+                        Ok(Some(HotkeyEvent::RecordStopForced)) => {
                             println!("ok   — deadman force-stopped the latched session")
                         }
-                        other => panic!("deadman: expected RecordStop, got {other:?}"),
+                        other => panic!("deadman: expected RecordStopForced, got {other:?}"),
                     }
                 }
                 _ => unreachable!(),

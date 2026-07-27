@@ -37,6 +37,11 @@ pub enum HotkeyEvent {
     /// signal — recording is already running; UIs show "tap to stop").
     RecordLatched,
     RecordStop,
+    /// The deadman switch hit `max_recording_secs` and force-stopped the
+    /// recording (typically a hands-free session left running). Handled like
+    /// [`RecordStop`](Self::RecordStop), but consumers should also tell the
+    /// user why their recording ended.
+    RecordStopForced,
     CommandMode,
     /// ⌥Space held + Tab — cycle the active dictation skill.
     CycleSkill,
@@ -400,6 +405,23 @@ mod platform {
     /// notices the hotkey stopped responding.
     unsafe extern "C" fn tap_health_timer_callback(_timer: *mut c_void, user_info: *mut c_void) {
         let ctx = unsafe { &*(user_info as *const TapContext) };
+
+        // ── Deadman switch (timer path) ───────────────────────────────────
+        // The tap callback only checks the deadman on key events, and a
+        // latched hands-free recording generates none — so without this
+        // check here, walking away mid-recording keeps the mic running
+        // past max_recording_secs indefinitely.
+        {
+            let mut state = match ctx.state.lock() {
+                Ok(s) => s,
+                Err(p) => p.into_inner(),
+            };
+            if state.deadman_triggered(ctx.max_recording_secs) {
+                drop(state);
+                unsafe { send_event(ctx, HotkeyEvent::RecordStopForced) };
+            }
+        }
+
         let tap = ctx.tap.load(Ordering::Acquire);
         if tap.is_null() {
             return;
@@ -493,9 +515,11 @@ mod platform {
 
         // ── Deadman switch ────────────────────────────────────────────────────
         // Check on every event so the timer fires at most ~1 event late.
+        // (The health watchdog timer also checks every 5 s for the
+        // hands-free case where no key events arrive at all.)
         if state.deadman_triggered(ctx.max_recording_secs) {
             drop(state);
-            unsafe { send_event(ctx, HotkeyEvent::RecordStop) };
+            unsafe { send_event(ctx, HotkeyEvent::RecordStopForced) };
             return event;
         }
 
@@ -647,7 +671,9 @@ mod platform {
     ///
     /// Spawns a dedicated thread that:
     /// 1. Creates an active CGEventTap at the HID level (pre-window-server).
-    /// 2. Schedules a `CFRunLoopTimer` every 5 seconds to check tap health.
+    /// 2. Schedules a `CFRunLoopTimer` every 5 seconds to check tap health
+    ///    and the recording deadman switch (which otherwise only fires on
+    ///    key events — never during a hands-free latch).
     /// 3. Runs `CFRunLoopRun()` — stays alive until the process exits or the
     ///    pipeline channel closes.
     pub fn start_listener(config: HotkeyConfig) -> Result<mpsc::UnboundedReceiver<HotkeyEvent>> {
@@ -894,7 +920,7 @@ mod platform {
                             .map(|mut s| s.deadman_triggered(ctx.max_recording_secs))
                             .unwrap_or(false);
                         if fired {
-                            emit(HotkeyEvent::RecordStop);
+                            emit(HotkeyEvent::RecordStopForced);
                         }
                     }
                 }
