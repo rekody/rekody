@@ -576,6 +576,30 @@ fn spawn_app_probe() -> tokio::task::JoinHandle<rekody_llm::AppContext> {
     tokio::task::spawn_blocking(context::detect_active_app)
 }
 
+/// Tell the user their recording hit the duration cap and was force-stopped.
+/// Without this, a hands-free session ending on its own looks like a bug —
+/// the user never pressed stop. Fire-and-forget; must never block the
+/// audio path.
+fn notify_max_recording_stop(max_secs: u64) {
+    let minutes = max_secs.div_ceil(60);
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "display notification \"Recording stopped after {minutes} minutes \
+             (the safety cap). Your dictation is still being transcribed.\" \
+             with title \"Rekody\""
+        );
+        let _ = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+    #[cfg(not(target_os = "macos"))]
+    tracing::info!(minutes, "recording stopped at the duration cap");
+}
+
 /// Resolve a pending app probe into `cache`, waiting at most 300ms (only
 /// sub-second dictations can still be racing it). Returns the cached app,
 /// which stays valid for every utterance until the next recording start.
@@ -764,6 +788,11 @@ impl Pipeline {
                         }
                         Some(HotkeyEvent::RecordStop) => {
                             tracing::info!(source = "hotkey", "recording stopped");
+                            audio_capture.stop_recording();
+                        }
+                        Some(HotkeyEvent::RecordStopForced) => {
+                            tracing::warn!(source = "deadman", "recording force-stopped at the duration cap");
+                            notify_max_recording_stop(self.config.max_recording_secs);
                             audio_capture.stop_recording();
                         }
                         Some(HotkeyEvent::RecordLatched) => {
@@ -979,6 +1008,12 @@ impl Pipeline {
                             // be draining through the pipeline. Keep capturing
                             // for RELEASE_TAIL, then stop + flush (deadline
                             // branch below). The tap keeps forwarding meanwhile.
+                            stop_deadline =
+                                Some(tokio::time::Instant::now() + RELEASE_TAIL);
+                        }
+                        Some(HotkeyEvent::RecordStopForced) => {
+                            tracing::warn!(source = "deadman", "recording force-stopped at the duration cap");
+                            notify_max_recording_stop(self.config.max_recording_secs);
                             stop_deadline =
                                 Some(tokio::time::Instant::now() + RELEASE_TAIL);
                         }
@@ -1232,7 +1267,23 @@ impl Pipeline {
             .map(|a| a.app_name.clone())
             .unwrap_or_else(|| String::from("Unknown"));
 
-        let final_text = if llm_enabled {
+        // Long-form gate: past a few thousand characters, AI cleanup is the
+        // wrong tool — local models overflow their context window and can
+        // generate for minutes, pinning the stop pipeline at "finishing"
+        // while the text sits uninjected. The dictionary-corrected
+        // transcript goes straight to injection instead.
+        const CLEANUP_MAX_CHARS: usize = 5_000;
+        let transcript_chars = corrected_text.chars().count();
+        let run_cleanup = llm_enabled && transcript_chars <= CLEANUP_MAX_CHARS;
+        if llm_enabled && !run_cleanup {
+            tracing::warn!(
+                chars = transcript_chars,
+                limit = CLEANUP_MAX_CHARS,
+                "transcript too long for AI cleanup; injecting corrected text directly"
+            );
+        }
+
+        let final_text = if run_cleanup {
             // Application context for context-aware formatting: the app
             // captured at recording start, or a synchronous probe when no
             // start capture exists (VAD-only segments).
@@ -1320,8 +1371,9 @@ impl Pipeline {
                 }
             }
         } else {
-            // No LLM configured — the dictionary-corrected STT output is
-            // already the final wording.
+            // No LLM configured (or the transcript is past the long-form
+            // gate) — the dictionary-corrected STT output is already the
+            // final wording.
             corrected_text
         };
 

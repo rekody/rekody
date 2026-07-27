@@ -14,3 +14,8 @@ anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+# test-util enables #[tokio::test(start_paused = true)] so the provider
+# timeout tests complete instantly instead of sleeping 30 real seconds.
+tokio = { version = "1", features = ["test-util"] }
