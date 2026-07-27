@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.5.24] - 2026-07-27
+
+### Fixed
+
+- **Hands-free recordings now respect the maximum duration cap on macOS.** The safety cap (`max_recording_secs`, default 30 minutes) was only checked when a key was pressed, and a hands-free session generates no key events, so walking away from a latched recording left the mic running indefinitely. The watchdog timer now enforces the cap every 5 seconds, and when it fires you get a notification explaining why the recording stopped. Your dictation is still transcribed and typed as usual.
+- **Stopping a recording can no longer hang at "finishing" forever.** AI cleanup calls had no time limit, so a stalled provider (for example a small local model handed a very long transcript) pinned the pipeline with your text never typed. Each cleanup attempt is now capped at 30 seconds before falling to the next provider and, ultimately, to your dictionary-corrected transcript. Very long dictations (over 5,000 characters) skip AI cleanup entirely and type the corrected transcript directly, since cleanup models are built for short-form dictation and long input only slows the finish down.
+
 ## [0.5.19] - 2026-07-13
 
 ### Fixed
