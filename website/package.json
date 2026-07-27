@@ -10,14 +10,14 @@
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
-    "astro": "^6.4.8"
+    "astro": "^7.1.4"
   },
   "devDependencies": {
     "@astrojs/sitemap": "^3.7.3",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.3.2",
     "tailwindcss": "^4.3.2",
-    "vite": "^7.3.6"
+    "vite": "^8.1.5"
   },
   "pnpm": {
     "overrides": {
