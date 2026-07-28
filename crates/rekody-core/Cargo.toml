@@ -22,7 +22,7 @@ serde_json.workspace = true
 toml.workspace = true
 dirs = "6"
 cliclack = "0.3"
-indicatif = "0.17"
+indicatif = "0.18"
 console = "0.15"
 reqwest = { workspace = true, features = ["blocking"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
