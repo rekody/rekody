@@ -1,6 +1,6 @@
 {
   "framework": "astro",
-  "installCommand": "pnpm install",
+  "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
   "cleanUrls": true,
