@@ -117,6 +117,7 @@ fn route(
             let range = range_header(request);
             serve_audio(audio_dir, &p["/audio/".len()..], range.as_deref())
         }
+        (Method::Post, "/api/export") => post_export(shared, request),
         (Method::Post, "/api/start") => post_start(shared, run_state, root, request),
         // /api/decision is the pre-product name for the same endpoint; kept
         // so an already-open tab or script keeps working across an update.
@@ -243,9 +244,51 @@ fn decide_params(v: &Value) -> Option<(&str, &str)> {
     Some((clip, action))
 }
 
+/// POST /api/export `{until?, copy_audio?}`: write a reviewed-only cut
+/// (see store::Store::export_cut) and answer with where it landed. The
+/// body is optional; no body means "everything, manifest only".
+fn post_export(shared: &SharedStore, request: &mut tiny_http::Request) -> Resp {
+    let mut body = String::new();
+    if let Err(e) = std::io::Read::read_to_string(request.as_reader(), &mut body) {
+        return json_status(400, &json!({"error": format!("reading body: {e}")}));
+    }
+    let v: Value = if body.trim().is_empty() {
+        json!({})
+    } else {
+        match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(e) => return json_status(400, &json!({"error": format!("invalid JSON: {e}")})),
+        }
+    };
+    let until = match &v["until"] {
+        Value::Null => None,
+        Value::String(s) => Some(s.clone()),
+        _ => return json_status(400, &json!({"error": "until must be a YYYY-MM-DD string"})),
+    };
+    let opts = store::CutOptions {
+        until,
+        copy_audio: v["copy_audio"].as_bool().unwrap_or(false),
+        out_dir: None,
+    };
+    match store::lock(shared).export_cut(&opts) {
+        Ok(cut) => json_status(
+            200,
+            &json!({
+                "path": cut.dir.display().to_string(),
+                "until": cut.until,
+                "clip_count": cut.clip_count,
+                "total_duration_secs": cut.total_duration_secs,
+                "manifest_sha256": cut.manifest_sha256,
+            }),
+        ),
+        Err(e) => json_status(400, &json!({"error": format!("{e:#}")})),
+    }
+}
+
 /// GET /api/export: the current manifest as a download. The manifest on
 /// disk is already the reviewed truth (decisions rewrite it in place), so
-/// this is a straight copy with an attachment disposition.
+/// this is a straight copy with an attachment disposition. Kept alongside
+/// the POST cut endpoint so an already-open tab or script keeps working.
 fn export_manifest(root: &Path) -> Resp {
     match std::fs::read(root.join("manifest.jsonl")) {
         Ok(data) => Response::from_data(data)
@@ -468,6 +511,12 @@ mod tests {
         assert!(PAGE.contains("WILL SAVE"));
         // The keep-alive ping the auto-exit timer relies on.
         assert!(PAGE.contains("/api/ping"));
+        // Inbox counter framing: awaiting + reviewed, never a completion
+        // fraction against a growing total.
+        assert!(PAGE.contains("awaiting review"));
+        assert!(!PAGE.contains("of 0 reviewed"));
+        // The export control posts to the cut endpoint.
+        assert!(PAGE.contains("ex-until") && PAGE.contains("copy_audio"));
     }
 
     #[test]

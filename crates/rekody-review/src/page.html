@@ -273,6 +273,17 @@ kbd{
 .next-cards .card.teal-card{border-color:var(--teal);background:var(--teal-wash)}
 .next-cards .card.teal-card .m{color:var(--teal)}
 .btn.full{width:100%;justify-content:center;text-decoration:none}
+.export-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.export-row label{font-size:12.5px;color:var(--body)}
+.export-row label.ck{display:inline-flex;align-items:center;gap:6px}
+.export-row input[type="date"]{
+  font:12.5px var(--sans);color:var(--ink);background:#FFF;
+  border:1px solid var(--line);border-radius:8px;padding:5px 8px;
+}
+.export-row input[type="date"]:focus{outline:none;border-color:var(--teal)}
+.export-row input[type="checkbox"]{accent-color:var(--teal);margin:0}
+.export-result{margin-top:10px;font:11.5px/1.6 var(--mono);color:var(--muted);word-break:break-all;text-align:left}
+.export-result.err{color:var(--red)}
 .back-link{display:inline-block;margin-top:20px;font-size:13px;color:var(--muted);text-decoration:underline;cursor:pointer;background:none;border:0;padding:0}
 .back-link:hover{color:var(--teal)}
 
@@ -300,7 +311,7 @@ kbd{
     <span class="vdiv"></span>
     <span class="page-name">Review</span>
     <span class="spacer"></span>
-    <span class="prog-label" id="top-progress">0 of 0 reviewed</span>
+    <span class="prog-label" id="top-progress">0 awaiting review · 0 reviewed</span>
     <div class="pbar"><i id="top-bar-fill"></i></div>
   </header>
 
@@ -432,7 +443,7 @@ kbd{
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
     </div>
     <div class="done-head">Your dataset is clean.</div>
-    <p class="done-sub">Every clip reviewed, every label yours. Ready for fine-tuning.</p>
+    <p class="done-sub">Nothing awaiting review, every label yours. Ready for fine-tuning.</p>
 
     <div class="stats">
       <div class="tile"><div class="num" id="st-clips">0</div><div class="lbl">CLIPS REVIEWED</div></div>
@@ -444,10 +455,16 @@ kbd{
     <div class="sec-label">WHAT HAPPENS NEXT</div>
     <div class="next-cards">
       <div class="card">
-        <div class="t">Export the dataset</div>
-        <div class="b">Clean labels, ready for any training pipeline.</div>
+        <div class="t">Export reviewed clips</div>
+        <div class="b">A training-ready cut of the clips you reviewed. Deleted clips and clips still awaiting review stay out.</div>
         <div class="m">Originals stay untouched</div>
-        <a class="btn full" href="/api/export" download>Export manifest.jsonl</a>
+        <div class="export-row">
+          <label for="ex-until">Through</label>
+          <input type="date" id="ex-until">
+          <label class="ck"><input type="checkbox" id="ex-copy"> Copy audio files</label>
+        </div>
+        <button class="btn full" id="ex-run" type="button">Export reviewed clips</button>
+        <div class="export-result" id="ex-result" hidden></div>
       </div>
       <div class="card teal-card">
         <div class="t">Train your personal model</div>
@@ -511,6 +528,17 @@ function fmtDur(s) {
 }
 function fmtHours(h) {
   return (h >= 10 ? Math.round(h) : (Math.round(h * 10) / 10)) + " h";
+}
+function fmtHM(secs) {
+  secs = Math.round(secs || 0);
+  const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+  if (h) return h + " h " + m + " m";
+  if (m) return m + " m";
+  return secs + " s";
+}
+function todayLocal() {
+  const d = new Date(), pad = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
 }
 function fileOf(p) { return (p || "").replace(/^audio\//, ""); }
 function pctOf(c) { return Math.min(100, Math.round((c.wer || 0) * 100)); }
@@ -728,8 +756,12 @@ function renderFirst() {
 
 /* ---- session ---- */
 function renderSession() {
+  // Inbox framing, not completion: the dataset grows while you dictate, so
+  // a fraction against a moving total would be meaningless. The bar still
+  // fills on reviewed/total underneath.
   const p = progressNums();
-  $("top-progress").textContent = p.reviewed + " of " + p.total + " reviewed";
+  const awaiting = Math.max(0, p.total - p.reviewed);
+  $("top-progress").textContent = awaiting + " awaiting review · " + p.reviewed + " reviewed";
   $("top-bar-fill").style.width = p.total ? (100 * p.reviewed / p.total) + "%" : "0";
 
   renderToolbar();
@@ -1012,6 +1044,8 @@ function doneRow(c) {
 
 /* ---- done screen ---- */
 function renderDone() {
+  // Export date defaults to today, which includes everything so far.
+  if (!$("ex-until").value) $("ex-until").value = todayLocal();
   const all = allClips();
   const dec = all.filter(c => c.decision);
   $("st-clips").textContent = dec.length;
@@ -1201,6 +1235,36 @@ $("fr-cta").addEventListener("click", async () => {
 $("back-review").addEventListener("click", () => {
   S.overrideDone = true;
   render();
+});
+
+/* ---- export reviewed clips ---- */
+$("ex-run").addEventListener("click", async () => {
+  const btn = $("ex-run"), res = $("ex-result");
+  btn.disabled = true;
+  btn.textContent = "Exporting…";
+  res.hidden = true;
+  const payload = { copy_audio: $("ex-copy").checked };
+  if ($("ex-until").value) payload.until = $("ex-until").value;
+  try {
+    const r = await fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    res.classList.remove("err");
+    res.textContent =
+      data.clip_count + (data.clip_count === 1 ? " clip · " : " clips · ") +
+      fmtHM(data.total_duration_secs) + " → " + data.path;
+  } catch (err) {
+    res.classList.add("err");
+    res.textContent = "Export failed: " + err.message;
+  } finally {
+    res.hidden = false;
+    btn.disabled = false;
+    btn.textContent = "Export reviewed clips";
+  }
 });
 
 async function start(secondOpinion) {

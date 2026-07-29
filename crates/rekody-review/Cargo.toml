@@ -17,6 +17,10 @@ reqwest.workspace = true
 clap.workspace = true
 dirs = "6"
 hound = "3.5"
+# manifest_sha256 in export cuts: hashed in-process so the checksum written
+# into cut.json is always real (the shasum shell-out used for model
+# downloads has a proceed-unverified fallback that would be wrong here).
+sha2 = "0.10"
 # Tiny sync HTTP server for the localhost review page — no async stack,
 # no TLS, exactly what a single-user 127.0.0.1 tool needs.
 tiny_http = "0.12"

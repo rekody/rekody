@@ -43,4 +43,37 @@ Treat this as a trusted-network feature: while the server runs with `--lan`, any
 
 ## When you finish
 
-The done screen shows what changed and offers two paths: export `manifest.jsonl` for any training pipeline (your original files stay untouched), or send the dataset to Rekody's managed fine-tuning, which trains a model on your voice and vocabulary and delivers it back into the app.
+The top bar counts the work as an inbox: clips awaiting review, and clips reviewed. The dataset keeps growing while you dictate, so there is no finish line to chase; when nothing is awaiting review, the done screen shows what changed and offers two paths: export your reviewed clips for any training pipeline (your original files stay untouched), or send the dataset to Rekody's managed fine-tuning, which trains a model on your voice and vocabulary and delivers it back into the app.
+
+## Export reviewed clips
+
+An export is a **cut**: a training-ready folder holding only the clips you actually reviewed (kept, corrected, or edited). Deleted clips and clips still awaiting review stay out.
+
+On the done screen, pick a date (clips from that day or earlier are included; the default, today, includes everything), tick **Copy audio files** if you want the folder to be self-contained, and press **Export reviewed clips**. The result line shows the clip count, total audio, and the absolute path of the cut.
+
+Each cut lands in `exports/` inside your dataset, named `cut-<date>-<hash>`, and contains:
+
+- `manifest.jsonl`, one line per clip: `audio_filepath`, `duration`, `engine`, `text` (the label as you reviewed it), `label_source` (`original`, `teacher`, or `human`), and `decided` (when you reviewed it).
+- `cut.json`: `created`, `until`, `dataset_root`, `clip_count`, `total_duration_secs`, and `manifest_sha256` (the checksum of the cut's manifest).
+
+Without **Copy audio files**, the manifest references the audio in your dataset. With it, the flac files are copied into the cut and the paths point inside the folder, so you can hand the whole thing to a training job.
+
+### Export from the terminal
+
+The same export runs headless, no server needed:
+
+```bash
+rekody review export --until 2026-07-01 --copy-audio
+```
+
+- `--until YYYY-MM-DD` includes clips dated that day or earlier (default: today).
+- `--copy-audio` copies the audio files into the cut so the folder is self-contained.
+- `--out DIR` writes the cut folder into `DIR` instead of `exports/` in the dataset.
+
+**Agents can drive this.** On success the command prints exactly one line to stdout, everything else goes to stderr:
+
+```
+EXPORT_PATH=/Users/you/.local/share/rekody/training-data/exports/cut-2026-07-01-1a2b3c4d
+```
+
+That mirrors the `REVIEW_URL=` contract the server prints, so a coding agent or script can run your export and read the resulting path with one line.

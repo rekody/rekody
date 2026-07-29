@@ -13,6 +13,10 @@
 //!      header, so a launcher can probe a port before spawning a second
 //!      server.
 //!
+//! The headless `export` path mirrors that stdout discipline: `export`
+//! prints exactly one line, `EXPORT_PATH=<absolute path>`, so scripts and
+//! coding agents can drive an export without the server.
+//!
 //! Nothing leaves the machine: the server binds 127.0.0.1 by default (the
 //! opt-in `lan` flag widens that to the local network so a phone on the
 //! same Wi-Fi can open the page), and the sole outbound request this crate
@@ -54,6 +58,62 @@ pub struct ReviewOptions {
 /// same rule rekody-core's training_data module uses.
 pub fn default_dataset_dir() -> PathBuf {
     store::dataset_dir()
+}
+
+/// How the headless `export` subcommand runs.
+pub struct ExportOptions {
+    /// Training-data root, resolved the same way as [`ReviewOptions::dir`].
+    pub dir: PathBuf,
+    /// Inclusive `YYYY-MM-DD` cutoff; `None` means today, which includes
+    /// every reviewed clip recorded so far.
+    pub until: Option<String>,
+    /// Copy the audio files into the cut so the folder is self-contained.
+    pub copy_audio: bool,
+    /// Parent directory for the cut folder (default: `<dataset>/exports`).
+    pub out: Option<PathBuf>,
+}
+
+/// Headless export, no server: load the dataset, write a reviewed-only cut
+/// (see `store::Store::export_cut`), and print exactly one line to stdout:
+/// `EXPORT_PATH=<absolute path>`, mirroring the `REVIEW_URL=` contract so a
+/// script or coding agent can run the export and read the result. The human
+/// summary and all logs go to stderr.
+pub fn export(opts: ExportOptions) -> Result<()> {
+    let store = store::Store::load(opts.dir.clone())
+        .with_context(|| format!("loading dataset at {}", opts.dir.display()))?;
+    let cut = store.export_cut(&store::CutOptions {
+        until: opts.until,
+        copy_audio: opts.copy_audio,
+        out_dir: opts.out,
+    })?;
+    eprintln!(
+        "{} clip{} · {} → {}",
+        cut.clip_count,
+        if cut.clip_count == 1 { "" } else { "s" },
+        fmt_duration(cut.total_duration_secs),
+        cut.dir.display()
+    );
+    {
+        use std::io::Write;
+        let mut out = std::io::stdout();
+        writeln!(out, "EXPORT_PATH={}", cut.dir.display())
+            .context("writing EXPORT_PATH to stdout")?;
+        out.flush().context("flushing stdout")?;
+    }
+    Ok(())
+}
+
+/// `2 h 10 m` / `10 m` / `45 s`, matching the page's export result line.
+fn fmt_duration(secs: f64) -> String {
+    let secs = secs.round() as u64;
+    let (h, m) = (secs / 3600, (secs % 3600) / 60);
+    if h > 0 {
+        format!("{h} h {m} m")
+    } else if m > 0 {
+        format!("{m} m")
+    } else {
+        format!("{secs} s")
+    }
 }
 
 /// Cross-thread server state that is not part of the dataset itself:

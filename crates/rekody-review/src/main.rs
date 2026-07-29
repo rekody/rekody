@@ -2,11 +2,12 @@
 //! `rekody review` also uses. Kept for direct invocation and scripts; the
 //! env/flag surface is unchanged ($REKODY_TRAINING_DIR plus --port).
 //!
-//! Logs go to stderr so stdout stays reserved for the single
-//! `REVIEW_URL=...` contract line the library prints before serving.
+//! Logs go to stderr so stdout stays reserved for the single contract line
+//! each mode prints: `REVIEW_URL=...` before serving, `EXPORT_PATH=...`
+//! after a headless export.
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -23,6 +24,25 @@ struct Args {
     /// while the server runs.
     #[arg(long)]
     lan: bool,
+    #[command(subcommand)]
+    command: Option<Cmd>,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Export reviewed clips as a training-ready cut, without the server.
+    /// Prints exactly one stdout line on success: EXPORT_PATH=<absolute path>
+    Export {
+        /// Include clips dated this day or earlier (default: today)
+        #[arg(long, value_name = "YYYY-MM-DD")]
+        until: Option<String>,
+        /// Copy the audio files into the cut so the folder is self-contained
+        #[arg(long)]
+        copy_audio: bool,
+        /// Write the cut folder into DIR instead of <dataset>/exports
+        #[arg(long, value_name = "DIR")]
+        out: Option<std::path::PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -35,11 +55,23 @@ fn main() -> Result<()> {
         .init();
     let args = Args::parse();
 
-    rekody_review::serve(rekody_review::ReviewOptions {
-        dir: rekody_review::default_dataset_dir(),
-        port: args.port,
-        open_browser: false,
-        auto_exit_secs: 0,
-        lan: args.lan,
-    })
+    match args.command {
+        Some(Cmd::Export {
+            until,
+            copy_audio,
+            out,
+        }) => rekody_review::export(rekody_review::ExportOptions {
+            dir: rekody_review::default_dataset_dir(),
+            until,
+            copy_audio,
+            out,
+        }),
+        None => rekody_review::serve(rekody_review::ReviewOptions {
+            dir: rekody_review::default_dataset_dir(),
+            port: args.port,
+            open_browser: false,
+            auto_exit_secs: 0,
+            lan: args.lan,
+        }),
+    }
 }
