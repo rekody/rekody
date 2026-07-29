@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.5.25] - 2026-07-29
+
+### Added
+
+- **Export your reviewed clips for training.** `rekody review` now builds cuts: a training-ready folder containing only the clips you have reviewed, optionally limited to a date and optionally self-contained with the audio files copied in. Each cut ships a manifest plus a checksummed cut.json so a downstream training run is reproducible. Also available headless as `rekody review export [--until YYYY-MM-DD] [--copy-audio] [--out DIR]`, which prints a single `EXPORT_PATH=` line on success so a coding agent can run the whole export for you.
+
+### Changed
+
+- **The review counter is now an inbox.** The top bar reads "28 awaiting review, 12 reviewed" instead of "12 of 40 reviewed". Your dataset grows as you dictate, so a completion fraction against a moving total was always going to feel wrong; the inbox count is honest about what is left.
+
 ## [0.5.24] - 2026-07-27
 
 ### Fixed
