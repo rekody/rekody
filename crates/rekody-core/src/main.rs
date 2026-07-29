@@ -149,6 +149,8 @@ enum Cmd {
         /// can open the page (anyone on the network can edit this dataset)
         #[arg(long)]
         lan: bool,
+        #[command(subcommand)]
+        action: Option<ReviewCmd>,
     },
     /// Drive the live status region through fake states (UI development aid)
     #[command(hide = true)]
@@ -175,6 +177,23 @@ enum DictionaryCmd {
     },
     /// List all terms (pipe-friendly)
     List,
+}
+
+#[derive(Subcommand)]
+enum ReviewCmd {
+    /// Export reviewed clips as a training-ready cut, without the server.
+    /// Prints exactly one stdout line on success: EXPORT_PATH=<absolute path>
+    Export {
+        /// Include clips dated this day or earlier (default: today)
+        #[arg(long, value_name = "YYYY-MM-DD")]
+        until: Option<String>,
+        /// Copy the audio files into the cut so the folder is self-contained
+        #[arg(long)]
+        copy_audio: bool,
+        /// Write the cut folder into DIR instead of <dataset>/exports
+        #[arg(long, value_name = "DIR")]
+        out: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -276,24 +295,30 @@ async fn main() -> Result<()> {
             no_open,
             auto_exit_secs,
             lan,
-        }) => cmd_review(dir, port, no_open, auto_exit_secs, lan),
+            action,
+        }) => cmd_review(dir, port, no_open, auto_exit_secs, lan, action),
         Some(Cmd::UiDemo) => cmd_ui_demo(),
     }
 }
 
 // ── Subcommand: review ───────────────────────────────────────────────────────
 
-/// Serve the dataset review page (the rekody-review crate) on localhost.
+/// Serve the dataset review page (the rekody-review crate) on localhost,
+/// or run the headless `export` subcommand.
 ///
-/// stdout is a machine surface here: the library prints exactly one line,
-/// `REVIEW_URL=http://127.0.0.1:<port>`, which the Mac app parses to find
-/// the page. Everything else logs to stderr, so that contract stays clean.
+/// stdout is a machine surface here: the library prints exactly one line
+/// per mode. Serving prints `REVIEW_URL=http://127.0.0.1:<port>`, which the
+/// Mac app parses to find the page; `rekody review export` prints
+/// `EXPORT_PATH=<absolute path>`, so a script or coding agent can run the
+/// export and read the result. Everything else logs to stderr, so those
+/// contracts stay clean.
 fn cmd_review(
     dir: Option<std::path::PathBuf>,
     port: u16,
     no_open: bool,
     auto_exit_secs: u64,
     lan: bool,
+    action: Option<ReviewCmd>,
 ) -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -305,13 +330,25 @@ fn cmd_review(
     // Precedence: --dir beats $REKODY_TRAINING_DIR beats the default
     // training-data location (the latter two live in the library).
     let dir = dir.unwrap_or_else(rekody_review::default_dataset_dir);
-    rekody_review::serve(rekody_review::ReviewOptions {
-        dir,
-        port,
-        open_browser: !no_open,
-        auto_exit_secs,
-        lan,
-    })
+    match action {
+        Some(ReviewCmd::Export {
+            until,
+            copy_audio,
+            out,
+        }) => rekody_review::export(rekody_review::ExportOptions {
+            dir,
+            until,
+            copy_audio,
+            out,
+        }),
+        None => rekody_review::serve(rekody_review::ReviewOptions {
+            dir,
+            port,
+            open_browser: !no_open,
+            auto_exit_secs,
+            lan,
+        }),
+    }
 }
 
 /// Correct the transcript label of a recent training pair, while the context

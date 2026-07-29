@@ -28,6 +28,10 @@
 //!   review-state.json         how the session was started: second_opinion
 //!                             plus started_at. Absent while review.jsonl is
 //!                             also absent = the first-run screen.
+//!   exports/cut-…/            training-ready export cuts (reviewed clips
+//!                             only), written by `export_cut`. Everything
+//!                             else stays untouched: export is read-only
+//!                             over the dataset.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -724,6 +728,245 @@ impl Store {
             "clips": clips,
         })
     }
+
+    /// Write a training-ready cut: reviewed clips only (an active
+    /// keep_original, edit, or accept_teacher decision), dated `until` or
+    /// earlier. Deleted and undecided clips stay out. Read-only over the
+    /// dataset: the manifest and sidecars are untouched, everything new
+    /// lands inside the cut directory.
+    pub fn export_cut(&self, opts: &CutOptions) -> Result<CutSummary> {
+        let until = match &opts.until {
+            Some(s) => {
+                validate_cut_date(s)?;
+                s.clone()
+            }
+            None => today_utc(),
+        };
+
+        // Reviewed rows in manifest order. Deletes never appear here (a
+        // delete removes the manifest row), but the decision check guards
+        // against it anyway.
+        let mut rows: Vec<(String, Value)> = Vec::new();
+        let mut total_duration = 0.0;
+        for entry in &self.entries {
+            let Some(path) = entry["audio_filepath"].as_str() else {
+                continue;
+            };
+            let Some(decision) = self.decisions.get(path) else {
+                continue;
+            };
+            if !matches!(
+                decision["decision"].as_str(),
+                Some("keep_original" | "edit" | "accept_teacher")
+            ) {
+                continue;
+            }
+            let Some(date) = self.clip_date(path, entry) else {
+                tracing::warn!(
+                    clip = %path,
+                    "no date for this clip (unexpected filename, no timestamp, unreadable file); leaving it out of the cut"
+                );
+                continue;
+            };
+            if date.as_str() > until.as_str() {
+                continue;
+            }
+            total_duration += entry["duration"].as_f64().unwrap_or(0.0);
+            // The manifest text IS the post-review label: decisions rewrote
+            // it in place when the label changed. save_pair never writes
+            // label_source, so an absent field means the original engine
+            // transcript, confirmed as-is.
+            rows.push((
+                path.to_string(),
+                json!({
+                    "audio_filepath": path,
+                    "duration": entry["duration"],
+                    "engine": entry["engine"],
+                    "text": entry["text"],
+                    "label_source": entry["label_source"].as_str().unwrap_or("original"),
+                    "decided": decision["decided"],
+                }),
+            ));
+        }
+        anyhow::ensure!(
+            !rows.is_empty(),
+            "nothing to export: no reviewed clips dated {until} or earlier"
+        );
+
+        if opts.copy_audio {
+            // Self-contained cut: audio lands in <cut>/audio/<filename> and
+            // the manifest rows are rewritten to resolve inside the cut dir
+            // instead of the dataset root.
+            let mut seen: HashMap<String, String> = HashMap::new();
+            for (orig, row) in &mut rows {
+                let name = Path::new(orig)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .with_context(|| format!("clip path {orig} has no filename"))?
+                    .to_string();
+                if let Some(prev) = seen.insert(name.clone(), orig.clone()) {
+                    anyhow::bail!(
+                        "two clips share the filename {name} ({prev} and {orig}); cannot copy audio into one folder"
+                    );
+                }
+                row["audio_filepath"] = Value::String(format!("audio/{name}"));
+            }
+        }
+
+        let body: String = rows.iter().map(|(_, r)| r.to_string() + "\n").collect();
+        let sha = sha256_hex(body.as_bytes());
+
+        let parent = opts
+            .out_dir
+            .clone()
+            .unwrap_or_else(|| self.root.join("exports"));
+        let parent = std::path::absolute(&parent)
+            .with_context(|| format!("resolving {}", parent.display()))?;
+        let dir = parent.join(format!("cut-{until}-{}", &sha[..8]));
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        // The cut holds personal audio labels (and possibly audio): keep it
+        // owner-only like the dataset itself.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        }
+        std::fs::write(dir.join("manifest.jsonl"), &body).context("writing the cut manifest")?;
+
+        let dataset_root = std::path::absolute(&self.root).unwrap_or_else(|_| self.root.clone());
+        let cut = json!({
+            "created": iso_now(),
+            "until": until,
+            "dataset_root": dataset_root.display().to_string(),
+            "clip_count": rows.len(),
+            "total_duration_secs": total_duration,
+            "manifest_sha256": sha,
+        });
+        std::fs::write(dir.join("cut.json"), cut.to_string()).context("writing cut.json")?;
+
+        if opts.copy_audio {
+            let audio_dir = dir.join("audio");
+            std::fs::create_dir_all(&audio_dir).context("creating the cut audio dir")?;
+            for (orig, row) in &rows {
+                let dest = dir.join(row["audio_filepath"].as_str().unwrap_or_default());
+                std::fs::copy(self.root.join(orig), &dest)
+                    .with_context(|| format!("copying {orig} into the cut"))?;
+            }
+        }
+
+        Ok(CutSummary {
+            dir,
+            until,
+            clip_count: rows.len(),
+            total_duration_secs: total_duration,
+            manifest_sha256: sha,
+        })
+    }
+
+    /// A clip's `YYYY-MM-DD`: the timestamp prefix of its filename (how
+    /// rekody-core's save_pair names captures), then the row's `timestamp`
+    /// field, then the audio file's mtime. All three read the same UTC
+    /// clock, so the three sources agree on the date.
+    fn clip_date(&self, path: &str, entry: &Value) -> Option<String> {
+        if let Some(d) = Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.get(..10))
+            .filter(|d| validate_cut_date(d).is_ok())
+        {
+            return Some(d.to_string());
+        }
+        if let Some(d) = entry["timestamp"]
+            .as_str()
+            .and_then(|t| t.get(..10))
+            .filter(|d| validate_cut_date(d).is_ok())
+        {
+            return Some(d.to_string());
+        }
+        let mtime = std::fs::metadata(self.root.join(path))
+            .ok()?
+            .modified()
+            .ok()?;
+        let secs = mtime
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        let (y, m, d) = civil_ymd(secs);
+        Some(format!("{y:04}-{m:02}-{d:02}"))
+    }
+}
+
+/// How [`Store::export_cut`] runs.
+pub struct CutOptions {
+    /// Inclusive `YYYY-MM-DD` cutoff. `None` means today, which includes
+    /// every reviewed clip recorded so far.
+    pub until: Option<String>,
+    /// Copy the referenced audio files into the cut so the folder is
+    /// self-contained (manifest paths then resolve inside the cut dir).
+    pub copy_audio: bool,
+    /// Where the `cut-…` folder lands (default: `<root>/exports`).
+    pub out_dir: Option<PathBuf>,
+}
+
+/// What [`Store::export_cut`] wrote.
+pub struct CutSummary {
+    /// Absolute path of the cut directory.
+    pub dir: PathBuf,
+    /// The inclusive cutoff date actually used.
+    pub until: String,
+    pub clip_count: usize,
+    pub total_duration_secs: f64,
+    /// SHA-256 (hex) of the cut's manifest.jsonl bytes.
+    pub manifest_sha256: String,
+}
+
+/// Accept exactly `YYYY-MM-DD` with a sane month and day; lexicographic
+/// comparison then matches chronological order.
+fn validate_cut_date(s: &str) -> Result<()> {
+    let b = s.as_bytes();
+    let shape = b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| matches!(i, 4 | 7) || c.is_ascii_digit());
+    let month: u32 = if shape {
+        s[5..7].parse().unwrap_or(0)
+    } else {
+        0
+    };
+    let day: u32 = if shape {
+        s[8..10].parse().unwrap_or(0)
+    } else {
+        0
+    };
+    anyhow::ensure!(
+        shape && (1..=12).contains(&month) && (1..=31).contains(&day),
+        "dates look like YYYY-MM-DD (got {s:?})"
+    );
+    Ok(())
+}
+
+/// Today's UTC date as `YYYY-MM-DD`, the same clock save_pair stamps
+/// filenames with.
+fn today_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let (y, m, d) = civil_ymd(secs);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// SHA-256 of `bytes` as lowercase hex.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write;
+    let digest = Sha256::digest(bytes);
+    digest.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 /// Read a JSONL file line by line into a map via `fold`. Missing file means
@@ -784,9 +1027,17 @@ pub fn iso_now() -> String {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let days = secs / 86400;
     let tod = secs % 86400;
     let (h, m, s) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+    let (y, mth, d) = civil_ymd(secs);
+    format!("{y:04}-{mth:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
+}
+
+/// Civil UTC `(year, month, day)` for a Unix timestamp: Howard Hinnant's
+/// civil_from_days, shared by `iso_now`, `today_utc`, and the export date
+/// fallback.
+fn civil_ymd(secs: u64) -> (i64, u64, u64) {
+    let days = secs / 86400;
     let z = days as i64 + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097) as u64;
@@ -797,7 +1048,7 @@ pub fn iso_now() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let mth = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if mth <= 2 { y + 1 } else { y };
-    format!("{y:04}-{mth:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
+    (y, mth, d)
 }
 
 #[cfg(test)]
@@ -1166,5 +1417,262 @@ mod tests {
         assert!(!store.manifest_found());
         assert_eq!(store.clip_count(), 0);
         assert_eq!(store.effective_mode(), Mode::FirstRun);
+    }
+
+    // ---- export cuts ----
+
+    /// Three clips with save_pair-shaped dated filenames and audio on disk:
+    /// June 1, June 15, and July 2.
+    fn seed_dated_with_audio() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("audio");
+        std::fs::create_dir_all(&audio).unwrap();
+        let mut lines = Vec::new();
+        for (stamp, text) in [
+            ("2026-06-01T10-00-00", "alpha one"),
+            ("2026-06-15T11-00-00", "bravo two"),
+            ("2026-07-02T12-00-00", "charlie three"),
+        ] {
+            let name = format!("{stamp}-aaaa-111.flac");
+            lines.push(
+                json!({
+                    "audio_filepath": format!("audio/{name}"),
+                    "text": text,
+                    "duration": 2.0,
+                    "engine": "nemotron",
+                    "timestamp": stamp,
+                })
+                .to_string(),
+            );
+            std::fs::write(audio.join(&name), format!("fLaC-{stamp}")).unwrap();
+        }
+        std::fs::write(dir.path().join("manifest.jsonl"), lines.join("\n") + "\n").unwrap();
+        dir
+    }
+
+    fn cut_manifest_rows(cut_dir: &Path) -> Vec<Value> {
+        std::fs::read_to_string(cut_dir.join("manifest.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn export_includes_reviewed_clips_only_and_is_read_only() {
+        let dir = seed_dated_with_audio();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        store
+            .apply_decision(
+                "audio/2026-06-01T10-00-00-aaaa-111.flac",
+                "edit",
+                Some("alpha won"),
+            )
+            .unwrap();
+        store
+            .apply_decision("audio/2026-07-02T12-00-00-aaaa-111.flac", "delete", None)
+            .unwrap();
+        // June 15 stays undecided.
+        let manifest_before = std::fs::read_to_string(dir.path().join("manifest.jsonl")).unwrap();
+        let decisions_before = std::fs::read_to_string(dir.path().join("decisions.jsonl")).unwrap();
+
+        let cut = store
+            .export_cut(&CutOptions {
+                until: None,
+                copy_audio: false,
+                out_dir: None,
+            })
+            .unwrap();
+
+        assert_eq!(cut.clip_count, 1);
+        assert!((cut.total_duration_secs - 2.0).abs() < 1e-9);
+        assert!(cut.dir.is_absolute());
+        assert!(cut.dir.starts_with(dir.path().join("exports")));
+
+        let rows = cut_manifest_rows(&cut.dir);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0]["audio_filepath"],
+            "audio/2026-06-01T10-00-00-aaaa-111.flac"
+        );
+        assert_eq!(
+            rows[0]["text"], "alpha won",
+            "the post-review label is exported"
+        );
+        assert_eq!(rows[0]["label_source"], "human");
+        assert_eq!(rows[0]["engine"], "nemotron");
+        assert!(rows[0]["decided"].as_str().is_some());
+
+        let cut_json: Value =
+            serde_json::from_str(&std::fs::read_to_string(cut.dir.join("cut.json")).unwrap())
+                .unwrap();
+        assert_eq!(cut_json["clip_count"], 1);
+        assert_eq!(cut_json["until"], cut.until);
+        assert_eq!(cut_json["manifest_sha256"], cut.manifest_sha256);
+        assert!(cut_json["created"].as_str().is_some());
+        assert!(cut_json["dataset_root"].as_str().is_some());
+
+        // Export is read-only over the dataset.
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("manifest.jsonl")).unwrap(),
+            manifest_before
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("decisions.jsonl")).unwrap(),
+            decisions_before
+        );
+    }
+
+    #[test]
+    fn export_filters_by_inclusive_date() {
+        let dir = seed_dated_with_audio();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        for name in [
+            "audio/2026-06-01T10-00-00-aaaa-111.flac",
+            "audio/2026-06-15T11-00-00-aaaa-111.flac",
+            "audio/2026-07-02T12-00-00-aaaa-111.flac",
+        ] {
+            store.apply_decision(name, "keep_original", None).unwrap();
+        }
+
+        // Inclusive: June 15 makes the cut, July 2 does not.
+        let cut = store
+            .export_cut(&CutOptions {
+                until: Some("2026-06-15".into()),
+                copy_audio: false,
+                out_dir: None,
+            })
+            .unwrap();
+        assert_eq!(cut.clip_count, 2);
+        assert_eq!(cut.until, "2026-06-15");
+        let rows = cut_manifest_rows(&cut.dir);
+        assert!(
+            rows.iter()
+                .all(|r| { r["audio_filepath"].as_str().unwrap() <= "audio/2026-06-15T99" })
+        );
+        // keep_original rows without a label_source report the original.
+        assert!(rows.iter().all(|r| r["label_source"] == "original"));
+
+        // A date before every clip: nothing to export is an error, not an
+        // empty folder.
+        assert!(
+            store
+                .export_cut(&CutOptions {
+                    until: Some("2026-05-31".into()),
+                    copy_audio: false,
+                    out_dir: None,
+                })
+                .is_err()
+        );
+
+        // Garbage dates are rejected before anything is written.
+        for bad in ["garbage", "2026-13-01", "2026-6-1", "2026/06/01", ""] {
+            assert!(
+                store
+                    .export_cut(&CutOptions {
+                        until: Some(bad.into()),
+                        copy_audio: false,
+                        out_dir: None,
+                    })
+                    .is_err(),
+                "accepted {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn export_manifest_sha_is_stable_across_reloads() {
+        let dir = seed_dated_with_audio();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        store
+            .apply_decision(
+                "audio/2026-06-01T10-00-00-aaaa-111.flac",
+                "edit",
+                Some("alpha won"),
+            )
+            .unwrap();
+        store
+            .apply_decision(
+                "audio/2026-06-15T11-00-00-aaaa-111.flac",
+                "keep_original",
+                None,
+            )
+            .unwrap();
+
+        let opts = CutOptions {
+            until: Some("2026-07-27".into()),
+            copy_audio: false,
+            out_dir: None,
+        };
+        let first = store.export_cut(&opts).unwrap();
+        let reloaded = Store::load(dir.path().to_path_buf()).unwrap();
+        let second = reloaded.export_cut(&opts).unwrap();
+
+        assert_eq!(first.manifest_sha256, second.manifest_sha256);
+        assert_eq!(first.dir, second.dir, "same content, same cut folder");
+        // The recorded checksum matches the bytes on disk.
+        let body = std::fs::read(first.dir.join("manifest.jsonl")).unwrap();
+        assert_eq!(sha256_hex(&body), first.manifest_sha256);
+        assert!(
+            first
+                .dir
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with(&first.manifest_sha256[..8])
+        );
+    }
+
+    #[test]
+    fn export_copy_audio_rewrites_paths_and_is_self_contained() {
+        let dir = seed_dated_with_audio();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        store
+            .apply_decision(
+                "audio/2026-06-01T10-00-00-aaaa-111.flac",
+                "edit",
+                Some("alpha won"),
+            )
+            .unwrap();
+        store
+            .apply_decision(
+                "audio/2026-06-15T11-00-00-aaaa-111.flac",
+                "keep_original",
+                None,
+            )
+            .unwrap();
+
+        let out = tempfile::tempdir().unwrap();
+        let cut = store
+            .export_cut(&CutOptions {
+                until: None,
+                copy_audio: true,
+                out_dir: Some(out.path().to_path_buf()),
+            })
+            .unwrap();
+
+        // --out relocates the cut folder.
+        assert!(cut.dir.starts_with(out.path()));
+        let rows = cut_manifest_rows(&cut.dir);
+        assert_eq!(rows.len(), 2);
+        for row in &rows {
+            let rel = row["audio_filepath"].as_str().unwrap();
+            assert!(
+                rel.starts_with("audio/"),
+                "rewritten relative to the cut dir"
+            );
+            let copied = cut.dir.join(rel);
+            assert!(
+                copied.exists(),
+                "self-contained: {rel} lives inside the cut"
+            );
+            // Bytes match the dataset original of the same filename.
+            let name = Path::new(rel).file_name().unwrap();
+            let original = dir.path().join("audio").join(name);
+            assert_eq!(
+                std::fs::read(&copied).unwrap(),
+                std::fs::read(&original).unwrap()
+            );
+        }
     }
 }
