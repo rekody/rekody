@@ -16,6 +16,11 @@ use clap::{Parser, Subcommand};
     version
 )]
 struct Args {
+    /// Dataset directory (default: $REKODY_TRAINING_DIR, then
+    /// ~/.local/share/rekody/training-data). Global so it also works
+    /// after `export`, where scripts and coding agents put it.
+    #[arg(long, global = true)]
+    dir: Option<std::path::PathBuf>,
     /// Port for the localhost review page (the next nine are tried if busy).
     #[arg(long, default_value_t = 7878)]
     port: u16,
@@ -55,19 +60,20 @@ fn main() -> Result<()> {
         .init();
     let args = Args::parse();
 
+    let dir = args.dir.unwrap_or_else(rekody_review::default_dataset_dir);
     match args.command {
         Some(Cmd::Export {
             until,
             copy_audio,
             out,
         }) => rekody_review::export(rekody_review::ExportOptions {
-            dir: rekody_review::default_dataset_dir(),
+            dir,
             until,
             copy_audio,
             out,
         }),
         None => rekody_review::serve(rekody_review::ReviewOptions {
-            dir: rekody_review::default_dataset_dir(),
+            dir,
             port: args.port,
             open_browser: false,
             auto_exit_secs: 0,
