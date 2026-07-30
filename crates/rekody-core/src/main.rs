@@ -134,7 +134,10 @@ enum Cmd {
     Review {
         /// Dataset directory (default: $REKODY_TRAINING_DIR, then
         /// ~/.local/share/rekody/training-data)
-        #[arg(long)]
+        // global: `rekody review export --dir X` must work, not just
+        // `rekody review --dir X export` — scripts and coding agents write
+        // the flag after the subcommand (found by scripts/review-e2e.sh).
+        #[arg(long, global = true)]
         dir: Option<std::path::PathBuf>,
         /// Port for the local page; the next nine ports are tried when busy
         #[arg(long, default_value_t = 7878)]

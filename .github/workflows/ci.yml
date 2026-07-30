@@ -72,6 +72,15 @@ jobs:
       - run: cargo clippy --workspace -- -D warnings
       - run: cargo test --workspace
 
+      # Sandboxed end-to-end of the review product against a synthetic
+      # dataset: server contracts (REVIEW_URL / X-Rekody-Review), the inbox
+      # counter, a decision rewrite, and a headless export cut, through the
+      # real binary exactly as a user (or their coding agent) drives it.
+      - name: Review product e2e (sandboxed)
+        run: |
+          cargo build -p rekody-core
+          scripts/review-e2e.sh target/debug/rekody
+
       # Verify tarball names in cmd_update (main.rs) and install.sh match release.yml.
       # Catches filename drift before it ships.
       - name: Check release/update/install filename consistency
