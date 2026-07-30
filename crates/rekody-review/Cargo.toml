@@ -24,6 +24,9 @@ sha2 = "0.10"
 # Tiny sync HTTP server for the localhost review page — no async stack,
 # no TLS, exactly what a single-user 127.0.0.1 tool needs.
 tiny_http = "0.12"
+# Cross-platform advisory file lock serializing the two manifest writers
+# (daemon append vs review rewrite) — see dataset_lock.rs / issue #114.
+fs4 = { version = "0.13", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
 tempfile = "3"
