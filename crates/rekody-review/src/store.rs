@@ -579,6 +579,12 @@ impl Store {
             tracing::info!(backup = %backup.display(), "one-time manifest backup taken");
         }
 
+        // Hold the dataset lock across read → mutate → rename so a daemon
+        // append can never land inside the window and be clobbered by the
+        // rename (issue #114). Appends finish in microseconds; blocking
+        // here is always the right call.
+        let _lock = crate::dataset_lock::lock_exclusive(&self.root)?;
+
         let contents = std::fs::read_to_string(&manifest).context("re-reading manifest")?;
         let mut lines: Vec<String> = contents
             .lines()
@@ -1078,6 +1084,78 @@ mod tests {
         let body = lines.map(|v| v.to_string()).join("\n") + "\n";
         std::fs::write(dir.path().join("manifest.jsonl"), body).unwrap();
         dir
+    }
+
+    /// Issue #114 repro: a daemon-style append landing while a decision
+    /// rewrite sits between its read and its rename must survive. The
+    /// mutate closure runs exactly inside that window, so sleeping there
+    /// makes the race deterministic; the appender uses the same bounded
+    /// lock the daemon uses and must block until the rename finishes.
+    #[test]
+    fn concurrent_append_survives_decision_rewrite() {
+        let dir = seed_dataset();
+        let root = dir.path().to_path_buf();
+        let mut store = Store::load(root.clone()).unwrap();
+
+        let appender = {
+            let root = root.clone();
+            std::thread::spawn(move || {
+                // Land inside the rewrite's read → rename window.
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                let lock = crate::dataset_lock::lock_with_timeout(
+                    &root,
+                    std::time::Duration::from_secs(5),
+                )
+                .unwrap();
+                assert!(
+                    lock.is_some(),
+                    "append should win the lock once the rewrite ends"
+                );
+                use std::io::Write;
+                let mut f = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(root.join("manifest.jsonl"))
+                    .unwrap();
+                writeln!(
+                    f,
+                    "{}",
+                    json!({
+                        "audio_filepath": "audio/new.flac",
+                        "text": "appended mid rewrite",
+                        "duration": 1.0,
+                        "engine": "nemotron",
+                        "timestamp": "2026-07-01T10-02-00",
+                    })
+                )
+                .unwrap();
+            })
+        };
+
+        store
+            .rewrite_manifest_lines(|lines| {
+                // Hold the window open long past the appender's start.
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                lines[0] = {
+                    let mut v: Value = serde_json::from_str(&lines[0]).unwrap();
+                    v["text"] = Value::String("rewritten".into());
+                    v.to_string()
+                };
+                Ok(())
+            })
+            .unwrap();
+        appender.join().unwrap();
+
+        let body = std::fs::read_to_string(root.join("manifest.jsonl")).unwrap();
+        assert!(body.contains("rewritten"), "rewrite must land");
+        assert!(
+            body.contains("appended mid rewrite"),
+            "concurrent append must survive the rewrite rename"
+        );
+        assert_eq!(
+            body.lines().count(),
+            3,
+            "both original rows plus the append"
+        );
     }
 
     /// Three clips with real (tiny) audio files on disk, for delete tests.

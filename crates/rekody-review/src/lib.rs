@@ -23,6 +23,7 @@
 //! can make is the one-time whisper model download from the Rekody Hugging
 //! Face mirror (checksum-pinned).
 
+pub mod dataset_lock;
 mod server;
 mod store;
 mod teacher;

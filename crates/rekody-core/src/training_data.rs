@@ -128,6 +128,21 @@ pub fn save_pair(
     if let Some(app) = app_context.filter(|a| !a.is_empty() && *a != "Unknown") {
         line["app_context"] = serde_json::Value::String(app.to_string());
     }
+    // Serialize with the review store's whole-file rewrites: an append
+    // landing inside its read → rename window would be silently dropped
+    // (rekody#114). Bounded wait, then append anyway with a warning —
+    // losing the lock guarantee beats losing a user's dictation to a
+    // wedged reviewer.
+    let lock =
+        rekody_review::dataset_lock::lock_with_timeout(&root, std::time::Duration::from_secs(2))
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "dataset lock unavailable — appending unlocked");
+                None
+            });
+    if lock.is_none() {
+        tracing::warn!("dataset lock still held after 2s — appending unlocked");
+    }
+
     let manifest = root.join("manifest.jsonl");
     use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
@@ -139,6 +154,7 @@ pub fn save_pair(
     }
     let mut f = opts.open(&manifest).context("opening manifest.jsonl")?;
     writeln!(f, "{line}")?;
+    drop(lock);
 
     warn_if_large(&root);
     tracing::debug!(
