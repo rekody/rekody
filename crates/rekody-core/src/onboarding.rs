@@ -704,7 +704,8 @@ vad_threshold = 0.01
 # follows the macOS default input — which jumps to whatever you connected
 # last (e.g. AirPods). Pin a device to keep it: input_device = "MacBook Air Microphone"
 # (run `rekody doctor` to see the resolved device). Unknown names fall back
-# to the system default.
+# to the system default. A list is an ordered fallback chain, first connected
+# wins: input_device = ["Shure MVX2U", "MacBook Air Microphone"]
 input_device = "system"
 injection_method = "clipboard"
 # Save each dictation's audio (FLAC) + transcript locally so a personal

@@ -26,10 +26,26 @@ Changes take effect the next time `rekody` starts.
 | `injection_method` | `"clipboard"`, `"native"` | `"clipboard"` | How text is inserted: clipboard paste works everywhere; native sends keystrokes via CGEvent. |
 | `vad_threshold` | float, roughly `0.005` to `0.05` | `0.01` | RMS energy gate for voice activity detection. Lower is more sensitive. |
 | `record_all_audio` | `true`, `false` | `false` | Bypass VAD and capture every frame from press to release. Useful for low-energy input. |
+| `input_device` | device name, or an array of names | unset (system default) | Microphone to capture from, matched by case-insensitive substring. A single name pins that device; an array is an ordered fallback chain. See [Input device](#input-device). |
 | `max_recording_secs` | integer seconds, `0` = unlimited | `600` | Deadman switch: the longest a single recording can run. |
 | `llm_enabled` | `true`, `false`, or omit | omitted (auto) | LLM post-processing. Auto means on for every engine except Deepgram, whose `smart_format` already produces clean output. |
 | `save_training_data` | `true`, `false` | `true` | Save each dictation's audio (FLAC) and transcript to `~/.local/share/rekody/training-data/` as a personal fine-tuning dataset. Local only. |
 | `hud` | `true`, `false`, or omit | omitted (auto) | The floating pill. Auto shows it when the `rekody-hud` helper binary is found next to the daemon (or at `$REKODY_HUD_BIN`); `false` never shows it. |
+
+## Input device
+
+`input_device` picks the microphone rekody captures from. Names are matched case-insensitively; any unique substring of the device name works. Omit the key (or set `"system"`) to follow the macOS default input, which jumps to whatever you connected last (AirPods being the classic offender).
+
+```toml
+# One pin: use this mic when connected, otherwise the system default.
+input_device = "Shure MVX2U"
+
+# Ordered fallback chain: desk mic when it is connected,
+# built-in mic when it is not.
+input_device = ["Shure MVX2U", "MacBook Air Microphone"]
+```
+
+With a chain, each recording start walks the list in order and captures from the first connected device, so unplugging the desk mic needs no config change and no restart. If nothing in the chain is connected, capture falls back to the system default and the daemon logs a warning naming what it tried. An empty list behaves like the key being unset. `rekody doctor` shows the chain with each entry's status and which one would capture right now.
 
 ## Engine-specific keys
 
