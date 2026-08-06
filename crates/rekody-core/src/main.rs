@@ -1299,27 +1299,74 @@ fn print_permission(name: &str, status: MicCheck) {
 }
 
 /// Show which input device rekody will capture from, given the configured
-/// `input_device` preference, and warn if a pinned device isn't connected.
+/// `input_device` preference (a single pin or an ordered fallback chain),
+/// and warn when nothing configured is connected.
 fn print_input_device(config: &RekodyConfig) {
+    use rekody_core::InputDevicePref;
+
     let devices = rekody_audio::list_input_devices();
-    match config.input_device.as_deref() {
-        Some(want) if !want.trim().is_empty() && !want.eq_ignore_ascii_case("system") => {
-            let want_l = want.to_lowercase();
-            if let Some(found) = devices.iter().find(|n| n.to_lowercase().contains(&want_l)) {
+    let system_default_line = || {
+        println!(
+            "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Input device{RESET}  {DIM}system default{RESET}"
+        );
+    };
+    match &config.input_device {
+        Some(InputDevicePref::Name(want))
+            if !want.trim().is_empty() && !want.eq_ignore_ascii_case("system") =>
+        {
+            if let Some(idx) = rekody_audio::match_device_name(&devices, want) {
+                let found = &devices[idx];
                 println!(
                     "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Input device{RESET}  {DIM}{found} (pinned){RESET}"
                 );
             } else {
                 println!(
-                    "  {BRAND}│{RESET}     {WARN}{BOLD}…{RESET}  {CREAM}Input device{RESET}  {WARN}\"{want}\" not connected — using system default{RESET}"
+                    "  {BRAND}│{RESET}     {WARN}{BOLD}…{RESET}  {CREAM}Input device{RESET}  {WARN}\"{want}\" not connected, using system default{RESET}"
                 );
             }
         }
-        _ => {
-            println!(
-                "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Input device{RESET}  {DIM}system default{RESET}"
-            );
+        Some(InputDevicePref::Chain(chain)) => {
+            // Entries that actually name a device; blanks and the "system"
+            // sentinel are skipped, matching capture-time resolution.
+            let entries: Vec<&str> = chain
+                .iter()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("system"))
+                .collect();
+            if entries.is_empty() {
+                system_default_line();
+                return;
+            }
+            let active = entries
+                .iter()
+                .position(|want| rekody_audio::match_device_name(&devices, want).is_some());
+            let rendered: Vec<String> = entries
+                .iter()
+                .enumerate()
+                .map(|(i, want)| {
+                    let n = i + 1;
+                    match (
+                        active == Some(i),
+                        rekody_audio::match_device_name(&devices, want),
+                    ) {
+                        (true, _) => format!("{CREAM}{n}. {want}{RESET} {OK}(active){RESET}"),
+                        (false, Some(_)) => format!("{DIM}{n}. {want} (connected){RESET}"),
+                        (false, None) => format!("{DIM}{n}. {want} (not connected){RESET}"),
+                    }
+                })
+                .collect();
+            let rendered = rendered.join("  ");
+            if active.is_some() {
+                println!(
+                    "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Input device{RESET}  {rendered}"
+                );
+            } else {
+                println!(
+                    "  {BRAND}│{RESET}     {WARN}{BOLD}…{RESET}  {CREAM}Input device{RESET}  {rendered}  {WARN}none connected, using system default{RESET}"
+                );
+            }
         }
+        _ => system_default_line(),
     }
 }
 

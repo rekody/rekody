@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Input device fallback chain.** `input_device` now also accepts an ordered list: `input_device = ["Shure MVX2U", "MacBook Air Microphone"]`. Each recording start captures from the first connected device in the list, so your desk mic wins when it is plugged in and your chosen fallback takes over when it is not, with no config edits, no restart, and no implicit Bluetooth surprise. A single string keeps today's pin behavior exactly, and `rekody doctor` renders the chain with each entry's status and which one would capture right now.
+
 ## [0.5.25] - 2026-07-29
 
 ### Added

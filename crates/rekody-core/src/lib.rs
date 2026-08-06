@@ -79,6 +79,31 @@ impl std::fmt::Debug for ProviderConfig {
     }
 }
 
+/// The `input_device` preference: one pinned name (today's form) or an
+/// ordered fallback chain (issue #122). Untagged so the TOML value is a
+/// plain string or a plain array; existing string configs parse unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum InputDevicePref {
+    /// One pinned device name: use it when connected, otherwise the system
+    /// default.
+    Name(String),
+    /// Ordered preference chain: the first connected device captures.
+    Chain(Vec<String>),
+}
+
+impl InputDevicePref {
+    /// The preference as an ordered chain for `rekody-audio`: a single pin
+    /// becomes a one-entry chain. Blank entries and the `"system"` sentinel
+    /// are kept; resolution skips them.
+    pub fn to_chain(&self) -> Vec<String> {
+        match self {
+            Self::Name(name) => vec![name.clone()],
+            Self::Chain(chain) => chain.clone(),
+        }
+    }
+}
+
 /// Top-level rekody configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RekodyConfig {
@@ -129,12 +154,24 @@ pub struct RekodyConfig {
     /// playback into the mic). Default: false (VAD enabled).
     #[serde(default)]
     pub record_all_audio: bool,
-    /// Preferred microphone, matched by name (case-insensitive substring).
+    /// Preferred microphone(s), matched by name (case-insensitive substring).
     /// `None`/omitted (or `"system"`) follows the OS default input — which
-    /// drifts to whatever was connected last (e.g. AirPods). Set a device
-    /// name to pin capture regardless of the system default.
+    /// drifts to whatever was connected last (e.g. AirPods). Accepts either
+    /// TOML form:
+    ///
+    /// ```toml
+    /// input_device = "Shure MVX2U"                              # one pin
+    /// input_device = ["Shure MVX2U", "MacBook Air Microphone"]  # ordered chain
+    /// ```
+    ///
+    /// A single name pins capture to that device, falling back to the system
+    /// default when it is not connected. A list is an ordered preference
+    /// chain: at each recording start the first connected entry captures;
+    /// when none is connected, capture follows the system default and a
+    /// warning names what was tried. An empty list behaves like the key
+    /// being unset.
     #[serde(default)]
-    pub input_device: Option<String>,
+    pub input_device: Option<InputDevicePref>,
     /// Text injection method.
     pub injection_method: String,
     /// Whether to run LLM post-processing on transcripts.
@@ -265,6 +302,18 @@ fn default_trigger_key() -> String {
 
 fn default_max_recording_secs() -> u64 {
     1800
+}
+
+impl RekodyConfig {
+    /// The `input_device` preference as the ordered chain `rekody-audio`
+    /// consumes: unset gives an empty chain (system default), a string gives
+    /// one entry, an array passes through in order.
+    pub fn input_device_chain(&self) -> Vec<String> {
+        self.input_device
+            .as_ref()
+            .map(InputDevicePref::to_chain)
+            .unwrap_or_default()
+    }
 }
 
 impl Default for RekodyConfig {
@@ -753,7 +802,7 @@ impl Pipeline {
         let audio_config = AudioConfig {
             vad_threshold: self.config.vad_threshold,
             record_all_audio: self.config.record_all_audio,
-            input_device: self.config.input_device.clone(),
+            input_device: self.config.input_device_chain(),
         };
         let audio_capture = rekody_audio::AudioCapture::new(audio_config.clone());
         let mut segment_rx = audio_capture.open(audio_config)?;
@@ -891,7 +940,7 @@ impl Pipeline {
         let audio_config = AudioConfig {
             vad_threshold: self.config.vad_threshold,
             record_all_audio: self.config.record_all_audio,
-            input_device: self.config.input_device.clone(),
+            input_device: self.config.input_device_chain(),
         };
         let audio_capture = rekody_audio::AudioCapture::new(audio_config.clone());
         let mut live_rx = audio_capture.live_chunks();
@@ -1635,6 +1684,108 @@ injection_method = "clipboard"
         assert!(reparsed.term_biasing.enabled);
         assert_eq!(reparsed.term_biasing.boost, 2.0);
         assert_eq!(reparsed.term_biasing.max_terms, 200);
+    }
+}
+
+#[cfg(test)]
+mod input_device_config_tests {
+    //! The `input_device` key (issue #122): a plain string stays today's
+    //! single pin, an array is an ordered preference chain, and both forms
+    //! survive the `toml::to_string_pretty` save path the config TUI uses.
+
+    use crate::{InputDevicePref, RekodyConfig};
+
+    /// The four keys every existing config.toml already has (no serde
+    /// defaults on these fields).
+    const MINIMAL: &str = r#"
+activation_mode = "both"
+whisper_model = "turbo"
+vad_threshold = 0.01
+injection_method = "clipboard"
+"#;
+
+    fn parse(extra: &str) -> RekodyConfig {
+        toml::from_str(&format!("{MINIMAL}{extra}")).expect("config parses")
+    }
+
+    #[test]
+    fn string_form_parses_as_single_pin() {
+        let config = parse("input_device = \"Shure MVX2U\"\n");
+        assert_eq!(
+            config.input_device,
+            Some(InputDevicePref::Name("Shure MVX2U".into()))
+        );
+        assert_eq!(config.input_device_chain(), vec!["Shure MVX2U".to_string()]);
+    }
+
+    #[test]
+    fn array_form_parses_as_ordered_chain() {
+        let config = parse("input_device = [\"Shure MVX2U\", \"MacBook Air Microphone\"]\n");
+        assert_eq!(
+            config.input_device,
+            Some(InputDevicePref::Chain(vec![
+                "Shure MVX2U".into(),
+                "MacBook Air Microphone".into(),
+            ]))
+        );
+        assert_eq!(
+            config.input_device_chain(),
+            vec![
+                "Shure MVX2U".to_string(),
+                "MacBook Air Microphone".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn absent_key_means_system_default() {
+        let config = parse("");
+        assert_eq!(config.input_device, None);
+        assert!(config.input_device_chain().is_empty());
+    }
+
+    #[test]
+    fn empty_array_behaves_like_unset() {
+        let config = parse("input_device = []\n");
+        assert_eq!(config.input_device, Some(InputDevicePref::Chain(vec![])));
+        assert!(config.input_device_chain().is_empty());
+    }
+
+    #[test]
+    fn system_sentinel_still_parses() {
+        // The setup wizard writes `input_device = "system"`; resolution in
+        // rekody-audio skips the sentinel and follows the system default.
+        let config = parse("input_device = \"system\"\n");
+        assert_eq!(
+            config.input_device,
+            Some(InputDevicePref::Name("system".into()))
+        );
+    }
+
+    #[test]
+    fn both_forms_round_trip_through_config_tui_save_path() {
+        // `config_tui` saves via `toml::to_string_pretty(&config)`; each form
+        // must serialize back to the same TOML shape and re-parse equal.
+        let pinned = RekodyConfig {
+            input_device: Some(InputDevicePref::Name("Shure MVX2U".into())),
+            ..RekodyConfig::default()
+        };
+        let serialized = toml::to_string_pretty(&pinned).expect("string form serializes");
+        assert!(serialized.contains("input_device = \"Shure MVX2U\""));
+        let reparsed: RekodyConfig = toml::from_str(&serialized).expect("round-trip parses");
+        assert_eq!(reparsed.input_device, pinned.input_device);
+
+        let chained = RekodyConfig {
+            input_device: Some(InputDevicePref::Chain(vec![
+                "Shure MVX2U".into(),
+                "MacBook Air Microphone".into(),
+            ])),
+            ..RekodyConfig::default()
+        };
+        let serialized = toml::to_string_pretty(&chained).expect("array form serializes");
+        assert!(serialized.contains("input_device = ["));
+        let reparsed: RekodyConfig = toml::from_str(&serialized).expect("round-trip parses");
+        assert_eq!(reparsed.input_device, chained.input_device);
     }
 }
 

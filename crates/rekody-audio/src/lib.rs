@@ -169,12 +169,14 @@ pub struct AudioConfig {
     /// (e.g. phone-speaker playback into the mic) where VAD would otherwise
     /// drop everything as silence.
     pub record_all_audio: bool,
-    /// Preferred input device, matched by name (case-insensitive). `None`
-    /// (or `"system"`) follows the OS default input — which can drift to
-    /// whatever was plugged in last (e.g. AirPods). Set a device name to
-    /// pin capture to it regardless of the system default. Resolved fresh
-    /// each recording, so a disconnected device transparently falls back.
-    pub input_device: Option<String>,
+    /// Preferred input devices in order, matched by name (case-insensitive).
+    /// Empty (or every entry blank/`"system"`) follows the OS default input,
+    /// which can drift to whatever was plugged in last (e.g. AirPods). One
+    /// entry pins capture to that device; several entries form a preference
+    /// chain where the first connected device wins. Resolved fresh at each
+    /// recording start, so plugging or unplugging a device needs no restart
+    /// and a fully disconnected chain transparently falls back.
+    pub input_device: Vec<String>,
 }
 
 impl Default for AudioConfig {
@@ -182,7 +184,7 @@ impl Default for AudioConfig {
         Self {
             vad_threshold: 0.01,
             record_all_audio: false,
-            input_device: None,
+            input_device: Vec::new(),
         }
     }
 }
@@ -198,8 +200,9 @@ pub fn list_input_devices() -> Vec<String> {
 
 /// Index of the device whose name matches `want` (case-insensitive): an
 /// exact match wins, otherwise the first substring match. `None` if nothing
-/// matches. Pure helper, unit-tested.
-fn match_device_name(available: &[String], want: &str) -> Option<usize> {
+/// matches. Pure helper, unit-tested; also used by `rekody doctor` so its
+/// display agrees with what capture will actually resolve.
+pub fn match_device_name(available: &[String], want: &str) -> Option<usize> {
     let want = want.trim().to_lowercase();
     if want.is_empty() {
         return None;
@@ -214,16 +217,35 @@ fn match_device_name(available: &[String], want: &str) -> Option<usize> {
         })
 }
 
-/// Resolve the input device to capture from: the configured name if it
-/// matches an available device, otherwise the system default. A configured
-/// name that no longer matches (device unplugged, renamed) logs a warning
-/// and falls back — capture never hard-fails on a stale preference.
-fn resolve_input_device(host: &cpal::Host, configured: Option<&str>) -> Option<cpal::Device> {
-    let want = configured
-        .map(str::trim)
-        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("system"));
+/// Walk a device preference chain against the available device names and
+/// return `(chain_index, device_index)` of the first entry that matches a
+/// connected device (same matching as [`match_device_name`]). Blank entries
+/// and the `"system"` sentinel are skipped. `None` when nothing in the chain
+/// is connected; the caller falls back to the system default. Pure helper,
+/// unit-tested.
+pub fn resolve_device_chain(available: &[String], chain: &[String]) -> Option<(usize, usize)> {
+    chain.iter().enumerate().find_map(|(chain_idx, want)| {
+        let want = want.trim();
+        if want.is_empty() || want.eq_ignore_ascii_case("system") {
+            return None;
+        }
+        match_device_name(available, want).map(|device_idx| (chain_idx, device_idx))
+    })
+}
 
-    if let Some(want) = want {
+/// Resolve the input device to capture from: the first configured name that
+/// matches an available device, otherwise the system default. A chain where
+/// nothing is connected (devices unplugged, renamed) logs a warning naming
+/// what was tried and falls back; capture never hard-fails on a stale
+/// preference.
+fn resolve_input_device(host: &cpal::Host, configured: &[String]) -> Option<cpal::Device> {
+    let wanted: Vec<&str> = configured
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("system"))
+        .collect();
+
+    if !wanted.is_empty() {
         let devices: Vec<cpal::Device> = host
             .input_devices()
             .map(|it| it.collect())
@@ -232,14 +254,23 @@ fn resolve_input_device(host: &cpal::Host, configured: Option<&str>) -> Option<c
             .iter()
             .map(|d| d.name().unwrap_or_default())
             .collect();
-        if let Some(idx) = match_device_name(&names, want) {
+        if let Some((_, idx)) = resolve_device_chain(&names, configured) {
             tracing::info!(device = %names[idx], "using configured input device");
             return devices.into_iter().nth(idx);
         }
-        tracing::warn!(
-            configured = %want,
-            "configured input_device not found — falling back to system default"
-        );
+        if let [only] = wanted.as_slice() {
+            // Today's single-pin message, unchanged for existing configs.
+            tracing::warn!(
+                configured = %only,
+                "configured input_device not found — falling back to system default"
+            );
+        } else {
+            tracing::warn!(
+                tried = %wanted.join(", "),
+                "no device in the input_device chain is connected; \
+                 falling back to system default"
+            );
+        }
     }
     host.default_input_device()
 }
@@ -465,8 +496,8 @@ fn run_capture_session(
 
     // ----- device & stream setup -----
     let host = cpal::default_host();
-    let device = resolve_input_device(&host, config.input_device.as_deref())
-        .ok_or(AudioError::NoInputDevice)?;
+    let device =
+        resolve_input_device(&host, &config.input_device).ok_or(AudioError::NoInputDevice)?;
 
     let supported_config = device.default_input_config().map_err(|e| {
         let msg = e.to_string();
@@ -831,7 +862,7 @@ mod tests {
         let config = AudioConfig::default();
         assert!(config.vad_threshold > 0.0);
         assert!(config.vad_threshold < 1.0);
-        assert!(config.input_device.is_none());
+        assert!(config.input_device.is_empty());
     }
 
     #[test]
@@ -860,6 +891,70 @@ mod tests {
         // "Mic" is a substring of #0 but an exact match of #1 — exact wins.
         let devices = vec!["Studio Mic Array".to_string(), "Mic".to_string()];
         assert_eq!(match_device_name(&devices, "Mic"), Some(1));
+    }
+
+    fn fake_devices() -> Vec<String> {
+        vec![
+            "MacBook Air Microphone".to_string(),
+            "Tony's AirPods Pro".to_string(),
+            "External USB Mic".to_string(),
+        ]
+    }
+
+    fn chain(entries: &[&str]) -> Vec<String> {
+        entries.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn chain_first_connected_wins() {
+        // Both entries are connected: the first one captures.
+        assert_eq!(
+            resolve_device_chain(&fake_devices(), &chain(&["AirPods", "USB"])),
+            Some((0, 1))
+        );
+    }
+
+    #[test]
+    fn chain_skips_absent_devices() {
+        // The preferred desk mic is unplugged: the next connected entry wins.
+        assert_eq!(
+            resolve_device_chain(&fake_devices(), &chain(&["Shure MVX2U", "MacBook Air"])),
+            Some((1, 0))
+        );
+    }
+
+    #[test]
+    fn chain_none_connected_falls_back() {
+        // Nothing in the chain is connected: None, caller uses system default.
+        assert_eq!(
+            resolve_device_chain(&fake_devices(), &chain(&["Shure MVX2U", "Blue Yeti"])),
+            None
+        );
+    }
+
+    #[test]
+    fn chain_empty_is_system_default() {
+        assert_eq!(resolve_device_chain(&fake_devices(), &[]), None);
+    }
+
+    #[test]
+    fn chain_skips_blank_and_system_entries() {
+        assert_eq!(
+            resolve_device_chain(&fake_devices(), &chain(&["  ", "system", "USB"])),
+            Some((2, 2))
+        );
+    }
+
+    #[test]
+    fn chain_single_entry_behaves_like_pin() {
+        assert_eq!(
+            resolve_device_chain(&fake_devices(), &chain(&["airpods"])),
+            Some((0, 1))
+        );
+        assert_eq!(
+            resolve_device_chain(&fake_devices(), &chain(&["Studio Display"])),
+            None
+        );
     }
 
     #[test]
