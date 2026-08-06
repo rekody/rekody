@@ -2,9 +2,16 @@
 
 ## [Unreleased]
 
+## [0.5.26] - 2026-08-06
+
 ### Added
 
 - **Input device fallback chain.** `input_device` now also accepts an ordered list: `input_device = ["Shure MVX2U", "MacBook Air Microphone"]`. Each recording start captures from the first connected device in the list, so your desk mic wins when it is plugged in and your chosen fallback takes over when it is not, with no config edits, no restart, and no implicit Bluetooth surprise. A single string keeps today's pin behavior exactly, and `rekody doctor` renders the chain with each entry's status and which one would capture right now.
+- **`rekody review export --dir` works the natural way.** The dataset directory flag is now accepted after the subcommand, where scripts and coding agents put it.
+
+### Fixed
+
+- **A dictation saved during a review edit can no longer be lost.** The daemon's manifest append and the review page's transcript rewrites now share a dataset lock, closing a narrow window where a new dictation's manifest row could be silently dropped while a review decision was being written. The daemon never waits more than 2 seconds for the lock, so a stuck review page can never delay your typing.
 
 ## [0.5.25] - 2026-07-29
 
