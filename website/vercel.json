@@ -6,17 +6,42 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "redirects": [
-    { "source": "/terms", "destination": "/privacy", "permanent": true },
-    { "source": "/data-controls", "destination": "/privacy", "permanent": true },
-    { "source": "/subprocessors", "destination": "/privacy", "permanent": true },
-    { "source": "/security", "destination": "https://github.com/rekody/rekody/blob/main/SECURITY.md", "permanent": true }
+    {
+      "source": "/terms",
+      "destination": "/privacy",
+      "permanent": true
+    },
+    {
+      "source": "/data-controls",
+      "destination": "/privacy",
+      "permanent": true
+    },
+    {
+      "source": "/subprocessors",
+      "destination": "/privacy",
+      "permanent": true
+    },
+    {
+      "source": "/security",
+      "destination": "https://github.com/rekody/rekody/blob/main/SECURITY.md",
+      "permanent": true
+    }
   ],
   "headers": [
     {
       "source": "/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/appcast.xml",
+      "destination": "https://raw.githubusercontent.com/rekody/rekody-app/main/appcast.xml"
     }
   ]
 }
