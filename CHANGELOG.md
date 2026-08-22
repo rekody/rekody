@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Installed model files are verified, not just counted.** Setup used to skip verification whenever a model file already existed, so an artifact installed before Rekody moved its downloads to its own model repo could sit on a machine forever without ever being checked against a published checksum. Setup now re-hashes what is already on disk and replaces anything that does not match, and `rekody doctor` reports mismatched model files so you can find out without re-running setup.
+
 ## [0.5.27] - 2026-08-22
 
 ### Added

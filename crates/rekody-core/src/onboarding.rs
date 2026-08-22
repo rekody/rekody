@@ -468,14 +468,28 @@ pub fn run_onboarding() -> Result<()> {
         let model_dir = resolve_model_dir();
         let model_path = model_dir.join(whisper_file);
 
-        if model_path.exists() {
+        // An existing file is not a trusted file. Artifacts installed before
+        // the move to Rekody's own model repo predate the pinned checksums,
+        // so presence alone would let an unverified model live forever on a
+        // machine that has since upgraded. Re-hash it and re-fetch on a
+        // mismatch. Costs a few seconds, and only during setup.
+        let whisper_ok = model_path.exists() && {
             let sp = spinner();
-            sp.start("Checking Whisper model...");
-            sp.stop(format!(
-                "Model already downloaded at {}",
-                model_path.display()
-            ));
-        } else {
+            sp.start("Verifying Whisper model...");
+            let ok = verify_model_checksum(
+                model_path.to_str().unwrap_or(""),
+                expected_checksum_for(whisper_file),
+            );
+            if ok {
+                sp.stop(format!("Model verified at {}", model_path.display()));
+            } else {
+                sp.stop("Installed Whisper model does not match its checksum, re-downloading");
+                let _ = std::fs::remove_file(&model_path);
+            }
+            ok
+        };
+
+        if !whisper_ok {
             std::fs::create_dir_all(&model_dir).context("failed to create model directory")?;
 
             // Rekody model mirror first, upstream whisper.cpp as fallback;
@@ -516,11 +530,25 @@ pub fn run_onboarding() -> Result<()> {
         std::fs::create_dir_all(&model_dir).context("failed to create model directory")?;
         for &file in NEMOTRON_FILES {
             let dest = model_dir.join(file);
-            if dest.exists() {
+            // Same rule as Whisper above: verify what is already on disk
+            // rather than trusting that it arrived from us.
+            let verified = dest.exists() && {
                 let sp = spinner();
-                sp.start(format!("Checking {file}..."));
-                sp.stop(format!("{file} already downloaded"));
-            } else {
+                sp.start(format!("Verifying {file}..."));
+                let ok =
+                    verify_model_checksum(dest.to_str().unwrap_or(""), expected_checksum_for(file));
+                if ok {
+                    sp.stop(format!("{file} verified"));
+                } else {
+                    sp.stop(format!(
+                        "{file} does not match its checksum, re-downloading"
+                    ));
+                    let _ = std::fs::remove_file(&dest);
+                }
+                ok
+            };
+
+            if !verified {
                 // Rekody's published conversion is the sole source; every
                 // artifact verifies against its pinned checksum.
                 let url = format!("{REKODY_NEMOTRON_BASE}/{file}");
@@ -1474,6 +1502,53 @@ fn has_any_provider(config: &crate::RekodyConfig) -> bool {
         return true;
     }
     false
+}
+
+/// Verify every installed model artifact against its pinned checksum.
+///
+/// Returns the names of files that are present but do NOT match, so callers
+/// can tell "not installed" (empty, nothing to check) apart from "installed
+/// and wrong". Artifacts that predate the move to Rekody's own model repo
+/// carry no pin guarantee, and presence alone was previously enough to skip
+/// verification forever; this is what lets `rekody doctor` surface that.
+///
+/// Hashing the streaming encoder takes a couple of seconds, so this belongs
+/// in user-initiated commands (setup, doctor), never on the dictation path.
+pub fn unverified_installed_models() -> Vec<String> {
+    let mut bad = Vec::new();
+    let root = resolve_model_dir();
+
+    // The streaming model only ships where the nemotron feature is built
+    // (the Intel release drops it, since ort has no x86_64-darwin prebuilt).
+    #[cfg(feature = "nemotron")]
+    {
+        let nemotron_dir = root.join("nemotron-en-int8");
+        for &file in NEMOTRON_FILES {
+            let path = nemotron_dir.join(file);
+            if path.exists()
+                && !verify_model_checksum(path.to_str().unwrap_or(""), expected_checksum_for(file))
+            {
+                bad.push(file.to_string());
+            }
+        }
+    }
+
+    for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("ggml-") || !name.ends_with(".bin") {
+            continue;
+        }
+        let expected = expected_checksum_for(&name);
+        // Unknown filenames have no pin to check against; skip rather than
+        // reporting a file we never published as a mismatch.
+        if expected.is_empty() {
+            continue;
+        }
+        if !verify_model_checksum(entry.path().to_str().unwrap_or(""), expected) {
+            bad.push(name);
+        }
+    }
+    bad
 }
 
 #[cfg(test)]
