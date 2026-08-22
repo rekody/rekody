@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.27] - 2026-08-22
+
 ### Added
 
 - **Review now leads with hours, not clip counts.** The top bar reads "3.2 hours reviewed · 41 awaiting review". The hours cover the audio behind clips you have decided on, with deleted clips left out, phrased in minutes below an hour and one decimal above. Reviewed audio only: there is no remaining-hours number, because the dataset grows every time you dictate.
