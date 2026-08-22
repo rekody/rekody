@@ -1,7 +1,7 @@
 //! The localhost HTTP server: review page, state and clip JSON, audio
-//! files, the start/decide/export endpoints, and the ping probe. Binds
-//! 127.0.0.1 by default; the opt-in `--lan` flag binds 0.0.0.0 so a phone
-//! on the same Wi-Fi can open the page.
+//! files, the start/decide/export/import endpoints, and the ping probe.
+//! Binds 127.0.0.1 by default; the opt-in `--lan` flag binds 0.0.0.0 so a
+//! phone on the same Wi-Fi can open the page.
 //!
 //! tiny_http keeps this synchronous and single-user simple: one accept loop,
 //! one request at a time, no async stack. Plenty for a personal review tool.
@@ -27,7 +27,10 @@ const PORT_FALLBACK_TRIES: u16 = 9;
 /// Locked contract: the Mac app probes it to avoid a double launch.
 const PING_HEADER: (&str, &str) = ("X-Rekody-Review", "1");
 
-type Resp = Response<std::io::Cursor<Vec<u8>>>;
+/// Every route answers with a boxed response, so a small JSON body and a
+/// multi-hundred-megabyte cut streamed straight off a temp file can come
+/// back through the same signature.
+type Resp = tiny_http::ResponseBox;
 
 /// Bind on `preferred`, walking up through the next `PORT_FALLBACK_TRIES`
 /// ports when busy. Returns the server and the port it actually landed on.
@@ -102,8 +105,12 @@ fn route(
     audio_dir: &Path,
     request: &mut tiny_http::Request,
 ) -> Resp {
-    // Strip any query string; every route here is path-only.
-    let path = request.url().split('?').next().unwrap_or("/").to_string();
+    let url = request.url().to_string();
+    let (path, query) = match url.split_once('?') {
+        Some((p, q)) => (p.to_string(), Some(q.to_string())),
+        None => (url, None),
+    };
+    let query = query.as_deref();
     let method = request.method().clone();
     match (method, path.as_str()) {
         (Method::Get, "/") => html(PAGE),
@@ -113,11 +120,13 @@ fn route(
         (Method::Get, "/api/state") => json_status(200, &state_json(shared, run_state)),
         (Method::Get, "/api/clips") => json_status(200, &store::lock(shared).clips_json()),
         (Method::Get, "/api/export") => export_manifest(root),
+        (Method::Get, "/api/export.zip") => export_zip(shared, query),
         (Method::Get, p) if p.starts_with("/audio/") => {
             let range = range_header(request);
             serve_audio(audio_dir, &p["/audio/".len()..], range.as_deref())
         }
         (Method::Post, "/api/export") => post_export(shared, request),
+        (Method::Post, "/api/import") => post_import(shared, request),
         (Method::Post, "/api/start") => post_start(shared, run_state, root, request),
         // /api/decision is the pre-product name for the same endpoint; kept
         // so an already-open tab or script keeps working across an update.
@@ -139,6 +148,7 @@ fn state_json(shared: &SharedStore, run_state: &SharedRun) -> Value {
         Mode::FirstRun => ("first_run", false),
         Mode::Session { second_opinion } => ("session", second_opinion),
     };
+    let reviewed_secs = s.reviewed_duration_secs();
     let scoring = if opinion_enabled {
         json!({ "done": s.teacher_count(), "total": s.clip_count() })
     } else {
@@ -160,6 +170,12 @@ fn state_json(shared: &SharedStore, run_state: &SharedRun) -> Value {
         "progress": {
             "reviewed": s.reviewed_count(),
             "total": s.clip_count() + s.deleted_count(),
+            // Hours of audio the user has actually reviewed, and the plain
+            // words for it. The page shows this as the headline number, so
+            // the phrasing is settled here once (minutes below an hour, one
+            // decimal above) rather than in two places.
+            "reviewed_duration_secs": reviewed_secs,
+            "reviewed_label": store::fmt_reviewed_duration(reviewed_secs),
         },
     });
     drop(s);
@@ -297,12 +313,134 @@ fn export_manifest(root: &Path) -> Resp {
                 "Content-Disposition",
                 "attachment; filename=\"manifest.jsonl\"",
             ))
-            .with_header(header("Cache-Control", "no-store")),
+            .with_header(header("Cache-Control", "no-store"))
+            .boxed(),
         Err(e) => json_status(
             404,
             &json!({"error": format!("no manifest to export: {e}")}),
         ),
     }
+}
+
+/// GET /api/export.zip[?until=YYYY-MM-DD]: build a self-contained cut
+/// (reviewed clips only, audio copied in) and hand it straight back as one
+/// `cut-<date>-<hash8>.zip` the browser saves to Downloads. This is the
+/// artifact a user mails themselves or drops on a drive.
+///
+/// The cut is staged in a temp folder and zipped into an unlinked temp
+/// file, so a download leaves nothing behind in the dataset and the bytes
+/// stream out of the file rather than through memory. Nothing is uploaded
+/// anywhere: the response goes to the browser that asked for it and stops.
+fn export_zip(shared: &SharedStore, query: Option<&str>) -> Resp {
+    let until = query.and_then(|q| query_param(q, "until"));
+    let staging = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(e) => {
+            return json_status(500, &json!({"error": format!("making a temp folder: {e}")}));
+        }
+    };
+    let cut = match store::lock(shared).export_cut(&store::CutOptions {
+        until,
+        copy_audio: true,
+        out_dir: Some(staging.path().to_path_buf()),
+    }) {
+        Ok(cut) => cut,
+        Err(e) => return json_status(400, &json!({"error": format!("{e:#}")})),
+    };
+    let name = cut
+        .dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("cut")
+        .to_string();
+
+    let mut file = match tempfile::tempfile() {
+        Ok(f) => f,
+        Err(e) => return json_status(500, &json!({"error": format!("making a temp file: {e}")})),
+    };
+    if let Err(e) = crate::cut::write_zip(&cut.dir, &mut file) {
+        return json_status(500, &json!({"error": format!("{e:#}")}));
+    }
+    if let Err(e) = std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0)) {
+        return json_status(500, &json!({"error": format!("rewinding the zip: {e}")}));
+    }
+    tracing::info!(clips = cut.clip_count, cut = %name, "sending a cut to the browser");
+    Response::from_file(file)
+        .with_header(header("Content-Type", "application/zip"))
+        .with_header(header(
+            "Content-Disposition",
+            &format!("attachment; filename=\"{name}.zip\""),
+        ))
+        .with_header(header("Cache-Control", "no-store"))
+        .boxed()
+}
+
+/// POST /api/import: the request body is the cut zip itself (the page
+/// posts the picked file straight through, no multipart), merged into this
+/// dataset by `store::Store::import_cut`. Answers with the summary.
+fn post_import(shared: &SharedStore, request: &mut tiny_http::Request) -> Resp {
+    let mut upload = match tempfile::Builder::new().suffix(".zip").tempfile() {
+        Ok(f) => f,
+        Err(e) => return json_status(500, &json!({"error": format!("making a temp file: {e}")})),
+    };
+    let mut body = std::io::Read::take(request.as_reader(), crate::cut::MAX_UNPACKED_BYTES);
+    let size = match std::io::copy(&mut body, upload.as_file_mut()) {
+        Ok(n) => n,
+        Err(e) => return json_status(400, &json!({"error": format!("reading the upload: {e}")})),
+    };
+    if size == 0 {
+        return json_status(400, &json!({"error": "no cut in that upload"}));
+    }
+    let opened = match crate::cut::open(upload.path()) {
+        Ok(c) => c,
+        Err(e) => return json_status(400, &json!({"error": format!("{e:#}")})),
+    };
+    match store::lock(shared).import_cut(&opened.root, &opened.label) {
+        Ok(summary) => {
+            tracing::info!(
+                imported = summary.imported,
+                skipped = summary.skipped(),
+                audio = summary.audio_copied,
+                source = %summary.source,
+                "cut merged"
+            );
+            json_status(200, &summary.to_json())
+        }
+        Err(e) => json_status(400, &json!({"error": format!("{e:#}")})),
+    }
+}
+
+/// One value out of a query string. Only `+` and `%XX` in the ASCII range
+/// are decoded, which covers everything the page actually sends.
+fn query_param(query: &str, key: &str) -> Option<String> {
+    query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| percent_decode(v))
+        .filter(|v| !v.is_empty())
+}
+
+/// Minimal percent-decoding for query values.
+fn percent_decode(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => out.push(b' '),
+            b'%' if i + 2 < bytes.len() => match u8::from_str_radix(&raw[i + 1..i + 3], 16) {
+                Ok(b) => {
+                    out.push(b);
+                    i += 2;
+                }
+                Err(_) => out.push(b'%'),
+            },
+            b => out.push(b),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Read and parse a JSON request body, or produce the 400 to send back.
@@ -380,11 +518,13 @@ fn serve_audio(audio_dir: &Path, name: &str, range: Option<&str>) -> Resp {
             .with_header(header(
                 "Content-Range",
                 &format!("bytes {start}-{end}/{len}"),
-            ));
+            ))
+            .boxed();
     }
     Response::from_data(data)
         .with_header(header("Content-Type", mime))
         .with_header(header("Accept-Ranges", "bytes"))
+        .boxed()
 }
 
 /// Parse a single-range `bytes=` header against a body of `len` bytes.
@@ -440,6 +580,7 @@ fn html(page: &str) -> Resp {
     Response::from_string(page)
         .with_header(header("Content-Type", "text/html; charset=utf-8"))
         .with_header(header("Cache-Control", "no-store"))
+        .boxed()
 }
 
 fn json_status(code: u16, v: &Value) -> Resp {
@@ -447,6 +588,7 @@ fn json_status(code: u16, v: &Value) -> Resp {
         .with_status_code(code)
         .with_header(header("Content-Type", "application/json"))
         .with_header(header("Cache-Control", "no-store"))
+        .boxed()
 }
 
 #[cfg(test)]
@@ -517,6 +659,40 @@ mod tests {
         assert!(!PAGE.contains("of 0 reviewed"));
         // The export control posts to the cut endpoint.
         assert!(PAGE.contains("ex-until") && PAGE.contains("copy_audio"));
+        // Hours reviewed is the headline number, and it is edited audio
+        // only: no remaining/unedited hours anywhere.
+        assert!(PAGE.contains("reviewedLabel()"));
+        assert!(PAGE.contains("minutes reviewed"));
+        assert!(!PAGE.to_lowercase().contains("hours remaining"));
+        // The finish state names what the user has and hands it over.
+        assert!(PAGE.contains("Nothing left to review."));
+        assert!(PAGE.contains("/api/export.zip") && PAGE.contains("/api/import"));
+        // No milestone or target framing: that is still an open question.
+        assert!(!PAGE.contains("of 5 hours"));
+        // Nothing may suggest a managed training service exists. The only
+        // forward-looking CTA is the early-access mailto.
+        assert!(PAGE.contains("mailto:hi@rekody.com"));
+        assert!(!PAGE.contains("We train on your dataset"));
+        assert!(!PAGE.contains("Rekody GPUs"));
+    }
+
+    #[test]
+    fn query_values_are_read_the_way_the_page_sends_them() {
+        assert_eq!(
+            query_param("until=2026-08-19", "until").as_deref(),
+            Some("2026-08-19")
+        );
+        assert_eq!(
+            query_param("a=1&until=2026-08-19&b=2", "until").as_deref(),
+            Some("2026-08-19")
+        );
+        assert_eq!(
+            query_param("until=2026%2D08%2D19", "until").as_deref(),
+            Some("2026-08-19")
+        );
+        assert_eq!(query_param("until=", "until"), None);
+        assert_eq!(query_param("other=x", "until"), None);
+        assert_eq!(query_param("", "until"), None);
     }
 
     #[test]

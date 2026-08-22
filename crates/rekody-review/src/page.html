@@ -103,6 +103,8 @@ kbd{
 .dd-menu button .n{color:var(--faint);font-weight:400;font-size:12px}
 .tb-right{margin-left:auto;display:flex;align-items:center;gap:16px}
 .scoring-note{font-size:12.5px;color:var(--muted)}
+.import-note{font-size:12.5px;color:var(--muted);max-width:44ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.import-note.err{color:var(--red)}
 .add-so{font-size:13px;color:var(--teal);text-decoration:underline;cursor:pointer;background:none;border:0;padding:0}
 .sc-btn{display:flex;align-items:center;gap:7px;background:none;border:0;color:var(--muted);font-size:13px;padding:4px 2px}
 .sc-btn:hover{color:var(--ink)}
@@ -263,6 +265,7 @@ kbd{
 .stats .tile{background:#FFF;padding:16px 8px}
 .stats .num{font-size:22px;font-weight:600;color:var(--ink)}
 .stats .num.teal{color:var(--teal)}
+.stats .num.dur{font-size:19px}
 .stats .lbl{font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--faint);margin-top:2px}
 #screen-done .sec-label{text-align:left}
 .next-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:left}
@@ -284,6 +287,16 @@ kbd{
 .export-row input[type="checkbox"]{accent-color:var(--teal);margin:0}
 .export-result{margin-top:10px;font:11.5px/1.6 var(--mono);color:var(--muted);word-break:break-all;text-align:left}
 .export-result.err{color:var(--red)}
+/* Secondary path under a primary action: the folder export, the early
+   access note. Present, never competing with the button above it. */
+.alt-export{margin-top:12px;padding-top:10px;border-top:1px solid var(--line-soft);display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.alt-export label.ck{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--body)}
+.alt-export input[type="checkbox"]{accent-color:var(--teal);margin:0}
+.alt-link{font-size:12.5px;color:var(--teal);text-decoration:underline;cursor:pointer;background:none;border:0;padding:0;text-align:left}
+.alt-link:hover{color:#1B6F7A}
+.note-card{margin-top:12px;text-align:left}
+.note-card .t{font-size:14px;font-weight:600}
+.note-card .b{font-size:13px;color:var(--body);line-height:1.5;margin:4px 0 8px}
 .back-link{display:inline-block;margin-top:20px;font-size:13px;color:var(--muted);text-decoration:underline;cursor:pointer;background:none;border:0;padding:0}
 .back-link:hover{color:var(--teal)}
 
@@ -311,7 +324,7 @@ kbd{
     <span class="vdiv"></span>
     <span class="page-name">Review</span>
     <span class="spacer"></span>
-    <span class="prog-label" id="top-progress">0 awaiting review · 0 reviewed</span>
+    <span class="prog-label" id="top-progress">0 minutes reviewed · 0 awaiting review</span>
     <div class="pbar"><i id="top-bar-fill"></i></div>
   </header>
 
@@ -344,7 +357,9 @@ kbd{
     </div>
     <div class="tb-right">
       <span class="scoring-note" id="scoring-note" hidden></span>
+      <span class="import-note" id="im-note" hidden></span>
       <button class="add-so" id="add-so" type="button" hidden>Add a second opinion</button>
+      <button class="sc-btn" id="im-pick-top" type="button">Import a cut</button>
       <div class="dd" id="dd-shortcuts">
         <button class="sc-btn" type="button"><kbd>?</kbd> Shortcuts</button>
         <div class="sc-pop" hidden>
@@ -442,41 +457,53 @@ kbd{
     <div class="check-circle">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
     </div>
-    <div class="done-head">Your dataset is clean.</div>
-    <p class="done-sub">Nothing awaiting review, every label yours. Ready for fine-tuning.</p>
+    <div class="done-head">Nothing left to review.</div>
+    <p class="done-sub" id="done-sub">Every clip in this dataset has a label you approved.</p>
 
     <div class="stats">
       <div class="tile"><div class="num" id="st-clips">0</div><div class="lbl">CLIPS REVIEWED</div></div>
-      <div class="tile"><div class="num" id="st-hours">0 h</div><div class="lbl">CLEAN AUDIO</div></div>
-      <div class="tile"><div class="num teal" id="st-words">0</div><div class="lbl">WORDS FIXED</div></div>
+      <div class="tile"><div class="num teal dur" id="st-hours">0 minutes</div><div class="lbl">AUDIO REVIEWED</div></div>
+      <div class="tile"><div class="num" id="st-words">0</div><div class="lbl">WORDS FIXED</div></div>
       <div class="tile"><div class="num" id="st-mins">0 m</div><div class="lbl">REVIEW TIME</div></div>
     </div>
 
-    <div class="sec-label">WHAT HAPPENS NEXT</div>
+    <div class="sec-label">YOUR DATA, WHEREVER YOU WANT IT</div>
     <div class="next-cards">
-      <div class="card">
-        <div class="t">Export reviewed clips</div>
-        <div class="b">A training-ready cut of the clips you reviewed. Deleted clips and clips still awaiting review stay out.</div>
-        <div class="m">Originals stay untouched</div>
+      <div class="card teal-card">
+        <div class="t">Download your reviewed clips</div>
+        <div class="b">One zip holding the clips you reviewed and their audio. Keep it, back it up, or open it on your other Mac.</div>
+        <div class="m">Nothing is uploaded</div>
         <div class="export-row">
           <label for="ex-until">Through</label>
           <input type="date" id="ex-until">
-          <label class="ck"><input type="checkbox" id="ex-copy"> Copy audio files</label>
         </div>
-        <button class="btn full" id="ex-run" type="button">Export reviewed clips</button>
+        <button class="btn primary full" id="ex-zip" type="button">Download the zip</button>
         <div class="export-result" id="ex-result" hidden></div>
+        <div class="alt-export">
+          <label class="ck"><input type="checkbox" id="ex-copy"> Copy audio files</label>
+          <button class="alt-link" id="ex-run" type="button">Write a folder into my dataset instead</button>
+        </div>
       </div>
-      <div class="card teal-card">
-        <div class="t">Train your personal model</div>
-        <div class="b">We train on your dataset. The model lands back in the app.</div>
-        <div class="m">Rekody GPUs · data deleted after training</div>
-        <a class="btn primary full" href="mailto:hi@rekody.com?subject=Rekody%20fine-tuning%20early%20access">Request early access</a>
+      <div class="card">
+        <div class="t">Bring in a cut from another Mac</div>
+        <div class="b">Pick a zip you downloaded somewhere else. Its corrections merge into this dataset, the newer review of a clip wins, and anything skipped is reported.</div>
+        <div class="m">Your files are backed up first</div>
+        <button class="btn full" id="im-pick" type="button">Choose a cut to import</button>
+        <div class="export-result" id="im-result" hidden></div>
       </div>
+    </div>
+
+    <div class="card note-card">
+      <div class="t">Want a model trained on this?</div>
+      <div class="b">Fine-tuning on your own dataset is not something Rekody runs for you today. Tell us you want it and we will get in touch when there is something to try.</div>
+      <a class="alt-link" href="mailto:hi@rekody.com?subject=Rekody%20fine-tuning%20early%20access">Request early access</a>
     </div>
 
     <button class="back-link" id="back-review" type="button">Back to review</button>
   </div>
 </div>
+
+<input type="file" id="im-file" accept=".zip,application/zip" hidden>
 
 <!-- ============================== DELETE MODAL ======================== -->
 <div id="modal" hidden>
@@ -535,6 +562,18 @@ function fmtHM(secs) {
   if (h) return h + " h " + m + " m";
   if (m) return m + " m";
   return secs + " s";
+}
+// Hours reviewed is computed and phrased server-side (store.rs), so the
+// page and the CLI never disagree about the boundary between "48 minutes"
+// and "1.0 hours". Everything here just places the words.
+function reviewedLabel() {
+  const p = S.state && S.state.progress;
+  return (p && p.reviewed_label) || "0 minutes";
+}
+function fmtSize(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+  if (bytes >= 1024 * 1024) return Math.round(bytes / (1024 * 1024)) + " MB";
+  return Math.max(1, Math.round(bytes / 1024)) + " KB";
 }
 function todayLocal() {
   const d = new Date(), pad = n => String(n).padStart(2, "0");
@@ -761,7 +800,10 @@ function renderSession() {
   // fills on reviewed/total underneath.
   const p = progressNums();
   const awaiting = Math.max(0, p.total - p.reviewed);
-  $("top-progress").textContent = awaiting + " awaiting review · " + p.reviewed + " reviewed";
+  // Hours of audio you have actually reviewed, then what is left in the
+  // inbox. Edited only: no remaining-hours number, which would just be the
+  // dataset growing while you dictate.
+  $("top-progress").textContent = reviewedLabel() + " reviewed · " + awaiting + " awaiting review";
   $("top-bar-fill").style.width = p.total ? (100 * p.reviewed / p.total) + "%" : "0";
 
   renderToolbar();
@@ -1048,8 +1090,15 @@ function renderDone() {
   if (!$("ex-until").value) $("ex-until").value = todayLocal();
   const all = allClips();
   const dec = all.filter(c => c.decision);
+  const kept = dec.filter(c => c.decision.decision !== "delete").length;
+  const audio = reviewedLabel();
+  // Say plainly what you now have. Reaching zero used to be silent.
+  $("done-sub").textContent = kept
+    ? "You have " + kept + (kept === 1 ? " clip" : " clips") + " reviewed and " + audio +
+      " of audio labeled the way you want it. It sits on this Mac until you move it."
+    : "There is nothing reviewed in this dataset yet.";
   $("st-clips").textContent = dec.length;
-  $("st-hours").textContent = fmtHours(S.state ? S.state.dataset.hours : 0);
+  $("st-hours").textContent = audio;
   let words = 0;
   for (const c of dec) {
     const d = c.decision;
@@ -1237,7 +1286,96 @@ $("back-review").addEventListener("click", () => {
   render();
 });
 
-/* ---- export reviewed clips ---- */
+/* ---- download the reviewed clips as one zip ---- */
+// The server builds a self-contained cut and streams it back with an
+// attachment disposition, so the browser saves it to Downloads. Fetched
+// rather than navigated to, so a "nothing to export" answer lands in the
+// result line instead of replacing the page with raw JSON.
+$("ex-zip").addEventListener("click", async () => {
+  const btn = $("ex-zip"), res = $("ex-result");
+  btn.disabled = true;
+  btn.textContent = "Building your zip…";
+  res.hidden = true;
+  let url;
+  try {
+    const until = $("ex-until").value;
+    const r = await fetch("/api/export.zip" + (until ? "?until=" + encodeURIComponent(until) : ""));
+    if (!r.ok) {
+      let msg = "HTTP " + r.status;
+      try { msg = (await r.json()).error || msg; } catch (e) { /* not JSON */ }
+      throw new Error(msg);
+    }
+    const disp = r.headers.get("Content-Disposition") || "";
+    const match = disp.match(/filename="([^"]+)"/);
+    const blob = await r.blob();
+    url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = match ? match[1] : "cut.zip";
+    document.body.append(a);
+    a.click();
+    a.remove();
+    res.classList.remove("err");
+    res.textContent = "Saved " + a.download + " (" + fmtSize(blob.size) + ") to your downloads.";
+  } catch (err) {
+    res.classList.add("err");
+    res.textContent = "Download failed: " + err.message;
+  } finally {
+    if (url) setTimeout(() => URL.revokeObjectURL(url), 30000);
+    res.hidden = false;
+    btn.disabled = false;
+    btn.textContent = "Download the zip";
+  }
+});
+
+/* ---- import a cut from another machine ---- */
+function pickCut() {
+  const input = $("im-file");
+  input.value = "";
+  input.click();
+}
+$("im-pick").addEventListener("click", pickCut);
+$("im-pick-top").addEventListener("click", pickCut);
+
+function setImportNote(text, isError) {
+  for (const id of ["im-note", "im-result"]) {
+    const el = $(id);
+    el.classList.toggle("err", !!isError);
+    el.textContent = text;
+    el.hidden = false;
+  }
+}
+
+$("im-file").addEventListener("change", async () => {
+  const file = $("im-file").files && $("im-file").files[0];
+  if (!file) return;
+  setImportNote("Merging " + file.name + "…", false);
+  try {
+    // The picked file is the whole request body: no form encoding to
+    // unwrap on the other side.
+    const r = await fetch("/api/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/zip" },
+      body: file,
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    const skipped = data.skipped_conflicts + data.skipped_missing_audio + data.skipped_unusable;
+    const parts = [data.imported + (data.imported === 1 ? " clip merged" : " clips merged")];
+    if (data.audio_copied) {
+      parts.push(data.audio_copied + (data.audio_copied === 1 ? " audio file copied" : " audio files copied"));
+    }
+    if (skipped) parts.push(skipped + " left alone");
+    parts.push(data.reviewed_label + " reviewed in total");
+    setImportNote(parts.join(" · "), false);
+    await fetchState();
+    await fetchClips();
+  } catch (err) {
+    setImportNote("Import failed: " + err.message, true);
+  }
+});
+
+/* ---- export reviewed clips as a folder in the dataset ---- */
 $("ex-run").addEventListener("click", async () => {
   const btn = $("ex-run"), res = $("ex-result");
   btn.disabled = true;

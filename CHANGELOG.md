@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Review now leads with hours, not clip counts.** The top bar reads "3.2 hours reviewed · 41 awaiting review". The hours cover the audio behind clips you have decided on, with deleted clips left out, phrased in minutes below an hour and one decimal above. Reviewed audio only: there is no remaining-hours number, because the dataset grows every time you dictate.
+- **A finish state that hands you your data.** Reaching zero awaiting review used to be silent. The done screen now says what you have (clips reviewed, hours of audio) and offers it: **Download the zip** builds a self-contained cut and saves it through your browser as one `cut-<date>-<hash>.zip`, audio included. Writing a cut folder into the dataset is still there as the second path. Also headless, as `rekody review export --zip`.
+- **Move your reviewed clips between machines.** `rekody review import <path>` merges a cut (folder or zip) from another Mac into this dataset, and the page has the same thing behind **Import a cut**. Clips match on their audio file name, missing audio is copied in, and corrections replay as if you had made them here. The newer review of a clip wins, anything skipped is counted and reported, clips you deleted are never brought back, and merged decisions are stamped with the cut they came from. Both jsonl files are backed up first, and importing the same cut twice does nothing the second time.
+
+### Changed
+
+- **The review page no longer suggests Rekody trains a model for you.** It does not. The export is your own data; the only forward-looking line left is a "Request early access" link.
+
 ## [0.5.26] - 2026-08-06
 
 ### Added

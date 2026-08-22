@@ -4,7 +4,7 @@
 //!
 //! Logs go to stderr so stdout stays reserved for the single contract line
 //! each mode prints: `REVIEW_URL=...` before serving, `EXPORT_PATH=...`
-//! after a headless export.
+//! after a headless export, `IMPORT_SUMMARY=...` after an import.
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -47,6 +47,17 @@ enum Cmd {
         /// Write the cut folder into DIR instead of <dataset>/exports
         #[arg(long, value_name = "DIR")]
         out: Option<std::path::PathBuf>,
+        /// Produce one cut-<date>-<hash>.zip instead of a folder, audio
+        /// included, ready to carry to another machine
+        #[arg(long)]
+        zip: bool,
+    },
+    /// Merge a cut from another machine into this dataset (folder or .zip).
+    /// Prints exactly one stdout line on success: IMPORT_SUMMARY=<json>
+    Import {
+        /// The cut to merge in
+        #[arg(value_name = "PATH")]
+        source: std::path::PathBuf,
     },
 }
 
@@ -66,12 +77,17 @@ fn main() -> Result<()> {
             until,
             copy_audio,
             out,
+            zip,
         }) => rekody_review::export(rekody_review::ExportOptions {
             dir,
             until,
             copy_audio,
             out,
+            zip,
         }),
+        Some(Cmd::Import { source }) => {
+            rekody_review::import(rekody_review::ImportOptions { dir, source })
+        }
         None => rekody_review::serve(rekody_review::ReviewOptions {
             dir,
             port: args.port,

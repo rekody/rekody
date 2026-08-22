@@ -1,6 +1,6 @@
 ---
 title: "Review your dictation data"
-description: "Clean your dictation dataset before fine-tuning: fix transcripts, delete bad clips, export a training-ready manifest."
+description: "Clean your dictation dataset before fine-tuning: fix transcripts, delete bad clips, and move a training-ready cut between your machines."
 ---
 
 Rekody can save your dictations as training data. Review is the page where you clean that dataset: play each clip, fix its transcript, and end up with labels you trust.
@@ -41,15 +41,25 @@ rekody review --lan
 
 Treat this as a trusted-network feature: while the server runs with `--lan`, anyone on your network can open, edit, and delete the dataset. The default (no flag) stays private to your Mac.
 
+## How much you have reviewed
+
+The top bar leads with hours: **"3.2 hours reviewed · 41 awaiting review"**. The hours count the audio behind clips you have decided on (kept, corrected, or edited); deleted clips are left out, since their audio is gone. Under an hour it reads in minutes ("48 minutes reviewed"), and from an hour up it reads with one decimal.
+
+Only reviewed audio is counted. There is no remaining-hours number, because the dataset keeps growing every time you dictate, so anything measured against it would move under your feet.
+
 ## When you finish
 
-The top bar counts the work as an inbox: clips awaiting review, and clips reviewed. The dataset keeps growing while you dictate, so there is no finish line to chase; when nothing is awaiting review, the done screen shows what changed and offers two paths: export your reviewed clips for any training pipeline (your original files stay untouched), or send the dataset to Rekody's managed fine-tuning, which trains a model on your voice and vocabulary and delivers it back into the app.
+When nothing is awaiting review, the done screen says plainly what you now have (clips reviewed, hours of audio) and hands it to you: download your reviewed clips as one zip, write a cut folder into your dataset, or bring in a cut from another Mac.
+
+Rekody does not train a model for you. The export is your own data, for whatever you want to do with it. If you want to hear from us when there is something to try, there is a **Request early access** link on that screen.
 
 ## Export reviewed clips
 
-An export is a **cut**: a training-ready folder holding only the clips you actually reviewed (kept, corrected, or edited). Deleted clips and clips still awaiting review stay out.
+An export is a **cut**: a training-ready set holding only the clips you reviewed (kept, corrected, or edited). Deleted clips and clips still awaiting review stay out.
 
-On the done screen, pick a date (clips from that day or earlier are included; the default, today, includes everything), tick **Copy audio files** if you want the folder to be self-contained, and press **Export reviewed clips**. The result line shows the clip count, total audio, and the absolute path of the cut.
+On the done screen, pick a date (clips from that day or earlier are included; the default, today, includes everything) and press **Download the zip**. Your browser saves one `cut-<date>-<hash>.zip` to Downloads, audio included, so the file is complete on its own. Nothing is uploaded anywhere: the zip is built on your Mac and handed to the browser that asked for it.
+
+If you would rather have a folder inside your dataset, the same card has **Write a folder into my dataset instead**, with a **Copy audio files** tickbox. The result line shows the clip count, total audio, and the absolute path of the cut.
 
 Each cut lands in `exports/` inside your dataset, named `cut-<date>-<hash>`, and contains:
 
@@ -68,7 +78,8 @@ rekody review export --until 2026-07-01 --copy-audio
 
 - `--until YYYY-MM-DD` includes clips dated that day or earlier (default: today).
 - `--copy-audio` copies the audio files into the cut so the folder is self-contained.
-- `--out DIR` writes the cut folder into `DIR` instead of `exports/` in the dataset.
+- `--out DIR` writes the cut into `DIR` instead of `exports/` in the dataset.
+- `--zip` produces one `cut-<date>-<hash>.zip` instead of a folder. A zip always carries its audio, so it is complete on its own; there is no unzipped copy left behind.
 
 **Agents can drive this.** On success the command prints exactly one line to stdout, everything else goes to stderr:
 
@@ -76,4 +87,28 @@ rekody review export --until 2026-07-01 --copy-audio
 EXPORT_PATH=/Users/you/.local/share/rekody/training-data/exports/cut-2026-07-01-1a2b3c4d
 ```
 
-That mirrors the `REVIEW_URL=` contract the server prints, so a coding agent or script can run your export and read the resulting path with one line.
+That mirrors the `REVIEW_URL=` contract the server prints, so a coding agent or script can run your export and read the resulting path with one line. The path points at whatever was produced: the folder, or the zip when you passed `--zip`.
+
+## Move a cut to your other machine
+
+Review on your work Mac, review on your personal Mac, and merge the two. Export a zip on one machine, get it to the other however you like (mail it to yourself, drop it in a shared folder), then import it:
+
+- **In the page**: **Import a cut** in the toolbar, or **Choose a cut to import** on the done screen. Pick the zip and the merge runs on the spot.
+- **In the terminal**: `rekody review import ~/Downloads/cut-2026-08-19-1a2b3c4d.zip`. A cut folder works too.
+
+What a merge does, clip by clip:
+
+- Clips are matched by their audio file name. Audio you do not already have is copied in; audio you have is left alone.
+- Each incoming correction is replayed as if you had made it here, so the transcript, its corrected flag, and its label source all land the same way.
+- **The newer review wins.** If both machines reviewed the same clip, the one decided later stays and the other is skipped and counted. Nothing is silently overwritten.
+- A clip you deleted on this machine is never brought back. Deleting is meant to be final.
+- Merged decisions are stamped with the cut they came from, so you can see where a label originated and undo still works.
+- `manifest.jsonl` and `decisions.jsonl` are copied to `.bak-import` files before anything is written.
+
+Importing the same cut twice does nothing the second time, so it is safe to re-run if you lose track. The summary tells you what happened: clips merged, audio files copied, clips left alone, and your new reviewed total.
+
+`rekody review import` prints one stdout line for scripts and agents:
+
+```
+IMPORT_SUMMARY={"source":"cut-2026-08-19-1a2b3c4d","imported":12,...}
+```
