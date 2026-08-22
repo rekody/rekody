@@ -1155,6 +1155,26 @@ async fn cmd_doctor() -> Result<()> {
     }
     println!("  {BRAND}│{RESET}");
 
+    // Model integrity: artifacts installed before the move to Rekody's own
+    // model repo carry no checksum guarantee, and setup used to skip
+    // verification whenever a file already existed. Surface that here so a
+    // stale third-party artifact cannot sit unnoticed forever.
+    let unverified = rekody_core::onboarding::unverified_installed_models();
+    if unverified.is_empty() {
+        println!(
+            "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}Model files{RESET}  {DIM}match their published checksums{RESET}"
+        );
+    } else {
+        println!(
+            "  {BRAND}│{RESET}     {WARN}{BOLD}…{RESET}  {CREAM}Model files{RESET}  {WARN}{} does not match its published checksum{RESET}",
+            unverified.join(", ")
+        );
+        println!(
+            "  {BRAND}│{RESET}        {DIM}run `rekody setup` to replace it with the published build{RESET}"
+        );
+    }
+    println!("  {BRAND}│{RESET}");
+
     // Training data (local fine-tuning dataset; default-on capture)
     println!("  {BRAND}│{RESET}   {BRAND_LIGHT}{BOLD}Training data{RESET}");
     if config.save_training_data {
