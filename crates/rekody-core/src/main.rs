@@ -130,7 +130,7 @@ enum Cmd {
         play: bool,
     },
     /// Review your dictation dataset in a local page: fix transcripts,
-    /// remove bad clips, and export a fine-tuning-ready manifest
+    /// remove bad clips, and export (or import) a fine-tuning-ready cut
     Review {
         /// Dataset directory (default: $REKODY_TRAINING_DIR, then
         /// ~/.local/share/rekody/training-data)
@@ -196,6 +196,17 @@ enum ReviewCmd {
         /// Write the cut folder into DIR instead of <dataset>/exports
         #[arg(long, value_name = "DIR")]
         out: Option<std::path::PathBuf>,
+        /// Produce one cut-<date>-<hash>.zip instead of a folder, audio
+        /// included, ready to carry to another machine
+        #[arg(long)]
+        zip: bool,
+    },
+    /// Merge a cut from another machine into this dataset (folder or .zip).
+    /// Prints exactly one stdout line on success: IMPORT_SUMMARY=<json>
+    Import {
+        /// The cut to merge in
+        #[arg(value_name = "PATH")]
+        source: std::path::PathBuf,
     },
 }
 
@@ -312,9 +323,10 @@ async fn main() -> Result<()> {
 /// stdout is a machine surface here: the library prints exactly one line
 /// per mode. Serving prints `REVIEW_URL=http://127.0.0.1:<port>`, which the
 /// Mac app parses to find the page; `rekody review export` prints
-/// `EXPORT_PATH=<absolute path>`, so a script or coding agent can run the
-/// export and read the result. Everything else logs to stderr, so those
-/// contracts stay clean.
+/// `EXPORT_PATH=<absolute path>` and `rekody review import` prints
+/// `IMPORT_SUMMARY=<json>`, so a script or coding agent can run either and
+/// read the result. Everything else logs to stderr, so those contracts
+/// stay clean.
 fn cmd_review(
     dir: Option<std::path::PathBuf>,
     port: u16,
@@ -338,12 +350,17 @@ fn cmd_review(
             until,
             copy_audio,
             out,
+            zip,
         }) => rekody_review::export(rekody_review::ExportOptions {
             dir,
             until,
             copy_audio,
             out,
+            zip,
         }),
+        Some(ReviewCmd::Import { source }) => {
+            rekody_review::import(rekody_review::ImportOptions { dir, source })
+        }
         None => rekody_review::serve(rekody_review::ReviewOptions {
             dir,
             port,

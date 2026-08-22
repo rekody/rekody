@@ -27,6 +27,14 @@ tiny_http = "0.12"
 # Cross-platform advisory file lock serializing the two manifest writers
 # (daemon append vs review rewrite) — see dataset_lock.rs / issue #114.
 fs4 = { version = "0.13", default-features = false, features = ["sync"] }
-
-[dev-dependencies]
+# Cut archives: the single file a cut travels between machines as. Read and
+# write only, deflate through the flate2 already in the tree — no bzip2,
+# zstd, lzma, or aes backends pulled in.
+zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
+# Picks zip's compression backend: flate2's pure-Rust one (miniz_oxide),
+# already in the tree. Not called from this crate directly — declaring it
+# is how the backend gets chosen, and choosing it here keeps a C zlib out.
+flate2 = "1"
+# Scratch space that cleans itself up: staging a cut before it is zipped,
+# and unpacking an incoming zip before it is merged.
 tempfile = "3"

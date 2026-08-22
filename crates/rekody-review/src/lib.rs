@@ -15,7 +15,8 @@
 //!
 //! The headless `export` path mirrors that stdout discipline: `export`
 //! prints exactly one line, `EXPORT_PATH=<absolute path>`, so scripts and
-//! coding agents can drive an export without the server.
+//! coding agents can drive an export without the server. `import` does the
+//! same with `IMPORT_SUMMARY=<json>`.
 //!
 //! Nothing leaves the machine: the server binds 127.0.0.1 by default (the
 //! opt-in `lan` flag widens that to the local network so a phone on the
@@ -23,6 +24,7 @@
 //! can make is the one-time whisper model download from the Rekody Hugging
 //! Face mirror (checksum-pinned).
 
+mod cut;
 pub mod dataset_lock;
 mod server;
 mod store;
@@ -72,33 +74,118 @@ pub struct ExportOptions {
     pub copy_audio: bool,
     /// Parent directory for the cut folder (default: `<dataset>/exports`).
     pub out: Option<PathBuf>,
+    /// Produce one `cut-<date>-<hash8>.zip` instead of a folder, audio
+    /// included, which is the shape a cut travels between machines in.
+    pub zip: bool,
 }
 
 /// Headless export, no server: load the dataset, write a reviewed-only cut
 /// (see `store::Store::export_cut`), and print exactly one line to stdout:
 /// `EXPORT_PATH=<absolute path>`, mirroring the `REVIEW_URL=` contract so a
-/// script or coding agent can run the export and read the result. The human
+/// script or coding agent can run the export and read the result. The line
+/// points at whatever was produced, the folder or the zip. The human
 /// summary and all logs go to stderr.
 pub fn export(opts: ExportOptions) -> Result<()> {
     let store = store::Store::load(opts.dir.clone())
         .with_context(|| format!("loading dataset at {}", opts.dir.display()))?;
+
+    // A zip is always self-contained: a manifest pointing at audio that
+    // lives on the other machine is not something you can carry anywhere.
+    let copy_audio = opts.copy_audio || opts.zip;
+    // Zipping builds the cut in a temp folder and keeps only the archive,
+    // so an export meant to travel leaves no unpacked twin behind.
+    let staging = if opts.zip {
+        Some(tempfile::tempdir().context("making a folder to build the cut in")?)
+    } else {
+        None
+    };
+    let parent = opts.out.clone().unwrap_or_else(|| opts.dir.join("exports"));
     let cut = store.export_cut(&store::CutOptions {
         until: opts.until,
-        copy_audio: opts.copy_audio,
-        out_dir: opts.out,
+        copy_audio,
+        out_dir: match &staging {
+            Some(tmp) => Some(tmp.path().to_path_buf()),
+            None => opts.out.clone(),
+        },
     })?;
+
+    let artifact = match &staging {
+        None => cut.dir.clone(),
+        Some(_) => {
+            std::fs::create_dir_all(&parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+            let parent = std::path::absolute(&parent)
+                .with_context(|| format!("resolving {}", parent.display()))?;
+            let name = cut
+                .dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .context("the cut folder has no name")?;
+            let zip_path = parent.join(format!("{name}.zip"));
+            let file = std::fs::File::create(&zip_path)
+                .with_context(|| format!("creating {}", zip_path.display()))?;
+            cut::write_zip(&cut.dir, file)?;
+            zip_path
+        }
+    };
+
     eprintln!(
         "{} clip{} · {} → {}",
         cut.clip_count,
         if cut.clip_count == 1 { "" } else { "s" },
         fmt_duration(cut.total_duration_secs),
-        cut.dir.display()
+        artifact.display()
     );
     {
         use std::io::Write;
         let mut out = std::io::stdout();
-        writeln!(out, "EXPORT_PATH={}", cut.dir.display())
+        writeln!(out, "EXPORT_PATH={}", artifact.display())
             .context("writing EXPORT_PATH to stdout")?;
+        out.flush().context("flushing stdout")?;
+    }
+    Ok(())
+}
+
+/// How the headless `import` subcommand runs.
+pub struct ImportOptions {
+    /// Training-data root, resolved the same way as [`ReviewOptions::dir`].
+    pub dir: PathBuf,
+    /// The cut to merge in: a folder or a `.zip`.
+    pub source: PathBuf,
+}
+
+/// Merge a cut from another machine into this dataset (see
+/// `store::Store::import_cut` for the rules). Prints the human summary to
+/// stderr and exactly one stdout line, `IMPORT_SUMMARY=<json>`, so a script
+/// or coding agent can read what happened.
+pub fn import(opts: ImportOptions) -> Result<()> {
+    let opened = cut::open(&opts.source)?;
+    let mut store = store::Store::load(opts.dir.clone())
+        .with_context(|| format!("loading dataset at {}", opts.dir.display()))?;
+    let summary = store.import_cut(&opened.root, &opened.label)?;
+
+    eprintln!(
+        "{} clip{} merged from {} ({} new, {} already here) · {} audio file{} copied · {} skipped",
+        summary.imported,
+        if summary.imported == 1 { "" } else { "s" },
+        summary.source,
+        summary.new_clips,
+        summary.updated_clips,
+        summary.audio_copied,
+        if summary.audio_copied == 1 { "" } else { "s" },
+        summary.skipped(),
+    );
+    eprintln!(
+        "this dataset now has {} reviewed clip{} · {} reviewed",
+        summary.reviewed_clips,
+        if summary.reviewed_clips == 1 { "" } else { "s" },
+        store::fmt_reviewed_duration(summary.reviewed_duration_secs),
+    );
+    {
+        use std::io::Write;
+        let mut out = std::io::stdout();
+        writeln!(out, "IMPORT_SUMMARY={}", summary.to_json())
+            .context("writing IMPORT_SUMMARY to stdout")?;
         out.flush().context("flushing stdout")?;
     }
     Ok(())

@@ -113,6 +113,10 @@ pub struct Store {
     teacher: HashMap<String, Value>,
     /// audio_filepath -> active (not undone) decision line.
     decisions: HashMap<String, Value>,
+    /// True while an outer operation (an import) already holds the dataset
+    /// lock, so the per-rewrite acquisition inside `rewrite_manifest_lines`
+    /// must not try to take it a second time and deadlock against itself.
+    lock_held: bool,
 }
 
 impl Store {
@@ -178,6 +182,7 @@ impl Store {
             index,
             teacher,
             decisions,
+            lock_held: false,
         };
         store.heal_interrupted_deletes()?;
         Ok(store)
@@ -215,6 +220,23 @@ impl Store {
     pub fn total_duration_secs(&self) -> f64 {
         self.entries
             .iter()
+            .map(|e| e["duration"].as_f64().unwrap_or(0.0))
+            .sum()
+    }
+
+    /// Seconds of audio the user has actually reviewed: clips still in the
+    /// manifest carrying an effective decision (keep_original, edit,
+    /// accept_teacher). Deleted clips are excluded, their audio is gone.
+    /// This is the number the page shows as hours reviewed.
+    pub fn reviewed_duration_secs(&self) -> f64 {
+        self.entries
+            .iter()
+            .filter(|e| {
+                e["audio_filepath"]
+                    .as_str()
+                    .and_then(|p| self.decisions.get(p))
+                    .is_some_and(is_effective_decision)
+            })
             .map(|e| e["duration"].as_f64().unwrap_or(0.0))
             .sum()
     }
@@ -351,6 +373,21 @@ impl Store {
         decision: &str,
         final_text: Option<&str>,
     ) -> Result<Value> {
+        self.apply_decision_inner(path, decision, final_text, None)
+    }
+
+    /// The body of [`Store::apply_decision`], with the extra hook an import
+    /// needs: `merge` supplies the label another machine settled on, keeps
+    /// that machine's `decided` timestamp verbatim (newest-wins compares
+    /// those on the next import), and stamps `merged_from` on the line so
+    /// the origin stays auditable and undo stays lossless.
+    fn apply_decision_inner(
+        &mut self,
+        path: &str,
+        decision: &str,
+        final_text: Option<&str>,
+        merge: Option<&MergeStamp<'_>>,
+    ) -> Result<Value> {
         // Deletes run before the index lookup so a repeated delete for a
         // clip that is already gone stays a calm no-op.
         if decision == "delete" {
@@ -380,18 +417,22 @@ impl Store {
                 if self.decisions.contains_key(path) {
                     self.undo(path)?;
                 }
-                let resolved = match decision {
-                    "accept_teacher" => self
+                // A merged decision carries its own resolved label: the
+                // other machine's review is the source of truth here, and
+                // its teacher sidecar never travels inside a cut.
+                let resolved = match (merge, decision) {
+                    (Some(m), _) => m.text.to_string(),
+                    (None, "accept_teacher") => self
                         .teacher
                         .get(path)
                         .and_then(|t| t["teacher_text"].as_str())
                         .context("the second opinion is not ready for this clip yet")?
                         .to_string(),
-                    "keep_original" => self.entries[idx]["text"]
+                    (None, "keep_original") => self.entries[idx]["text"]
                         .as_str()
                         .unwrap_or_default()
                         .to_string(),
-                    _ => {
+                    (None, _) => {
                         let t = final_text.map(str::trim).unwrap_or_default();
                         anyhow::ensure!(!t.is_empty(), "edited text is empty");
                         t.to_string()
@@ -423,10 +464,13 @@ impl Store {
                     "final_text": resolved,
                     "prev_text": prev_text,
                     "prev_corrected": prev_corrected,
-                    "decided": iso_now(),
+                    "decided": merge.map_or_else(iso_now, |m| m.decided.to_string()),
                 });
                 if let Some(src) = prev_label_source {
                     line["prev_label_source"] = Value::String(src);
+                }
+                if let Some(m) = merge {
+                    line["merged_from"] = Value::String(m.source.to_string());
                 }
                 append_line(&self.root.join("decisions.jsonl"), &line)?;
                 self.decisions.insert(path.to_string(), line);
@@ -574,7 +618,7 @@ impl Store {
     ) -> Result<()> {
         let manifest = self.root.join("manifest.jsonl");
         let backup = self.root.join("manifest.jsonl.bak-review");
-        if !backup.exists() {
+        if !backup.exists() && manifest.exists() {
             std::fs::copy(&manifest, &backup).context("writing manifest.jsonl.bak-review")?;
             tracing::info!(backup = %backup.display(), "one-time manifest backup taken");
         }
@@ -582,10 +626,22 @@ impl Store {
         // Hold the dataset lock across read → mutate → rename so a daemon
         // append can never land inside the window and be clobbered by the
         // rename (issue #114). Appends finish in microseconds; blocking
-        // here is always the right call.
-        let _lock = crate::dataset_lock::lock_exclusive(&self.root)?;
+        // here is always the right call. An import already holds the lock
+        // for its whole run, so it skips this acquisition rather than
+        // blocking on itself.
+        let _lock = if self.lock_held {
+            None
+        } else {
+            Some(crate::dataset_lock::lock_exclusive(&self.root)?)
+        };
 
-        let contents = std::fs::read_to_string(&manifest).context("re-reading manifest")?;
+        let contents = match std::fs::read_to_string(&manifest) {
+            Ok(c) => c,
+            // A dataset that has never captured anything has no manifest
+            // yet; an import is allowed to create one.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e).context("re-reading manifest"),
+        };
         let mut lines: Vec<String> = contents
             .lines()
             .filter(|l| !l.trim().is_empty())
@@ -869,6 +925,249 @@ impl Store {
         })
     }
 
+    /// Merge a cut written on another machine into this dataset.
+    ///
+    /// `cut_root` is an unpacked cut folder (manifest.jsonl, cut.json, and
+    /// an `audio/` folder when the cut was self-contained). The rules, in
+    /// order, for every incoming row:
+    ///
+    ///   1. Key on `audio_filepath`. Only the file name is trusted; it is
+    ///      re-anchored under this dataset's `audio/`.
+    ///   2. A clip deleted locally is never resurrected: the audio is gone
+    ///      on purpose, so the incoming row is skipped as a conflict.
+    ///   3. Newest wins. A clip with an effective local decision keeps it
+    ///      unless the incoming `decided` is strictly newer; otherwise the
+    ///      row is skipped and counted, never silently overwritten. Equal
+    ///      timestamps skip too, which is what makes a re-import a no-op.
+    ///   4. Audio arrives only when it is missing here; existing files are
+    ///      left alone. A clip with no audio on either side is skipped.
+    ///   5. Decisions replay through the same path `apply_decision` uses,
+    ///      so the manifest row picks up text/corrected/label_source
+    ///      exactly as a local review would, and the logged line carries
+    ///      `merged_from` plus the other machine's `decided`.
+    ///
+    /// Nothing is written when the merge has nothing to do, so a second
+    /// import of the same cut leaves the dataset byte-identical.
+    pub fn import_cut(&mut self, cut_root: &Path, source: &str) -> Result<ImportSummary> {
+        let manifest = cut_root.join("manifest.jsonl");
+        let raw = std::fs::read_to_string(&manifest)
+            .with_context(|| format!("reading {}", manifest.display()))?;
+
+        let mut summary = ImportSummary {
+            source: source.to_string(),
+            ..Default::default()
+        };
+        let mut plan: Vec<Planned> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for (n, line) in raw.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let row: Value = serde_json::from_str(line)
+                .with_context(|| format!("cut manifest line {} is not valid JSON", n + 1))?;
+            let Some(name) = row["audio_filepath"].as_str().and_then(cut_audio_name) else {
+                tracing::warn!(
+                    line = n + 1,
+                    "cut manifest row has no usable audio_filepath; skipping"
+                );
+                summary.skipped_unusable += 1;
+                continue;
+            };
+            let path = format!("audio/{name}");
+            if !seen.insert(path.clone()) {
+                tracing::warn!(clip = %path, "duplicate row in the cut; keeping the first");
+                continue;
+            }
+
+            let text = row["text"].as_str().unwrap_or_default().to_string();
+            let decided = row["decided"].as_str().unwrap_or_default().to_string();
+            if decided.is_empty() {
+                tracing::warn!(clip = %path, "cut row has no decided timestamp; skipping");
+                summary.skipped_unusable += 1;
+                continue;
+            }
+
+            if let Some(local) = self.decisions.get(&path) {
+                if local["decision"] == "delete" {
+                    tracing::info!(clip = %path, "deleted here; not restoring it from the cut");
+                    summary.skipped_conflicts += 1;
+                    continue;
+                }
+                if is_effective_decision(local)
+                    && decided.as_str() <= local["decided"].as_str().unwrap_or_default()
+                {
+                    summary.skipped_conflicts += 1;
+                    continue;
+                }
+            }
+
+            let known = self.index.contains_key(&path);
+            let have_audio = self.root.join(&path).exists();
+            let incoming_audio = cut_audio_file(cut_root, name);
+            if !have_audio && incoming_audio.is_none() {
+                tracing::warn!(clip = %path, "no audio here and none in the cut; skipping");
+                summary.skipped_missing_audio += 1;
+                continue;
+            }
+
+            // Which decision the replay logs. A cut records the label's
+            // source, not the button that was pressed, so map it back:
+            // "original" means the engine transcript was confirmed as-is.
+            // When that no longer matches this machine's text, record an
+            // edit instead, so the manifest actually lands on the label.
+            let local_text = self
+                .index
+                .get(&path)
+                .map(|i| self.entries[*i]["text"].as_str().unwrap_or_default());
+            let decision = match row["label_source"].as_str().unwrap_or("original") {
+                "teacher" => "accept_teacher",
+                "human" => "edit",
+                _ if local_text == Some(text.as_str()) || !known => "keep_original",
+                _ => "edit",
+            };
+
+            plan.push(Planned {
+                path,
+                name: name.to_string(),
+                text,
+                decision,
+                decided,
+                known,
+                audio_from: (!have_audio).then_some(incoming_audio).flatten(),
+                row,
+            });
+        }
+
+        if plan.is_empty() {
+            summary.finish(self);
+            return Ok(summary);
+        }
+
+        // One exclusive window for the whole merge: audio copies, new
+        // manifest rows, and every decision replay. The daemon's append
+        // path waits (and, past its own timeout, appends anyway), so a
+        // dictation saved mid-import can never be clobbered by a rewrite.
+        let lock = crate::dataset_lock::lock_exclusive(&self.root)?;
+        self.lock_held = true;
+        let outcome = self.import_apply(&plan, source, &mut summary);
+        self.lock_held = false;
+        drop(lock);
+        outcome?;
+
+        summary.finish(self);
+        Ok(summary)
+    }
+
+    /// The writing half of [`Store::import_cut`], run with the dataset lock
+    /// held: back up, copy audio, add rows, replay decisions.
+    fn import_apply(
+        &mut self,
+        plan: &[Planned],
+        source: &str,
+        summary: &mut ImportSummary,
+    ) -> Result<()> {
+        self.backup_before_import()?;
+
+        let audio_dir = self.root.join("audio");
+        for step in plan {
+            let Some(from) = &step.audio_from else {
+                continue;
+            };
+            std::fs::create_dir_all(&audio_dir).context("creating the dataset audio folder")?;
+            let dest = audio_dir.join(&step.name);
+            std::fs::copy(from, &dest)
+                .with_context(|| format!("copying {} into the dataset", step.name))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o600));
+            }
+            summary.audio_copied += 1;
+        }
+
+        // New clips join the manifest with the label they arrived with but
+        // no review marks, so the decision replay below writes corrected
+        // and label_source itself and undo can still walk back cleanly.
+        let new_rows: Vec<Value> = plan
+            .iter()
+            .filter(|s| !s.known)
+            .map(|s| {
+                let mut row = json!({
+                    "audio_filepath": s.path,
+                    "text": s.text,
+                    "duration": s.row["duration"].as_f64().unwrap_or(0.0),
+                });
+                if let Some(engine) = s.row["engine"].as_str() {
+                    row["engine"] = Value::String(engine.to_string());
+                }
+                if let Some(ts) = s.row["timestamp"].as_str() {
+                    row["timestamp"] = Value::String(ts.to_string());
+                }
+                row
+            })
+            .collect();
+        self.append_manifest_rows(&new_rows)?;
+        summary.new_clips = new_rows.len();
+
+        for step in plan {
+            let stamp = MergeStamp {
+                text: &step.text,
+                decided: &step.decided,
+                source,
+            };
+            self.apply_decision_inner(&step.path, step.decision, None, Some(&stamp))
+                .with_context(|| format!("merging {}", step.path))?;
+            summary.imported += 1;
+        }
+        summary.updated_clips = summary.imported - summary.new_clips;
+        Ok(())
+    }
+
+    /// Copy manifest.jsonl and decisions.jsonl aside before an import
+    /// touches either. Fixed names, so the pair always describes the state
+    /// right before the most recent import. A file that does not exist yet
+    /// backs up as an empty one, which is the honest pre-import state and
+    /// keeps "restore the backup" a complete answer either way.
+    fn backup_before_import(&self) -> Result<()> {
+        for name in ["manifest.jsonl", "decisions.jsonl"] {
+            let src = self.root.join(name);
+            let dst = self.root.join(format!("{name}.bak-import"));
+            if src.exists() {
+                std::fs::copy(&src, &dst).with_context(|| format!("writing {}", dst.display()))?;
+            } else {
+                std::fs::write(&dst, b"").with_context(|| format!("writing {}", dst.display()))?;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+        Ok(())
+    }
+
+    /// Append manifest rows for clips arriving from a cut, through the same
+    /// locked read + rename every other manifest write takes.
+    fn append_manifest_rows(&mut self, rows: &[Value]) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let encoded: Vec<String> = rows.iter().map(Value::to_string).collect();
+        self.rewrite_manifest_lines(move |lines| {
+            lines.extend(encoded);
+            Ok(())
+        })?;
+        self.manifest_found = true;
+        for row in rows {
+            if let Some(p) = row["audio_filepath"].as_str() {
+                self.index.insert(p.to_string(), self.entries.len());
+                self.entries.push(row.clone());
+            }
+        }
+        Ok(())
+    }
+
     /// A clip's `YYYY-MM-DD`: the timestamp prefix of its filename (how
     /// rekody-core's save_pair names captures), then the row's `timestamp`
     /// field, then the audio file's mtime. All three read the same UTC
@@ -924,6 +1223,148 @@ pub struct CutSummary {
     pub total_duration_secs: f64,
     /// SHA-256 (hex) of the cut's manifest.jsonl bytes.
     pub manifest_sha256: String,
+}
+
+/// Provenance for a decision replayed out of an imported cut.
+struct MergeStamp<'a> {
+    /// The label the other machine settled on.
+    text: &'a str,
+    /// That machine's `decided` timestamp, kept verbatim so the next
+    /// import can still tell which side is newer.
+    decided: &'a str,
+    /// What the clip was merged from, stored as `merged_from`.
+    source: &'a str,
+}
+
+/// One incoming clip the merge decided to apply, resolved against this
+/// dataset before a single byte is written.
+struct Planned {
+    /// This dataset's key for the clip (`audio/<name>`).
+    path: String,
+    /// Bare audio file name, already through the allowlist.
+    name: String,
+    /// The label the cut carries.
+    text: String,
+    /// Which decision the replay logs.
+    decision: &'static str,
+    /// The other machine's review time.
+    decided: String,
+    /// Whether this dataset already has a manifest row for the clip.
+    known: bool,
+    /// Where to copy the audio from, when this dataset lacks it.
+    audio_from: Option<PathBuf>,
+    /// The cut's raw row, for the fields a new manifest row needs.
+    row: Value,
+}
+
+/// What [`Store::import_cut`] did, for the CLI line and the page's note.
+#[derive(Debug, Default, Clone)]
+pub struct ImportSummary {
+    /// What the cut was identified as (`cut-<date>-<hash8>` when known).
+    pub source: String,
+    /// Decisions replayed into this dataset.
+    pub imported: usize,
+    /// Of those, clips this machine had never seen.
+    pub new_clips: usize,
+    /// Of those, clips that already existed here.
+    pub updated_clips: usize,
+    /// Clips left alone because this machine's review is newer, the same,
+    /// or because the clip was deleted here on purpose.
+    pub skipped_conflicts: usize,
+    /// Clips with no audio on either side.
+    pub skipped_missing_audio: usize,
+    /// Rows the cut could not describe well enough to merge.
+    pub skipped_unusable: usize,
+    /// Audio files copied in.
+    pub audio_copied: usize,
+    /// Reviewed clips in this dataset after the merge.
+    pub reviewed_clips: usize,
+    /// Reviewed audio in this dataset after the merge.
+    pub reviewed_duration_secs: f64,
+}
+
+impl ImportSummary {
+    /// Stamp the after-the-merge dataset totals.
+    fn finish(&mut self, store: &Store) {
+        self.reviewed_clips = store.decision_count();
+        self.reviewed_duration_secs = store.reviewed_duration_secs();
+    }
+
+    /// Every clip the merge left out, for one plain-language line.
+    pub fn skipped(&self) -> usize {
+        self.skipped_conflicts + self.skipped_missing_audio + self.skipped_unusable
+    }
+
+    /// The summary as JSON, for the page and the CLI's stdout line.
+    pub fn to_json(&self) -> Value {
+        json!({
+            "source": self.source,
+            "imported": self.imported,
+            "new_clips": self.new_clips,
+            "updated_clips": self.updated_clips,
+            "skipped_conflicts": self.skipped_conflicts,
+            "skipped_missing_audio": self.skipped_missing_audio,
+            "skipped_unusable": self.skipped_unusable,
+            "audio_copied": self.audio_copied,
+            "reviewed_clips": self.reviewed_clips,
+            "reviewed_duration_secs": self.reviewed_duration_secs,
+            "reviewed_label": fmt_reviewed_duration(self.reviewed_duration_secs),
+        })
+    }
+}
+
+/// A decision that leaves a clip reviewed and still in the dataset. Deletes
+/// are decisions too, but they take the clip (and its audio) out.
+fn is_effective_decision(d: &Value) -> bool {
+    matches!(
+        d["decision"].as_str(),
+        Some("keep_original" | "edit" | "accept_teacher")
+    )
+}
+
+/// Reviewed audio in plain language: minutes below an hour, one decimal at
+/// or above ("48 minutes", "1 minute", "3.2 hours"). The boundary is the
+/// rounded minute count, so 59.9 minutes reads "1.0 hours" instead of the
+/// odd "60 minutes".
+pub fn fmt_reviewed_duration(secs: f64) -> String {
+    let secs = if secs.is_finite() && secs > 0.0 {
+        secs
+    } else {
+        0.0
+    };
+    let minutes = (secs / 60.0).round();
+    if minutes < 60.0 {
+        let m = minutes as u64;
+        format!("{m} minute{}", if m == 1 { "" } else { "s" })
+    } else {
+        format!("{:.1} hours", secs / 3600.0)
+    }
+}
+
+/// The bare, trusted audio file name behind a cut row's `audio_filepath`.
+/// Only the file name travels: a cut is a file someone was handed, so its
+/// paths never get to say where anything lands. Same allowlist the audio
+/// route uses (capture names are timestamps plus hex).
+pub(crate) fn cut_audio_name(raw: &str) -> Option<&str> {
+    let name = raw.rsplit(['/', '\\']).next()?;
+    if name.is_empty() || name.starts_with('.') || name.contains("..") {
+        return None;
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return None;
+    }
+    (name.ends_with(".flac") || name.ends_with(".wav")).then_some(name)
+}
+
+/// Where a cut keeps a clip's audio: `audio/<name>` for a self-contained
+/// cut, with a flat layout accepted too. `None` when the cut has none.
+fn cut_audio_file(cut_root: &Path, name: &str) -> Option<PathBuf> {
+    [cut_root.join("audio").join(name), cut_root.join(name)]
+        .into_iter()
+        .find(|p| p.is_file())
 }
 
 /// Accept exactly `YYYY-MM-DD` with a sane month and day; lexicographic
@@ -1752,5 +2193,275 @@ mod tests {
                 std::fs::read(&original).unwrap()
             );
         }
+    }
+
+    // ── Hours reviewed ───────────────────────────────────────────────────
+
+    #[test]
+    fn reviewed_hours_count_decided_clips_only_and_never_deletes() {
+        let dir = seed_dated_with_audio();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        let paths: Vec<String> = store
+            .entries
+            .iter()
+            .map(|e| e["audio_filepath"].as_str().unwrap().to_string())
+            .collect();
+
+        // Three 2 s clips, none reviewed yet.
+        assert_eq!(store.total_duration_secs(), 6.0);
+        assert_eq!(store.reviewed_duration_secs(), 0.0);
+
+        store
+            .apply_decision(&paths[0], "keep_original", None)
+            .unwrap();
+        assert_eq!(store.reviewed_duration_secs(), 2.0);
+        store
+            .apply_decision(&paths[1], "edit", Some("bravo too"))
+            .unwrap();
+        assert_eq!(store.reviewed_duration_secs(), 4.0);
+
+        // A delete is a decision, but its audio is gone: it never counts.
+        store.apply_decision(&paths[2], "delete", None).unwrap();
+        assert_eq!(store.reviewed_duration_secs(), 4.0);
+
+        // Undo takes its clip back out of the number.
+        store.apply_decision(&paths[0], "undo", None).unwrap();
+        assert_eq!(store.reviewed_duration_secs(), 2.0);
+
+        // And it all survives a reload from the log.
+        let reloaded = Store::load(dir.path().to_path_buf()).unwrap();
+        assert_eq!(reloaded.reviewed_duration_secs(), 2.0);
+    }
+
+    #[test]
+    fn reviewed_duration_reads_as_minutes_then_hours() {
+        // Below an hour: whole minutes, singular where it belongs.
+        assert_eq!(fmt_reviewed_duration(0.0), "0 minutes");
+        assert_eq!(fmt_reviewed_duration(45.0), "1 minute");
+        assert_eq!(fmt_reviewed_duration(90.0), "2 minutes");
+        assert_eq!(fmt_reviewed_duration(2880.0), "48 minutes");
+        // The boundary: 59 minutes still reads in minutes, and anything
+        // that would round to 60 crosses over rather than saying "60
+        // minutes" right before "1.0 hours".
+        assert_eq!(fmt_reviewed_duration(59.0 * 60.0), "59 minutes");
+        assert_eq!(fmt_reviewed_duration(59.6 * 60.0), "1.0 hours");
+        assert_eq!(fmt_reviewed_duration(3600.0), "1.0 hours");
+        // At or above an hour: one decimal, always.
+        assert_eq!(fmt_reviewed_duration(3600.0 * 3.2), "3.2 hours");
+        assert_eq!(fmt_reviewed_duration(3600.0 * 12.34), "12.3 hours");
+        // Nothing sensible in, "0 minutes" out.
+        assert_eq!(fmt_reviewed_duration(-5.0), "0 minutes");
+        assert_eq!(fmt_reviewed_duration(f64::NAN), "0 minutes");
+    }
+
+    // ── Import / merge ───────────────────────────────────────────────────
+
+    /// Review two clips on "machine A" and export a self-contained cut.
+    fn machine_a_cut() -> (tempfile::TempDir, PathBuf, Vec<String>) {
+        let dir = seed_dated_with_audio();
+        let mut store = Store::load(dir.path().to_path_buf()).unwrap();
+        let paths: Vec<String> = store
+            .entries
+            .iter()
+            .map(|e| e["audio_filepath"].as_str().unwrap().to_string())
+            .collect();
+        store
+            .apply_decision(&paths[0], "edit", Some("alpha won"))
+            .unwrap();
+        store
+            .apply_decision(&paths[1], "keep_original", None)
+            .unwrap();
+        let cut = store
+            .export_cut(&CutOptions {
+                until: None,
+                copy_audio: true,
+                out_dir: None,
+            })
+            .unwrap();
+        (dir, cut.dir, paths)
+    }
+
+    /// A fresh dataset holding only the third clip, standing in for the
+    /// other machine.
+    fn machine_b() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("audio")).unwrap();
+        let name = "2026-07-02T12-00-00-aaaa-111.flac";
+        std::fs::write(
+            dir.path().join("audio").join(name),
+            "fLaC-2026-07-02T12-00-00",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("manifest.jsonl"),
+            json!({
+                "audio_filepath": format!("audio/{name}"),
+                "text": "charlie three",
+                "duration": 2.0,
+                "engine": "nemotron",
+                "timestamp": "2026-07-02T12-00-00",
+            })
+            .to_string()
+                + "\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn import_brings_over_text_and_audio_and_is_idempotent() {
+        let (_a, cut, paths) = machine_a_cut();
+        let b = machine_b();
+        let mut store = Store::load(b.path().to_path_buf()).unwrap();
+        assert_eq!(store.clip_count(), 1);
+
+        let first = store.import_cut(&cut, "cut-under-test").unwrap();
+        assert_eq!(first.imported, 2);
+        assert_eq!(first.new_clips, 2);
+        assert_eq!(first.audio_copied, 2);
+        assert_eq!(first.skipped_conflicts, 0);
+        assert_eq!(first.reviewed_clips, 2);
+        assert_eq!(first.reviewed_duration_secs, 4.0);
+
+        // The corrected text landed in the manifest, marked as a human
+        // label, and the audio came with it.
+        let entry = manifest_entry(b.path(), &paths[0]);
+        assert_eq!(entry["text"], "alpha won");
+        assert_eq!(entry["corrected"], true);
+        assert_eq!(entry["label_source"], "human");
+        assert!(b.path().join(&paths[0]).exists());
+        // The confirmed-as-is clip arrived too, without a rewrite mark.
+        let kept = manifest_entry(b.path(), &paths[1]);
+        assert_eq!(kept["text"], "bravo two");
+        assert!(kept.get("corrected").is_none());
+        // Provenance rides on the merged decision lines.
+        let log = std::fs::read_to_string(b.path().join("decisions.jsonl")).unwrap();
+        assert_eq!(log.lines().count(), 2);
+        assert!(
+            log.lines()
+                .all(|l| l.contains("\"merged_from\":\"cut-under-test\""))
+        );
+        // Both backups exist, from before the merge wrote anything.
+        assert!(b.path().join("manifest.jsonl.bak-import").exists());
+
+        // Running the same cut again changes nothing at all.
+        let manifest_before = std::fs::read(b.path().join("manifest.jsonl")).unwrap();
+        let log_before = std::fs::read(b.path().join("decisions.jsonl")).unwrap();
+        let again = store.import_cut(&cut, "cut-under-test").unwrap();
+        assert_eq!(again.imported, 0);
+        assert_eq!(again.audio_copied, 0);
+        assert_eq!(again.skipped_conflicts, 2);
+        assert_eq!(again.reviewed_clips, 2);
+        assert_eq!(
+            std::fs::read(b.path().join("manifest.jsonl")).unwrap(),
+            manifest_before
+        );
+        assert_eq!(
+            std::fs::read(b.path().join("decisions.jsonl")).unwrap(),
+            log_before
+        );
+
+        // And a reload agrees with the in-memory state.
+        let reloaded = Store::load(b.path().to_path_buf()).unwrap();
+        assert_eq!(reloaded.decision_count(), 2);
+        assert_eq!(reloaded.reviewed_duration_secs(), 4.0);
+    }
+
+    #[test]
+    fn newest_review_wins_and_the_older_one_is_reported_not_applied() {
+        let (_a, cut, paths) = machine_a_cut();
+        let b = machine_b();
+        let mut store = Store::load(b.path().to_path_buf()).unwrap();
+        store.import_cut(&cut, "cut-one").unwrap();
+
+        // Rewrite the cut so one row is newer than the local decision and
+        // the other is older. Everything else stays byte-identical.
+        let raw = std::fs::read_to_string(cut.join("manifest.jsonl")).unwrap();
+        let mut rows: Vec<Value> = raw
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        rows[0]["text"] = Value::String("alpha one, newer".into());
+        rows[0]["decided"] = Value::String("2099-01-01T00:00:00Z".into());
+        rows[1]["text"] = Value::String("bravo two, stale".into());
+        rows[1]["decided"] = Value::String("2000-01-01T00:00:00Z".into());
+        std::fs::write(
+            cut.join("manifest.jsonl"),
+            rows.iter()
+                .map(|r| r.to_string() + "\n")
+                .collect::<String>(),
+        )
+        .unwrap();
+
+        let merged = store.import_cut(&cut, "cut-two").unwrap();
+        assert_eq!(merged.imported, 1, "only the newer row should apply");
+        assert_eq!(merged.updated_clips, 1);
+        assert_eq!(merged.new_clips, 0);
+        assert_eq!(merged.skipped_conflicts, 1, "the stale row is reported");
+        assert_eq!(merged.audio_copied, 0, "audio was already here");
+
+        assert_eq!(
+            manifest_entry(b.path(), &paths[0])["text"],
+            "alpha one, newer"
+        );
+        assert_eq!(
+            manifest_entry(b.path(), &paths[1])["text"],
+            "bravo two",
+            "the stale row must not overwrite the newer local label"
+        );
+    }
+
+    #[test]
+    fn a_clip_deleted_here_is_never_restored_by_an_import() {
+        let (_a, cut, paths) = machine_a_cut();
+        let b = machine_b();
+        let mut store = Store::load(b.path().to_path_buf()).unwrap();
+        store.import_cut(&cut, "cut-one").unwrap();
+
+        store.apply_decision(&paths[0], "delete", None).unwrap();
+        assert!(!b.path().join(&paths[0]).exists());
+
+        let again = store.import_cut(&cut, "cut-one").unwrap();
+        assert_eq!(again.imported, 0);
+        assert_eq!(again.skipped_conflicts, 2);
+        assert!(
+            !b.path().join(&paths[0]).exists(),
+            "the audio must stay deleted"
+        );
+        assert!(
+            !std::fs::read_to_string(b.path().join("manifest.jsonl"))
+                .unwrap()
+                .contains("alpha won")
+        );
+    }
+
+    #[test]
+    fn a_cut_without_audio_only_merges_clips_this_machine_already_has() {
+        let dir = seed_dated_with_audio();
+        let mut a = Store::load(dir.path().to_path_buf()).unwrap();
+        let paths: Vec<String> = a
+            .entries
+            .iter()
+            .map(|e| e["audio_filepath"].as_str().unwrap().to_string())
+            .collect();
+        a.apply_decision(&paths[0], "edit", Some("alpha won"))
+            .unwrap();
+        a.apply_decision(&paths[2], "edit", Some("charlie tree"))
+            .unwrap();
+        let cut = a
+            .export_cut(&CutOptions {
+                until: None,
+                copy_audio: false,
+                out_dir: None,
+            })
+            .unwrap();
+
+        let b = machine_b();
+        let mut store = Store::load(b.path().to_path_buf()).unwrap();
+        let summary = store.import_cut(&cut.dir, "cut-no-audio").unwrap();
+        assert_eq!(summary.imported, 1, "only the clip b already holds");
+        assert_eq!(summary.audio_copied, 0);
+        assert_eq!(summary.skipped_missing_audio, 1);
+        assert_eq!(manifest_entry(b.path(), &paths[2])["text"], "charlie tree");
     }
 }
