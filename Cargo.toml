@@ -40,13 +40,27 @@ thiserror = "2"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 clap = { version = "4", features = ["derive"] }
 
-# Engine-level dictionary term biasing (issue #91, spec at
-# docs/design/nemotron-term-biasing-spec.md, section 5 step 1).
-# vendor/parakeet-rs is upstream 0.3.6 byte-identical except for one additive
-# hook: a LogitsProcessor trait + setter called from the Nemotron greedy
-# decode loop (process before argmax, on_emit after a token commits,
-# on_reset on utterance reset). MIT OR Apache-2.0, upstream attribution kept.
-# The hook will be offered upstream as a PR; drop this patch entry once a
-# parakeet-rs release ships it.
+# vendor/parakeet-rs is upstream 0.3.6 with exactly two additive changes.
+# MIT OR Apache-2.0, upstream attribution kept.
+#
+# 1. Term biasing (issue #91, spec at
+#    docs/design/nemotron-term-biasing-spec.md, section 5 step 1): a
+#    LogitsProcessor trait + setter called from the Nemotron greedy decode
+#    loop (process before argmax, on_emit after a token commits, on_reset on
+#    utterance reset). Still not upstream as of 0.3.7.
+#
+# 2. Streaming profile read from ONNX metadata instead of the hardcoded
+#    CHUNK_SIZE/PRE_ENCODE_CACHE constants, so the latency profile is a
+#    property of the model artifact. This is a BACKPORT of upstream 0.3.7's
+#    behaviour, using its exact metadata keys ("chunk_size_output_frames",
+#    "pre_encode_cache") and its exact fallbacks (7 and 9), so artifacts work
+#    identically on either. It was backported rather than taken by upgrading
+#    because 0.3.7 also moves ort rc.12 -> rc.13 and the default ONNX Runtime
+#    API level 24 -> 28, and restructures the decode loop the biasing hook
+#    patches into. None of that buys accuracy, and all of it risks the
+#    biasing path, which measurably beats the alternative (BIASING-EVAL).
+#
+# Both hooks will be offered upstream; drop this patch entry once a
+# parakeet-rs release ships them.
 [patch.crates-io]
 parakeet-rs = { path = "vendor/parakeet-rs" }

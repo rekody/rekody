@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Your words appear about three times sooner.** The streaming model now runs at a 160ms latency profile instead of 560ms, so text lands on screen while you are still in the middle of a sentence rather than a beat behind it. This is a new model download: setup replaces the streaming artifact the next time it runs, and the old one keeps working until it does.
+
 ### Fixed
+
+- **The end of a dictation is flushed by time, not by luck.** Finishing an utterance used to pad whatever was left over out to one chunk, so the amount of trailing audio the recognizer got depended on where you happened to stop talking, and an utterance ending exactly on a chunk boundary got none at all. The tail is now flushed with a fixed amount of trailing silence regardless. On a 260-case boundary suite built from real dictations with their leading and trailing silence stripped, last-word survival went from 77.7% to 86.5%.
 
 - **Installed model files are verified, not just counted.** Setup used to skip verification whenever a model file already existed, so an artifact installed before Rekody moved its downloads to its own model repo could sit on a machine forever without ever being checked against a published checksum. Setup now re-hashes what is already on disk and replaces anything that does not match, and `rekody doctor` reports mismatched model files so you can find out without re-running setup.
 
