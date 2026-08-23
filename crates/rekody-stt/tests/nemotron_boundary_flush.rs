@@ -84,7 +84,7 @@ fn chunk_size_comes_from_the_loaded_artifact() {
     // Every published cache-aware profile is (right_context + 1) encoder
     // frames of 80 ms: 1280 samples per frame.
     assert!(
-        cs >= 1280 && cs % 1280 == 0,
+        cs >= 1280 && cs.is_multiple_of(1280),
         "chunk_samples {cs} is not a whole number of 80 ms encoder frames"
     );
     assert!(
