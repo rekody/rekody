@@ -1,16 +1,20 @@
 //! Bridge between the async pipeline and the Nemotron streaming engine
 //! (feature `nemotron`).
 //!
-//! The engine decodes on big 560ms chunks (~60–80ms compute each on Apple
-//! silicon) and is not `Sync`, so it lives on its own dedicated OS thread.
+//! The engine decodes on 160ms chunks (~48ms compute each on an M2, measured
+//! on the owner's certified clips) and is not `Sync`, so it lives on its own
+//! dedicated OS thread. The chunk length comes from the loaded artifact, not
+//! from a constant here: an older 560ms export is driven at 560ms.
 //! The pipeline feeds it raw 16kHz mono samples from the live audio tap via
 //! a std mpsc channel and receives partial/final transcripts back on a tokio
 //! channel it can `select!` on.
 //!
-//! Decode happens DURING the recording: by the time the user releases the
-//! key, only the sub-chunk tail remains to flush (~55ms measured), so the
-//! final transcript lands near-instantly — unlike batch Whisper, which only
-//! starts transcribing at key release.
+//! Decode happens DURING the recording, so by the time the user releases the
+//! key only the tail remains. Flushing that tail costs ~170 to 210ms measured:
+//! `finish()` pushes a fixed 560ms of trailing silence through the encoder so
+//! the last word is committed, which is more than the old pad-to-one-chunk
+//! flush cost (~55ms) and is what stopped final words being dropped. Batch
+//! Whisper, by contrast, only starts transcribing at key release.
 
 use std::time::Instant;
 

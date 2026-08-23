@@ -5,11 +5,12 @@
 //! 16kHz mono samples as they arrive from the live audio tap, get incremental
 //! text back, and collect the final transcript at key release.
 //!
-//! Measured on an M2 Air with the int8 English export: ~81ms compute per
-//! 560ms chunk (6.8× realtime), model load ~3.4s (do it once, off the hot
-//! path). The decode happens DURING the recording, so the transcript is
-//! ready ~immediately at release — unlike batch Whisper, which only starts
-//! when the key is released.
+//! Measured on an M2 with the int8 English export at the 160ms profile:
+//! ~48ms compute per 160ms chunk on short dictation and ~43ms on streams over
+//! a minute, so the pipeline keeps better than 3x ahead of a speaker. Model
+//! load ~1.2s (do it once, off the hot path). The decode happens DURING the
+//! recording, so at release only the flush remains, unlike batch Whisper,
+//! which only starts when the key is released.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -226,7 +227,7 @@ impl NemotronStreamingEngine {
         }
     }
 
-    /// Feed raw 16kHz mono samples. Processes any complete 560ms chunks and
+    /// Feed raw 16kHz mono samples. Processes any complete chunks and
     /// returns newly emitted text (empty string if no chunk completed or the
     /// chunk produced no tokens).
     pub fn feed(&mut self, samples: &[f32]) -> Result<String> {
