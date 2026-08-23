@@ -3,7 +3,7 @@
 //! The streaming encoder emits a chunk's frames using the rest of that chunk
 //! as lookahead, so the last real audio needs trailing frames pushed through
 //! before the RNN-T will commit the final word. Rekody used to supply those by
-//! padding the leftover samples out to ONE chunk — which meant two failure
+//! padding the leftover samples out to ONE chunk, which meant two failure
 //! modes that only show up at the edges:
 //!
 //!   * an utterance whose length is an exact multiple of the chunk size left

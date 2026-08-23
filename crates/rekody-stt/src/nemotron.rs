@@ -26,7 +26,7 @@ use crate::biasing::{BiasSettings, LogitsProcessor, TermBias};
 /// as lookahead, so the final real frames need trailing audio before the
 /// RNN-T will commit the last word. The old code padded the residual out to
 /// ONE chunk, which at 560 ms handed the model 280 ms of silence on average
-/// but at 160 ms would hand it only 80 ms — three and a half times less
+/// but at 160 ms would hand it only 80 ms, three and a half times less
 /// flush exactly where trailing words get dropped.
 ///
 /// Making the flush a fixed DURATION instead of a fixed chunk count keeps
@@ -294,7 +294,7 @@ impl NemotronStreamingEngine {
     /// This is a property of the ARTIFACT, not of Rekody: the cache-aware
     /// streaming profile is baked into the exported ONNX graph. 8960 (560 ms)
     /// for a `[70,6]` export, 2560 (160 ms) for the `[70,1]` export shipped
-    /// today. There is deliberately no constant to reach for instead — a
+    /// today. There is deliberately no constant to reach for instead: a
     /// hardcoded slice size silently stalls the encoder when it is too small
     /// and silently drops frames when it is too large, and neither failure
     /// surfaces as an error. Always ask the engine.

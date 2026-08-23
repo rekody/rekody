@@ -82,7 +82,7 @@ pub fn spawn(
                 "Nemotron streaming model ready"
             );
             // An artifact from before the 160 ms export still loads and still
-            // works — the runtime reads its geometry and drives it correctly at
+            // works, since the runtime reads its geometry and drives it correctly at
             // the old profile. But the user upgraded the binary expecting the
             // faster one, so say plainly that a re-run of setup is what fetches
             // it. Silence here is the failure mode this guards against.

@@ -1055,7 +1055,7 @@ const NEMOTRON_FILES: &[&str] = &["encoder.onnx", "decoder_joint.onnx", "tokeniz
 /// Chunk length, in milliseconds, of the streaming artifact the checksums
 /// below pin.
 ///
-/// The runtime never uses this to DRIVE anything — it reads the real geometry
+/// The runtime never uses this to DRIVE anything; it reads the real geometry
 /// off whatever artifact loaded, which is the whole point. This exists only so
 /// the daemon can notice that an older artifact is still installed and say so.
 /// Without it, a user who upgrades the binary but has not re-run setup keeps
@@ -1142,7 +1142,7 @@ const EXPECTED_CHECKSUMS: &[(&str, &str)] = &[
     // These are the [70,1] / 160 ms export. A user upgrading from the 560 ms
     // artifact has the OLD encoder.onnx on disk; it fails this checksum, is
     // deleted, and is replaced from the URL above. That migration only works
-    // because setup re-verifies files it finds already installed (18207b6) —
+    // because setup re-verifies files it finds already installed (18207b6):
     // before that fix an upgrading user would have been left on the old
     // artifact silently, which the new runtime would then drive at the wrong
     // chunk size.
