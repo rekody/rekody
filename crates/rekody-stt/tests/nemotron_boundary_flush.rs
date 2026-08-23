@@ -133,7 +133,10 @@ fn exact_multiple_utterance_still_flushes() {
          which means it flushed nothing"
     );
     // State must be clean for the next dictation.
-    assert!(engine.transcript().is_empty(), "state must clear after finish()");
+    assert!(
+        engine.transcript().is_empty(),
+        "state must clear after finish()"
+    );
 }
 
 /// The flush must not depend on how the caller sliced its feeds: an utterance
@@ -157,7 +160,9 @@ fn flush_is_independent_of_feed_alignment() {
     ] {
         let audio = tone(n);
         feed_ragged(&mut engine, &audio);
-        let out = engine.finish().unwrap_or_else(|e| panic!("{label}: finish failed: {e}"));
+        let out = engine
+            .finish()
+            .unwrap_or_else(|e| panic!("{label}: finish failed: {e}"));
         assert!(
             engine.transcript().is_empty(),
             "{label}: state must clear after finish()"
