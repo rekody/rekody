@@ -1030,17 +1030,39 @@ fn download_with_fallback(
 // ---------------------------------------------------------------------------
 
 /// Rekody's branded streaming model on Hugging Face: an int8 ONNX conversion
-/// of the current (March 2026) NVIDIA Nemotron streaming checkpoint. The
-/// sole source for every streaming artifact (unlike whisper, which keeps
-/// upstream whisper.cpp as a fallback), so availability stays under
-/// Rekody's control.
+/// of the current (March 2026) NVIDIA Nemotron streaming checkpoint, exported
+/// at the `[70,1]` cache-aware profile (160 ms chunks). The sole source for
+/// every streaming artifact (unlike whisper, which keeps upstream whisper.cpp
+/// as a fallback), so availability stays under Rekody's control.
+///
+/// This is a SEPARATE repo from the 560 ms artifact, deliberately. The two
+/// exports are not interchangeable: a 160 ms encoder fed a 560 ms chunk
+/// silently emits only the first 2 of 7 frames and drops five sevenths of the
+/// audio. Publishing the new profile over the old repo would therefore break
+/// every user still on an older binary, whose pinned checksum would stop
+/// matching what the URL serves and whose re-download would loop. Keeping the
+/// old repo untouched makes both upgrade and rollback self-healing: whichever
+/// binary is installed re-verifies the local file, finds the other profile's
+/// bytes, and re-fetches from its own pinned source.
 #[cfg(feature = "nemotron")]
 const REKODY_NEMOTRON_BASE: &str =
-    "https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8/resolve/main";
+    "https://huggingface.co/Rekody/rekody-streaming-en-0.6b-160ms-int8/resolve/main";
 
 /// Files the streaming engine loads from `<models>/nemotron-en-int8/`.
 #[cfg(feature = "nemotron")]
 const NEMOTRON_FILES: &[&str] = &["encoder.onnx", "decoder_joint.onnx", "tokenizer.model"];
+
+/// Chunk length, in milliseconds, of the streaming artifact the checksums
+/// below pin.
+///
+/// The runtime never uses this to DRIVE anything; it reads the real geometry
+/// off whatever artifact loaded, which is the whole point. This exists only so
+/// the daemon can notice that an older artifact is still installed and say so.
+/// Without it, a user who upgrades the binary but has not re-run setup keeps
+/// the slower profile silently, since the old artifact still loads and still
+/// works.
+#[cfg(feature = "nemotron")]
+pub const NEMOTRON_SHIPPED_CHUNK_MS: usize = 160;
 
 // ---------------------------------------------------------------------------
 // Checksum verification
@@ -1052,7 +1074,8 @@ const NEMOTRON_FILES: &[&str] = &["encoder.onnx", "decoder_joint.onnx", "tokeniz
 // bytes, so one hash covers both sources. Where the local name differs from
 // the upstream one (the "large" family), the hash is of the upstream v3
 // content that gets saved under the engine's expected local name. Streaming
-// artifacts pin the Rekody-published model (Rekody/rekody-streaming-en-0.6b-int8),
+// artifacts pin the Rekody-published model
+// (Rekody/rekody-streaming-en-0.6b-160ms-int8),
 // the sole source for that engine.
 //
 // To refresh after an upstream model update:
@@ -1112,16 +1135,28 @@ const EXPECTED_CHECKSUMS: &[(&str, &str)] = &[
         "ggml-large-encoder.mlmodelc.zip",
         "47837be7594a29429ec08620043390c4d6d467f8bd362df09e9390ace76a55a4",
     ),
-    // Nemotron streaming artifacts (Rekody/rekody-streaming-en-0.6b-int8),
+    // Nemotron streaming artifacts (Rekody/rekody-streaming-en-0.6b-160ms-int8),
     // keyed by the local filename under models/nemotron-en-int8/. These pin
     // the PRIMARY (Rekody) bytes, hashes published in that repo's SHA256SUMS.
+    //
+    // These are the [70,1] / 160 ms export. A user upgrading from the 560 ms
+    // artifact has the OLD encoder.onnx on disk; it fails this checksum, is
+    // deleted, and is replaced from the URL above. That migration only works
+    // because setup re-verifies files it finds already installed (18207b6):
+    // before that fix an upgrading user would have been left on the old
+    // artifact silently, which the new runtime would then drive at the wrong
+    // chunk size.
+    //
+    // tokenizer.model is byte-identical across both profiles (the SentencePiece
+    // model does not depend on the latency profile), so its pin is unchanged
+    // and an upgrading user does not re-download it.
     (
         "encoder.onnx",
-        "83538392358e90c40592f7cf99ee65ac7dca5d144edb999ce028c372318a5753",
+        "5a8f5c01d7804346e3e79d539bde6011907961192c578441d7b2eb725f82220c",
     ),
     (
         "decoder_joint.onnx",
-        "89cae615623e41e94cc6b428708cd1a89a22965606fe7ded814b1d8e20c87368",
+        "6fa6b88cd439b0281b1b9361c5789d51c851fe202c43bb2fdccabb87186a9630",
     ),
     (
         "tokenizer.model",
@@ -1617,7 +1652,7 @@ mod tests {
         let url = format!("{REKODY_NEMOTRON_BASE}/encoder.onnx");
         assert_eq!(
             url,
-            "https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8/resolve/main/encoder.onnx"
+            "https://huggingface.co/Rekody/rekody-streaming-en-0.6b-160ms-int8/resolve/main/encoder.onnx"
         );
     }
 

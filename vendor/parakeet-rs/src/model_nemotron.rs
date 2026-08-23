@@ -53,7 +53,21 @@ pub struct NemotronModelConfig {
     pub decoder_lstm_layers: usize,
     pub vocab_size: usize,
     pub blank_id: usize,
+    /// Encoder output frames per chunk (`right_context + 1`). Read from ONNX
+    /// metadata when present, otherwise 7 (the 560 ms profile).
+    pub chunk_size_output_frames: usize,
+    /// Mel frames of pre-encode cache per chunk. From ONNX metadata, default 9.
+    pub pre_encode_cache: usize,
 }
+
+/// Encoder output frames per chunk when the artifact carries no metadata.
+/// 7 == right context 6 == the 560 ms profile Rekody shipped before the
+/// streaming profile became a property of the model file.
+pub const DEFAULT_CHUNK_SIZE_OUTPUT_FRAMES: usize = 7;
+/// Pre-encode cache in mel frames when the artifact carries no metadata.
+/// This is the subsampling convolution's receptive-field overlap, which does
+/// not vary with the latency profile.
+pub const DEFAULT_PRE_ENCODE_CACHE: usize = 9;
 
 impl NemotronModel {
     /// Load encoder + decoder/joint sessions and read all dimension info
@@ -102,7 +116,33 @@ impl NemotronModel {
             decoder_lstm_layers: 2,
             vocab_size,
             blank_id: vocab_size,
+            chunk_size_output_frames: DEFAULT_CHUNK_SIZE_OUTPUT_FRAMES,
+            pre_encode_cache: DEFAULT_PRE_ENCODE_CACHE,
         };
+
+        // Streaming latency profile from the encoder's ONNX metadata. Key names
+        // and decimal-string format match upstream parakeet-rs 0.3.7, so an
+        // artifact tagged for one runs unmodified on the other.
+        //
+        // Every failure path here falls back to the defaults above rather than
+        // erroring: an older artifact with no metadata (everything Rekody
+        // published before the 160 ms profile) must keep loading and keep
+        // behaving exactly as it did.
+        if let Ok(meta) = encoder.metadata() {
+            if let Some(v) = meta
+                .custom("chunk_size_output_frames")
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|v| *v > 0)
+            {
+                config.chunk_size_output_frames = v;
+            }
+            if let Some(v) = meta
+                .custom("pre_encode_cache")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                config.pre_encode_cache = v;
+            }
+        }
 
         let mut has_prompt = false;
         for outlet in encoder.inputs() {

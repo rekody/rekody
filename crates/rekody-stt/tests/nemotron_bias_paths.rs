@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 
 use rekody_stt::biasing::BiasSettings;
-use rekody_stt::nemotron::{CHUNK_SAMPLES, NemotronStreamingEngine};
+use rekody_stt::nemotron::NemotronStreamingEngine;
 
 /// The Nemotron model directory, only when all three files are present.
 fn find_model_dir() -> Option<PathBuf> {
@@ -31,10 +31,11 @@ fn find_model_dir() -> Option<PathBuf> {
 }
 
 /// Deterministic speech-band test signal: two modulated tones plus a slow
-/// chirp, ~1.6s at 16kHz (two full 560ms chunks plus a tail for the
-/// pad-flush path). Closed-form, so every engine hears identical bytes.
+/// chirp, ~1.6s at 16kHz (long enough for several chunks at any streaming
+/// profile, plus a ragged tail that exercises the pad-flush path).
+/// Closed-form, so every engine hears identical bytes.
 fn test_audio() -> Vec<f32> {
-    let n = CHUNK_SAMPLES * 2 + CHUNK_SAMPLES / 2;
+    let n = 8960 * 2 + 8960 / 2;
     (0..n)
         .map(|i| {
             let t = i as f32 / 16_000.0;

@@ -5,11 +5,12 @@
 //! 16kHz mono samples as they arrive from the live audio tap, get incremental
 //! text back, and collect the final transcript at key release.
 //!
-//! Measured on an M2 Air with the int8 English export: ~81ms compute per
-//! 560ms chunk (6.8× realtime), model load ~3.4s (do it once, off the hot
-//! path). The decode happens DURING the recording, so the transcript is
-//! ready ~immediately at release — unlike batch Whisper, which only starts
-//! when the key is released.
+//! Measured on an M2 with the int8 English export at the 160ms profile:
+//! ~48ms compute per 160ms chunk on short dictation and ~43ms on streams over
+//! a minute, so the pipeline keeps better than 3x ahead of a speaker. Model
+//! load ~1.2s (do it once, off the hot path). The decode happens DURING the
+//! recording, so at release only the flush remains, unlike batch Whisper,
+//! which only starts when the key is released.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,9 +21,19 @@ use parakeet_rs::Nemotron;
 use crate::biasing::sp::SpModel;
 use crate::biasing::{BiasSettings, LogitsProcessor, TermBias};
 
-/// Samples per streaming chunk: 560ms at 16kHz. Fixed by the published
-/// cache-aware ONNX exports.
-pub const CHUNK_SAMPLES: usize = 8960;
+/// Trailing silence pushed through the encoder when an utterance ends.
+///
+/// Cache-aware streaming emits a chunk's frames using the rest of that chunk
+/// as lookahead, so the final real frames need trailing audio before the
+/// RNN-T will commit the last word. The old code padded the residual out to
+/// ONE chunk, which at 560 ms handed the model 280 ms of silence on average
+/// but at 160 ms would hand it only 80 ms, three and a half times less
+/// flush exactly where trailing words get dropped.
+///
+/// Making the flush a fixed DURATION instead of a fixed chunk count keeps
+/// end-of-utterance behaviour identical across latency profiles, and never
+/// below what the 560 ms profile did at its worst. 560 ms at 16 kHz.
+const FLUSH_SILENCE_SAMPLES: usize = 8960;
 
 /// Decode-time term biasing state (spec step 4). Present only when the
 /// engine was constructed with [`BiasSettings`]; `None` means the fork's
@@ -75,6 +86,10 @@ impl LogitsProcessor for HitsReporter {
 /// receives live audio chunks and feeds them here.
 pub struct NemotronStreamingEngine {
     model: Nemotron,
+    /// Samples per encoder call, read from the loaded artifact's streaming
+    /// profile. 8960 (560 ms) for a `[70,6]` export, 2560 (160 ms) for
+    /// `[70,1]`.
+    chunk_samples: usize,
     /// Pending samples not yet forming a full chunk.
     buf: Vec<f32>,
     /// Accumulated transcript for the current utterance.
@@ -129,9 +144,17 @@ impl NemotronStreamingEngine {
                 }
             }
         });
+        // Read the chunk geometry off the artifact that actually loaded.
+        let chunk_samples = model.chunk_samples();
+        tracing::info!(
+            chunk_samples,
+            chunk_ms = chunk_samples * 1000 / 16_000,
+            "nemotron streaming profile"
+        );
         let mut engine = Self {
             model,
-            buf: Vec::with_capacity(CHUNK_SAMPLES * 2),
+            chunk_samples,
+            buf: Vec::with_capacity(chunk_samples * 2),
             transcript: String::new(),
             bias,
         };
@@ -204,14 +227,14 @@ impl NemotronStreamingEngine {
         }
     }
 
-    /// Feed raw 16kHz mono samples. Processes any complete 560ms chunks and
+    /// Feed raw 16kHz mono samples. Processes any complete chunks and
     /// returns newly emitted text (empty string if no chunk completed or the
     /// chunk produced no tokens).
     pub fn feed(&mut self, samples: &[f32]) -> Result<String> {
         self.buf.extend_from_slice(samples);
         let mut emitted = String::new();
-        while self.buf.len() >= CHUNK_SAMPLES {
-            let chunk: Vec<f32> = self.buf.drain(..CHUNK_SAMPLES).collect();
+        while self.buf.len() >= self.chunk_samples {
+            let chunk: Vec<f32> = self.buf.drain(..self.chunk_samples).collect();
             let text = self
                 .model
                 .transcribe_chunk(&chunk)
@@ -226,14 +249,31 @@ impl NemotronStreamingEngine {
     /// transcript, and reset all state (decoder cache included) so the next
     /// utterance starts fresh.
     pub fn finish(&mut self) -> Result<String> {
+        // Drain the tail, then keep pushing whole chunks of silence until at
+        // least FLUSH_SILENCE_SAMPLES of zeros have gone through the encoder.
+        // Zeros used to pad the partial chunk count toward that total, so the
+        // 560 ms profile does what it always did plus the guaranteed minimum,
+        // and the 160 ms profile gets the same trailing silence rather than a
+        // third of it.
+        let mut zeros_fed = 0usize;
         if !self.buf.is_empty() {
             let mut chunk = std::mem::take(&mut self.buf);
-            chunk.resize(CHUNK_SAMPLES, 0.0);
+            zeros_fed += self.chunk_samples.saturating_sub(chunk.len());
+            chunk.resize(self.chunk_samples, 0.0);
             let text = self
                 .model
                 .transcribe_chunk(&chunk)
                 .context("nemotron flush chunk")?;
             self.transcript.push_str(&text);
+        }
+        let silence = vec![0.0f32; self.chunk_samples];
+        while zeros_fed < FLUSH_SILENCE_SAMPLES {
+            let text = self
+                .model
+                .transcribe_chunk(&silence)
+                .context("nemotron flush silence")?;
+            self.transcript.push_str(&text);
+            zeros_fed += self.chunk_samples;
         }
         let transcript = std::mem::take(&mut self.transcript);
         self.buf.clear();
@@ -248,6 +288,19 @@ impl NemotronStreamingEngine {
             self.apply_terms(terms);
         }
         Ok(transcript.trim().to_string())
+    }
+
+    /// Samples this engine consumes per encoder call.
+    ///
+    /// This is a property of the ARTIFACT, not of Rekody: the cache-aware
+    /// streaming profile is baked into the exported ONNX graph. 8960 (560 ms)
+    /// for a `[70,6]` export, 2560 (160 ms) for the `[70,1]` export shipped
+    /// today. There is deliberately no constant to reach for instead: a
+    /// hardcoded slice size silently stalls the encoder when it is too small
+    /// and silently drops frames when it is too large, and neither failure
+    /// surfaces as an error. Always ask the engine.
+    pub fn chunk_samples(&self) -> usize {
+        self.chunk_samples
     }
 
     /// The transcript accumulated so far for the current utterance.

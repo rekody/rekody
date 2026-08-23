@@ -1,10 +1,18 @@
 ---
 // Stat band — three verified numbers + the scoping caption.
-// ~100ms: measured ~55ms streaming-tail (streaming.rs), quoted conservatively.
+// ~160ms: the streaming engine's chunk length. Felt latency (half a chunk of
+//   algorithmic wait plus measured compute for that chunk) is 127.8ms p50 on
+//   the 160ms profile; quoted conservatively at the chunk length itself.
+//   Replaces an earlier "~100ms key release -> final text", which was derived
+//   from the old ~55ms pad-to-one-chunk flush. That flush is now a fixed 560ms
+//   of trailing silence (~170-210ms) because the short one was dropping final
+//   words, so the old number is no longer true and the release edge is no
+//   longer the flattering way to describe this engine. What improved is that
+//   text now lands while you are still talking.
 // 0 network calls: runtime dictation path; models download once at setup.
 // ~35 MB: actual release binary size (unstripped), vs ~250 MB Electron apps.
 const stats = [
-  { value: '~100ms', label: 'Key release → final text', teal: false },
+  { value: '~160ms', label: 'Words appear while you talk', teal: false },
   { value: '0',      label: 'Network calls while dictating', teal: true },
   { value: '~35 MB', label: 'One native binary, not Electron', teal: false },
 ];

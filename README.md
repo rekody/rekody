@@ -27,7 +27,7 @@ Hold `⌥Space`, speak, release. Your words appear at the cursor — anywhere on
 
 <p align="center"><a href="docs/assets/demo.mp4"><strong>▶ Watch the 30-second film with sound</strong></a></p>
 
-**New: streaming dictation.** With the on-device Nemotron engine, rekody transcribes *while you talk* — the live console shows your words as you speak, and the final text lands at your cursor **~50ms after you release the key** (batch engines take 1–3s).
+**New: streaming dictation.** With the on-device Nemotron engine, rekody transcribes *while you talk*: the live console shows your words **about 160ms behind your voice**, so most of the transcript is already on screen before you let go of the key. Batch engines only start when you release, and take 1 to 3s.
 
 <p align="center">
   <img src="docs/assets/cli-streaming.png" alt="rekody live console — words stream in while you talk, with a live waveform and timer" width="760" />

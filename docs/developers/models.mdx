@@ -9,7 +9,7 @@ Models install to `~/.local/share/rekody/models/` (override with `$REKODY_MODEL_
 
 | Purpose | Primary source | Fallback |
 |---|---|---|
-| Streaming model | [`Rekody/rekody-streaming-en-0.6b-int8`](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8) | none (sole source) |
+| Streaming model | [`Rekody/rekody-streaming-en-0.6b-160ms-int8`](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-160ms-int8) | none (sole source) |
 | Whisper models and Core ML encoders | [`Rekody/rekody-models`](https://huggingface.co/Rekody/rekody-models) (under `whisper/`) | upstream [`ggerganov/whisper.cpp`](https://huggingface.co/ggerganov/whisper.cpp) |
 
 The Rekody mirror is tried first for every Whisper artifact so availability stays under Rekody's control; an upstream rename or removal cannot break onboarding. Both repos serve identical bytes, so the same pinned checksum is enforced no matter which source serves the file. The daemon prints which source it downloaded from.

@@ -1,16 +1,20 @@
 //! Bridge between the async pipeline and the Nemotron streaming engine
 //! (feature `nemotron`).
 //!
-//! The engine decodes on big 560ms chunks (~60–80ms compute each on Apple
-//! silicon) and is not `Sync`, so it lives on its own dedicated OS thread.
+//! The engine decodes on 160ms chunks (~48ms compute each on an M2, measured
+//! on the owner's certified clips) and is not `Sync`, so it lives on its own
+//! dedicated OS thread. The chunk length comes from the loaded artifact, not
+//! from a constant here: an older 560ms export is driven at 560ms.
 //! The pipeline feeds it raw 16kHz mono samples from the live audio tap via
 //! a std mpsc channel and receives partial/final transcripts back on a tokio
 //! channel it can `select!` on.
 //!
-//! Decode happens DURING the recording: by the time the user releases the
-//! key, only the sub-chunk tail remains to flush (~55ms measured), so the
-//! final transcript lands near-instantly — unlike batch Whisper, which only
-//! starts transcribing at key release.
+//! Decode happens DURING the recording, so by the time the user releases the
+//! key only the tail remains. Flushing that tail costs ~170 to 210ms measured:
+//! `finish()` pushes a fixed 560ms of trailing silence through the encoder so
+//! the last word is committed, which is more than the old pad-to-one-chunk
+//! flush cost (~55ms) and is what stopped final words being dropped. Batch
+//! Whisper, by contrast, only starts transcribing at key release.
 
 use std::time::Instant;
 
@@ -75,10 +79,26 @@ pub fn spawn(
                     return;
                 }
             };
+            let chunk_ms = engine.chunk_samples() * 1000 / 16_000;
             tracing::info!(
                 load_secs = format!("{:.1}", t_load.elapsed().as_secs_f64()),
+                chunk_ms,
                 "Nemotron streaming model ready"
             );
+            // An artifact from before the 160 ms export still loads and still
+            // works, since the runtime reads its geometry and drives it correctly at
+            // the old profile. But the user upgraded the binary expecting the
+            // faster one, so say plainly that a re-run of setup is what fetches
+            // it. Silence here is the failure mode this guards against.
+            if chunk_ms != crate::onboarding::NEMOTRON_SHIPPED_CHUNK_MS {
+                tracing::warn!(
+                    chunk_ms,
+                    expected_ms = crate::onboarding::NEMOTRON_SHIPPED_CHUNK_MS,
+                    "installed streaming model is an older latency profile; \
+                     run `rekody setup` to replace it with the {}ms build",
+                    crate::onboarding::NEMOTRON_SHIPPED_CHUNK_MS
+                );
+            }
 
             while let Ok(msg) = msg_rx.recv() {
                 match msg {
