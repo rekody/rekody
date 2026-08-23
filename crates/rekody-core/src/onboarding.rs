@@ -1052,6 +1052,18 @@ const REKODY_NEMOTRON_BASE: &str =
 #[cfg(feature = "nemotron")]
 const NEMOTRON_FILES: &[&str] = &["encoder.onnx", "decoder_joint.onnx", "tokenizer.model"];
 
+/// Chunk length, in milliseconds, of the streaming artifact the checksums
+/// below pin.
+///
+/// The runtime never uses this to DRIVE anything — it reads the real geometry
+/// off whatever artifact loaded, which is the whole point. This exists only so
+/// the daemon can notice that an older artifact is still installed and say so.
+/// Without it, a user who upgrades the binary but has not re-run setup keeps
+/// the slower profile silently, since the old artifact still loads and still
+/// works.
+#[cfg(feature = "nemotron")]
+pub const NEMOTRON_SHIPPED_CHUNK_MS: usize = 160;
+
 // ---------------------------------------------------------------------------
 // Checksum verification
 // ---------------------------------------------------------------------------

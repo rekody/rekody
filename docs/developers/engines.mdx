@@ -19,9 +19,11 @@ Rekody's speech-to-text is pluggable. Pick an engine in `rekody setup` or set `s
 
 ## Rekody Streaming
 
-The flagship engine is the **Rekody Streaming model** ([`Rekody/rekody-streaming-en-0.6b-int8`](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8)), an int8 ONNX conversion of NVIDIA's Nemotron speech streaming 0.6B checkpoint, packaged by Rekody for on-device dictation.
+The flagship engine is the **Rekody Streaming model** ([`Rekody/rekody-streaming-en-0.6b-160ms-int8`](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-160ms-int8)), an int8 ONNX conversion of NVIDIA's Nemotron speech streaming 0.6B checkpoint, packaged by Rekody for on-device dictation.
 
-What makes it different from every other engine here: it is **cache-aware streaming ASR**. Audio is transcribed in 560ms chunks as it arrives, with encoder state carried across chunks, so your words appear while you are still talking. Batch engines wait for the full recording before emitting anything; the streaming engine has almost nothing left to do when you release the key, which is why the final text lands about 50ms later.
+What makes it different from every other engine here: it is **cache-aware streaming ASR**. Audio is transcribed in 160ms chunks as it arrives, with encoder state carried across chunks, so your words appear while you are still talking. Batch engines wait for the full recording before emitting anything; the streaming engine has almost nothing left to do when you release the key.
+
+The chunk length is a property of the model file, not of Rekody: the cache-aware right context is baked into the export, and the runtime reads it from the artifact's ONNX metadata. An older 560ms artifact still loads and is still driven correctly at its own profile, so an upgrade that has not yet re-run `rekody setup` degrades to the old latency rather than breaking.
 
 - Fully on device: no audio leaves the machine.
 - English only, and the download is about 890 MB across three files.
@@ -31,7 +33,9 @@ What makes it different from every other engine here: it is **cache-aware stream
 
 Word error rate (WER, %), lower is better. Measured with the Open ASR Leaderboard methodology (`hf-audio/open-asr-leaderboard` @ `b6bdcd0b`, `EnglishTextNormalizer`), on identical audio and with the identical normalizer for both models.
 
-| Dataset | rekody-streaming-en-0.6b-int8 | openai/whisper-large-v3-turbo |
+These numbers were measured on the **560ms** export. The leaderboard has not been re-run at 160ms, so they are reported as what they are rather than restated for the current artifact. NVIDIA's own per-chunk table for this checkpoint puts the 560ms-to-160ms difference at +0.60 pp on the eight-set average, of which AMI, the far-field multi-party meeting set, contributes +2.83 pp on its own; across the other seven sets the difference is +0.28 pp.
+
+| Dataset | rekody-streaming-en-0.6b-int8 (560ms) | openai/whisper-large-v3-turbo |
 |---|---|---|
 | AMI | 12.36 | 13.86 |
 | Earnings22 | 12.27 | 10.81 |
@@ -42,9 +46,9 @@ Word error rate (WER, %), lower is better. Measured with the Open ASR Leaderboar
 | Voxpopuli | 2.74 | 5.31 |
 | **Average** | **6.57** | **6.64** |
 
-Note the operating points: the Rekody model streams, producing text as audio arrives in 560ms chunks, while `whisper-large-v3-turbo` is a batch model that sees each full recording before emitting anything. Matching a strong batch model's average WER under a streaming constraint is the point of this model.
+Note the operating points: the Rekody model streams, producing text as audio arrives, while `whisper-large-v3-turbo` is a batch model that sees each full recording before emitting anything. Matching a strong batch model's average WER under a streaming constraint is the point of this model.
 
-The cost of int8 quantization was measured as statistically zero: on LibriSpeech test-clean (n = 2620), int8 differs from the fp32 export it came from by +0.072 pp WER with a paired bootstrap 95% CI of [-0.004, +0.150], which includes zero. Full details are on the [model card](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-int8).
+The cost of int8 quantization was measured as statistically zero: on LibriSpeech test-clean (n = 2620), int8 differs from the fp32 export it came from by +0.072 pp WER with a paired bootstrap 95% CI of [-0.004, +0.150], which includes zero. Full details are on the [model card](https://huggingface.co/Rekody/rekody-streaming-en-0.6b-160ms-int8).
 
 ## Local Whisper
 

@@ -75,10 +75,26 @@ pub fn spawn(
                     return;
                 }
             };
+            let chunk_ms = engine.chunk_samples() * 1000 / 16_000;
             tracing::info!(
                 load_secs = format!("{:.1}", t_load.elapsed().as_secs_f64()),
+                chunk_ms,
                 "Nemotron streaming model ready"
             );
+            // An artifact from before the 160 ms export still loads and still
+            // works — the runtime reads its geometry and drives it correctly at
+            // the old profile. But the user upgraded the binary expecting the
+            // faster one, so say plainly that a re-run of setup is what fetches
+            // it. Silence here is the failure mode this guards against.
+            if chunk_ms != crate::onboarding::NEMOTRON_SHIPPED_CHUNK_MS {
+                tracing::warn!(
+                    chunk_ms,
+                    expected_ms = crate::onboarding::NEMOTRON_SHIPPED_CHUNK_MS,
+                    "installed streaming model is an older latency profile; \
+                     run `rekody setup` to replace it with the {}ms build",
+                    crate::onboarding::NEMOTRON_SHIPPED_CHUNK_MS
+                );
+            }
 
             while let Ok(msg) = msg_rx.recv() {
                 match msg {
