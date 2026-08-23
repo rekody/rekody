@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.28] - 2026-08-23
+
 ### Changed
 
 - **Your words appear about three times sooner.** The streaming model now runs at a 160ms latency profile instead of 560ms, so text lands on screen while you are still in the middle of a sentence rather than a beat behind it. This is a new model download: setup replaces the streaming artifact the next time it runs, and the old one keeps working until it does.
