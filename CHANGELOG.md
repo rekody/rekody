@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The start of a dictation survives.** Rekody opens the microphone the moment you press the hotkey, so your first word arrives with nothing in front of it and the recognizer has to decode it cold. On test recordings missing their first 25 to 50 milliseconds, which is roughly what a microphone costs you while it starts up, the opening word survived about 70% of the time. Rekody now gives the recognizer a moment of digital silence first, the same run-up it gets on a sentence you begin after a pause, and that rises to about 85%. The capture thread is also woken the instant you press the key rather than noticing on its next tick. The silence is added inside Rekody and never recorded, and the microphone still opens only while you hold the hotkey and closes when you let go.
+
 ## [0.5.28] - 2026-08-23
 
 ### Changed

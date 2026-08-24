@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Condvar, Mutex};
+use std::time::Duration;
 
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -26,6 +28,13 @@ const MIN_SPEECH_DURATION_SECS: f32 = 0.15;
 
 /// Trailing silence duration (in seconds) before finalizing a speech segment.
 const SILENCE_TAIL_SECS: f32 = 0.6;
+
+/// Belt-and-braces wake for the idle capture thread.
+///
+/// The thread is woken directly by [`AudioCapture::start_recording`], so this
+/// timeout is never what starts a dictation. It exists only so a wakeup lost
+/// to a bug cannot strand the thread forever.
+const IDLE_WAKE_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Maximum recording duration in seconds to prevent unbounded memory growth.
 /// 30 minutes headroom for hands-free rambles (the configurable
@@ -294,6 +303,12 @@ pub struct AudioCapture {
     /// while recording, for streaming STT engines. Set via
     /// [`live_chunks`](Self::live_chunks) BEFORE [`open`](Self::open).
     live_tx: std::sync::Mutex<Option<mpsc::UnboundedSender<Vec<f32>>>>,
+    /// Wakes the idle capture thread the instant `recording` or `shutdown`
+    /// flips, instead of leaving it to notice on its next tick. The mutex
+    /// guards nothing but the flag transition itself: writers take it, store,
+    /// release, then notify, and the waiter re-checks the flags while holding
+    /// it, so a start landing between the check and the wait cannot be missed.
+    wake: Arc<(Mutex<()>, Condvar)>,
 }
 
 impl AudioCapture {
@@ -306,7 +321,17 @@ impl AudioCapture {
             flush: Arc::new(AtomicBool::new(false)),
             latest_rms_bits: Arc::new(AtomicU32::new(0)),
             live_tx: std::sync::Mutex::new(None),
+            wake: Arc::new((Mutex::new(()), Condvar::new())),
         }
+    }
+
+    /// Flip a capture-thread flag and wake the thread immediately.
+    fn signal(&self, set: impl FnOnce()) {
+        let (lock, cv) = &*self.wake;
+        let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        set();
+        drop(guard);
+        cv.notify_all();
     }
 
     /// Subscribe to the live 16kHz mono sample stream.
@@ -342,6 +367,7 @@ impl AudioCapture {
         let flush = Arc::clone(&self.flush);
         let latest_rms_bits = Arc::clone(&self.latest_rms_bits);
         let live_tx = self.live_tx.lock().unwrap().clone();
+        let wake = Arc::clone(&self.wake);
 
         // Use a oneshot channel so the audio thread can report init errors
         // back to the caller synchronously.
@@ -389,7 +415,18 @@ impl AudioCapture {
                         // failed mid-hold) leaves a stale flush; clear it so
                         // it can't truncate the NEXT utterance.
                         flush.store(false, Ordering::Relaxed);
-                        std::thread::park_timeout(std::time::Duration::from_millis(10));
+                        // Sleep until start_recording()/shutdown() wakes
+                        // us, rather than waking 100 times a second to
+                        // discover nothing has happened. A keypress used to
+                        // wait an average of 5ms just for this thread to
+                        // notice it. The flags are re-checked under the same
+                        // lock the writers take, so a start landing in this
+                        // window is seen rather than slept through.
+                        let (lock, cv) = &*wake;
+                        let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                        if !recording.load(Ordering::Relaxed) && !shutdown.load(Ordering::Relaxed) {
+                            let _ = cv.wait_timeout(guard, IDLE_WAKE_INTERVAL);
+                        }
                         continue;
                     }
 
@@ -428,7 +465,7 @@ impl AudioCapture {
     /// through the channel returned by [`open`](Self::open).
     pub fn start_recording(&self) {
         tracing::info!("recording started");
-        self.recording.store(true, Ordering::Relaxed);
+        self.signal(|| self.recording.store(true, Ordering::Relaxed));
     }
 
     /// Stop capturing audio. The capture thread flushes any buffered speech
@@ -467,7 +504,7 @@ impl AudioCapture {
     /// `AudioCapture` instance cannot be reused.
     pub fn shutdown(&self) {
         self.stop_recording();
-        self.shutdown.store(true, Ordering::Relaxed);
+        self.signal(|| self.shutdown.store(true, Ordering::Relaxed));
     }
 }
 
