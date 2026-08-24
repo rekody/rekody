@@ -21,6 +21,51 @@ use std::time::Instant;
 use rekody_stt::biasing::BiasSettings;
 use rekody_stt::nemotron::NemotronStreamingEngine;
 
+/// Digital silence handed to the engine before the first real sample of an
+/// utterance (issue #133).
+///
+/// The microphone is opened on key-down, so the first callback lands tens of
+/// milliseconds after the user has begun speaking and the encoder's very
+/// first chunk starts mid-word with no left context. Two separate things are
+/// wrong there and only one of them is recoverable: the audio the device
+/// never captured is gone, but the missing *run-up* is not. Silence is free,
+/// opens no microphone, and gives the encoder the same warm cache it gets on
+/// an utterance that began after a pause.
+///
+/// 80ms, measured over 77 of the owner's certified clips with the onset
+/// clipped to simulate the microphone opening late (first-word survival,
+/// paired McNemar):
+///
+/// ```text
+/// onset lost |  lead 0     40      80     160
+///       0ms  |  80.5%   85.7%   87.0%   88.3%
+///      50ms  |  68.8%   76.6%   83.1%   84.4%
+///      90ms  |  61.0%   68.8%   72.7%   74.0%
+/// ```
+///
+/// 160ms is not measurably better than 80ms at any clip level (p=1.0 in all
+/// three), while 40ms gives back a chunk of the gain where it matters most
+/// (83.1% -> 76.6% at 50ms of lost onset). 80ms is also strictly shorter than
+/// one 160ms chunk, which matters: `feed()` emits only whole chunks, so the
+/// run-up stays in the buffer, costs no encoder call of its own, and the
+/// first partial then lands after 80ms of speech instead of 160ms. A pre-roll
+/// of a full chunk or longer would forfeit both of those. See
+/// `rekody-stt/tests/nemotron_preroll.rs`.
+///
+/// This is emitted into the engine, not into the capture tap, so captured
+/// sample counts, saved training clips and the duration stats built on them
+/// are untouched.
+const PREROLL_SILENCE_MS: usize = 80;
+const PREROLL_SILENCE_SAMPLES: usize = PREROLL_SILENCE_MS * 16_000 / 1000;
+
+/// At 40ms the curve above has not levelled off, so a shorter run-up gives
+/// back a measurable part of the gain it exists to capture.
+const _: () = assert!(PREROLL_SILENCE_MS >= 40);
+/// One 160ms chunk or longer buys nothing measurable and costs an encoder
+/// call on pure silence plus the sooner first partial. `nemotron_preroll.rs`
+/// pins this against the engine's real chunk size; this is the cheap guard.
+const _: () = assert!(PREROLL_SILENCE_SAMPLES < 160 * 16_000 / 1000);
+
 /// Messages from the pipeline to the engine thread.
 pub enum StreamMsg {
     /// Raw 16kHz mono samples from the live audio tap.
@@ -100,24 +145,42 @@ pub fn spawn(
                 );
             }
 
+            // Whether the current utterance has already been given its
+            // pre-roll. Cleared by `Flush`, which is what ends an utterance.
+            let mut utterance_open = false;
+
             while let Ok(msg) = msg_rx.recv() {
                 match msg {
-                    StreamMsg::Samples(samples) => match engine.feed(&samples) {
-                        Ok(emitted) => {
-                            if !emitted.is_empty()
-                                && event_tx
-                                    .send(StreamEvent::Partial(engine.transcript().to_string()))
-                                    .is_err()
-                            {
-                                return; // pipeline gone
+                    StreamMsg::Samples(samples) => {
+                        if !utterance_open {
+                            utterance_open = true;
+                            let preroll = vec![0.0f32; PREROLL_SILENCE_SAMPLES];
+                            if let Err(e) = engine.feed(&preroll) {
+                                // Non-fatal: the utterance is still decodable
+                                // without its run-up, just likelier to lose
+                                // the first word. Don't fail the dictation.
+                                tracing::warn!(error = %format!("{e:#}"), "pre-roll feed failed");
                             }
                         }
-                        Err(e) => {
-                            let _ = event_tx
-                                .send(StreamEvent::Error(format!("nemotron decode failed: {e:#}")));
+                        match engine.feed(&samples) {
+                            Ok(emitted) => {
+                                if !emitted.is_empty()
+                                    && event_tx
+                                        .send(StreamEvent::Partial(engine.transcript().to_string()))
+                                        .is_err()
+                                {
+                                    return; // pipeline gone
+                                }
+                            }
+                            Err(e) => {
+                                let _ = event_tx.send(StreamEvent::Error(format!(
+                                    "nemotron decode failed: {e:#}"
+                                )));
+                            }
                         }
-                    },
+                    }
                     StreamMsg::Flush => {
+                        utterance_open = false;
                         let t = Instant::now();
                         match engine.finish() {
                             Ok(text) => {
