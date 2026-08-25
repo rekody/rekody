@@ -56,15 +56,27 @@ The cost of int8 quantization was measured as statistically zero: on LibriSpeech
 
 | `whisper_model` | Download | Character |
 |---|---|---|
-| `turbo` | 574 MB | Fast with near-large accuracy. The recommended size. |
+| `turbo` | 574 MB | Near-large accuracy. Fast **only on Apple Silicon**, where the encoder runs on the Neural Engine. Recommended there. |
 | `tiny` | 75 MB | Fastest, basic accuracy. |
-| `small` | 250 MB | Balanced. |
-| `medium` | 750 MB | Better accuracy. |
+| `small` | 488 MB | Balanced. Recommended on Intel Macs. |
+| `medium` | 1.5 GB | Better accuracy. |
 | `large` | 3.1 GB | Best accuracy (large-v3 weights). |
+
+Setup preselects the size that suits the machine it is running on: `turbo` on
+Apple Silicon, `small` where there is no Neural Engine. `turbo` is
+`large-v3-turbo`, whose decoder is cut from 32 layers to 4 but whose encoder
+is the full 32-layer large-v3 encoder, and whisper.cpp pays that encode once
+per dictation against a zero-padded 30 second window. On the Neural Engine
+that is cheap; on a CPU it is a large-model encode after every sentence.
+
+Measure before overriding the default: `rekody bench --model tiny --model
+small --model turbo` runs each size on a bundled clip and prints mean latency
+plus real-time factor. The size to keep is the largest one that stays
+comfortably faster than real time on your machine.
 
 Setup installs the multilingual model files; set `stt_language` to a specific code when you know the language in advance, or leave it unset for auto-detect.
 
-On Apple Silicon, setup also fetches the matching **Core ML encoder** so the encoder pass runs on the Neural Engine, roughly twice as fast as Metal alone. The first transcription afterwards takes 30 to 60 seconds while macOS compiles the model; every run after that is fast.
+On Apple Silicon, setup also fetches the matching **Core ML encoder** so the encoder pass runs on the Neural Engine. The first transcription afterwards takes 30 to 60 seconds while macOS compiles the model; every run after that is fast. Elsewhere there is no Core ML encoder and no GPU path (Rekody builds whisper.cpp with Metal off on every target), so the encoder runs on the CPU.
 
 ## Cloud engines
 

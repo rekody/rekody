@@ -97,7 +97,7 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
-    /// Benchmark local Whisper transcription latency (A/B Core ML vs Metal)
+    /// Benchmark local Whisper transcription latency, and compare model sizes
     Bench {
         /// Number of measured runs per sample (default: 5)
         #[arg(long, default_value = "5")]
@@ -106,6 +106,12 @@ enum Cmd {
         /// MIL compile or cold-cache costs (default: 2)
         #[arg(long, default_value = "2")]
         warmup: usize,
+        /// Model size to benchmark, repeatable: --model tiny --model small.
+        /// Defaults to whatever the config says. Each size must already be
+        /// downloaded (`rekody setup`). Use this to pick a default from
+        /// measurement rather than editing config between runs.
+        #[arg(long = "model", value_name = "SIZE")]
+        models: Vec<String>,
     },
     /// Pick the active skill that reshapes dictation (interactive when run in a terminal)
     Skill {
@@ -296,9 +302,13 @@ async fn main() -> Result<()> {
         Some(Cmd::Key { action }) => cmd_key(action),
         Some(Cmd::Update { check }) => cmd_update(check).await,
         Some(Cmd::Changelog { all }) => cmd_changelog(all).await,
-        Some(Cmd::Bench { runs, warmup }) => {
+        Some(Cmd::Bench {
+            runs,
+            warmup,
+            models,
+        }) => {
             let cfg = load_config_or_default(&find_config_path());
-            rekody_core::bench::run(&cfg, runs, warmup).await
+            rekody_core::bench::run(&cfg, runs, warmup, &models).await
         }
         Some(Cmd::Skill { action }) => cmd_skill(action),
         Some(Cmd::Dictionary { action }) => cmd_dictionary(action),
@@ -2317,7 +2327,9 @@ fn whisper_ggml_file(whisper_model: &str) -> &'static str {
 
 /// Detect whether the Core ML encoder is installed for the configured local
 /// model. Returns a human label + an ok flag. Only compiled on Apple Silicon
-/// macOS, where Core ML offers a ~2× speedup over Metal-only inference.
+/// macOS, the one place Rekody has any accelerator at all: without the
+/// encoder here, and everywhere else unconditionally, whisper.cpp runs on the
+/// CPU.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn coreml_status(whisper_model: &str) -> (String, bool) {
     let mlmodelc_name = match whisper_model.to_lowercase().as_str() {
@@ -2533,6 +2545,11 @@ fn inject_keychain_keys(config: &mut RekodyConfig) {
 
 /// Number of recent mic levels shown in the waveform.
 const WAVE_BARS: usize = 14;
+
+/// The busy verb the BATCH path sets, and the only one that counts elapsed
+/// seconds in the WORKING pill. Named so the setter and the renderer cannot
+/// drift apart; the streaming path never sets it.
+const BUSY_TRANSCRIBING: &str = "transcribing…";
 
 /// Safety net for the busy ("transcribing…/formatting…") state. The state is
 /// normally cleared by a terminal pipeline event (injection succeeded, empty
@@ -2799,10 +2816,11 @@ impl Ui {
                 w,
             )
         } else {
-            let label = " ◐ WORKING ";
+            let label = working_pill_label(s.busy, s.busy_since, Instant::now());
+            let w = label.chars().count();
             (
                 format!("\x1b[48;2;21;51;58m\x1b[38;2;127;201;211m{BOLD}{label}{RESET}"),
-                label.chars().count(),
+                w,
             )
         };
 
@@ -3096,6 +3114,28 @@ fn busy_state_is_stuck(
         && busy_since.is_some_and(|t| now.saturating_duration_since(t) >= BUSY_WATCHDOG)
 }
 
+/// The WORKING pill's label, with the elapsed clock the batch path earns.
+///
+/// Batch transcription can hold this state for seconds on a CPU-only encode,
+/// and a motionless "transcribing…" reads as a hang (#141), so the pill
+/// counts. `busy_since` is armed at the first busy transition, which is key
+/// release, so it reads as "how long you have been waiting" rather than
+/// engine time.
+///
+/// Scoped to the batch verb by construction: only "received audio segment"
+/// sets [`BUSY_TRANSCRIBING`], and the streaming loop never emits it, so the
+/// streaming path's chrome is byte-identical to before. Pure so that is
+/// testable without a UI or a mic.
+fn working_pill_label(busy: Option<&str>, busy_since: Option<Instant>, now: Instant) -> String {
+    if busy != Some(BUSY_TRANSCRIBING) {
+        return " ◐ WORKING ".to_string();
+    }
+    let elapsed = busy_since
+        .map(|t| now.saturating_duration_since(t).as_secs())
+        .unwrap_or(0);
+    format!(" ◐ WORKING {}:{:02} ", elapsed / 60, elapsed % 60)
+}
+
 struct UiLayer {
     ui: Arc<Ui>,
     session: Arc<SessionStats>,
@@ -3233,7 +3273,7 @@ where
         } else if msg.contains("recording stopped") {
             self.ui.stop_recording("working…");
         } else if msg.contains("received audio segment") {
-            self.ui.stop_recording("transcribing…");
+            self.ui.stop_recording(BUSY_TRANSCRIBING);
         } else if msg.contains("partial transcript") {
             let text = visitor.fields.get("text").cloned().unwrap_or_default();
             self.ui.on_partial(&text);
@@ -3377,6 +3417,22 @@ where
             self.hud.send(&HudEvent::working("working…"));
         } else if msg.contains("received audio segment") {
             self.hud.send(&HudEvent::working("transcribing…"));
+        } else if msg.contains("transcription in progress") {
+            // Batch-path heartbeat (#141): re-send the verb with the seconds
+            // the engine has held the audio, so a slow CPU-only encode reads
+            // as working rather than hung. The protocol has no progress
+            // field, and the verb is the one string the pill already renders.
+            //
+            // `stt_result` is None from "recording started" until
+            // "transcription complete", so this also drops a tick that raced
+            // the heartbeat's abort and would otherwise stamp "transcribing…"
+            // back over "formatting…" for the whole cleanup.
+            let in_flight = self.stt_result.lock().map(|g| g.is_none()).unwrap_or(false);
+            if in_flight {
+                let secs = visitor.fields.get("secs").cloned().unwrap_or_default();
+                self.hud
+                    .send(&HudEvent::working(&format!("transcribing… {secs}s")));
+            }
         } else if msg.contains("partial transcript") {
             let text = visitor.fields.get("text").cloned().unwrap_or_default();
             self.hud.send(&HudEvent::Partial {
@@ -3670,5 +3726,69 @@ mod ui_event_tests {
                 "louder rms must not map to a lower bar: {levels:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod busy_progress_tests {
+    //! The batch path's "you are not hung, you are waiting" signal (#141),
+    //! and the guard that keeps it off the streaming path.
+
+    use super::{BUSY_TRANSCRIBING, working_pill_label};
+    use std::time::{Duration, Instant};
+
+    /// The verb the batch path sets, copied VERBATIM from the UiLayer/HudLayer
+    /// branch on "received audio segment", so an edit to either has to come
+    /// here too.
+    const BATCH_VERB: &str = "transcribing…";
+
+    /// The verbs the STREAMING path can put in the busy slot. None of them
+    /// may grow a clock: streaming reaches text in about 100 ms, and its
+    /// chrome is not what this issue is about.
+    const STREAMING_VERBS: [&str; 2] = ["working…", "formatting…"];
+
+    #[test]
+    fn the_batch_verb_constant_matches_what_the_layers_set() {
+        assert_eq!(BUSY_TRANSCRIBING, BATCH_VERB);
+    }
+
+    #[test]
+    fn the_batch_verb_counts_up() {
+        let now = Instant::now();
+        let started = now - Duration::from_secs(7);
+        assert_eq!(
+            working_pill_label(Some(BUSY_TRANSCRIBING), Some(started), now),
+            " ◐ WORKING 0:07 "
+        );
+        let started = now - Duration::from_secs(83);
+        assert_eq!(
+            working_pill_label(Some(BUSY_TRANSCRIBING), Some(started), now),
+            " ◐ WORKING 1:23 "
+        );
+    }
+
+    #[test]
+    fn streaming_verbs_render_exactly_the_label_they_always_did() {
+        let now = Instant::now();
+        let started = now - Duration::from_secs(30);
+        for verb in STREAMING_VERBS {
+            assert_eq!(
+                working_pill_label(Some(verb), Some(started), now),
+                " ◐ WORKING ",
+                "{verb} must not grow a clock"
+            );
+        }
+        // And the no-verb fallback the renderer used before any label lands.
+        assert_eq!(working_pill_label(None, Some(started), now), " ◐ WORKING ");
+    }
+
+    /// A busy state with no armed clock must not panic or render nonsense;
+    /// it just starts at zero.
+    #[test]
+    fn a_missing_start_instant_reads_as_zero() {
+        assert_eq!(
+            working_pill_label(Some(BUSY_TRANSCRIBING), None, Instant::now()),
+            " ◐ WORKING 0:00 "
+        );
     }
 }
