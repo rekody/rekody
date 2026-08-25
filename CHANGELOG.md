@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The waveform moves whatever engine you use.** The bar in the pill sat flat for the whole recording whenever local Whisper was doing the transcribing, which is every Intel Mac since 0.4.25 and anyone on Apple Silicon who sets `stt_engine = "local"`. Every other part of the pill worked, so it read as a broken app rather than a slower engine. The microphone level now comes from the audio capture tap in both run loops rather than only the streaming one, so the bar moves whenever the microphone is live. The terminal's sparkline carried a second copy of the same assumption and no longer does.
+
 ## [0.5.29] - 2026-08-25
 
 ### Fixed
