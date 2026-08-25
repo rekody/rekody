@@ -2552,8 +2552,6 @@ const CHIP_FG: &str = "\x1b[38;2;150;162;162m";
 #[derive(Default)]
 struct UiState {
     recording: bool,
-    /// Streaming engine active — mic levels drive a live waveform.
-    streaming: bool,
     recording_start: Option<Instant>,
     wave: std::collections::VecDeque<f32>,
     partial: String,
@@ -2645,13 +2643,9 @@ impl Ui {
         );
         println!();
 
-        let streaming = config.stt_engine.to_lowercase() == "nemotron";
         Self {
             bar,
-            state: Mutex::new(UiState {
-                streaming,
-                ..UiState::default()
-            }),
+            state: Mutex::new(UiState::default()),
             ticker_running: std::sync::atomic::AtomicBool::new(false),
         }
     }
@@ -2722,7 +2716,11 @@ impl Ui {
     /// Mic sparkline: eighth-block time series colored by amplitude along a
     /// teal ramp (the cava trick — 8 sub-steps per cell reads as analog).
     fn wave_sparkline(s: &UiState) -> (String, usize) {
-        if !s.streaming || s.wave.is_empty() {
+        // Draw whenever levels have arrived, whatever engine sent them. This
+        // used to also require `s.streaming`, which was equivalent while the
+        // streaming loop was the only producer of "mic level" and became a
+        // second reason the bar stayed dead on the Whisper path (#140).
+        if s.wave.is_empty() {
             return (String::new(), 0);
         }
         let mut out = String::new();
@@ -2960,7 +2958,8 @@ impl Ui {
         self.render();
     }
 
-    /// New mic RMS level from the live tap (streaming engines).
+    /// New mic RMS level from the live tap. Both run loops feed this, so the
+    /// waveform moves on the Whisper path too (#140), not only on streaming.
     fn on_mic_level(&self, rms: f32) {
         if let Ok(mut s) = self.state.lock() {
             if !s.recording {

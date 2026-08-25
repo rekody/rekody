@@ -665,6 +665,42 @@ async fn resolve_app_probe(
     cache.clone()
 }
 
+/// RMS energy of one live-tap chunk, as the pill's waveform reads it.
+///
+/// Kept as its own function so every engine loop computes the level the same
+/// way. Two details are deliberate: `max(1)` rather than an early return, so
+/// an empty chunk still yields `sqrt(0.0 / 1.0)`, and the summation order,
+/// which fixes the f32 result bit for bit. Both are what the streaming loop
+/// has always done, and
+/// `mic_level_is_bit_identical_to_the_legacy_streaming_expression` pins
+/// them.
+#[inline]
+fn mic_level_rms(samples: &[f32]) -> f32 {
+    (samples.iter().map(|s| s * s).sum::<f32>() / samples.len().max(1) as f32).sqrt()
+}
+
+/// Emit the mic level that drives the pill's waveform and the terminal
+/// sparkline.
+///
+/// EVERY run loop that captures audio must call this once per live-tap chunk.
+/// It is the only producer of the `mic level` event that `UiLayer` and
+/// `HudLayer` (main.rs) listen for, so a loop that forgets it ships a pill
+/// whose bar never moves while the mic is live. That was issue #140.
+///
+/// Three properties are contractual and must not drift:
+///
+/// * **Target `rekody_core`.** The default `EnvFilter` carries
+///   `rekody_core=debug`; an event raised from another crate would be
+///   filtered away before either UI layer saw it.
+/// * **Level `debug`.** Keeps default log filtering unchanged. This is the
+///   highest-frequency event in the system (~20-100/s while the key is held).
+/// * **Field named `rms`.** Both layers look the value up by that name.
+#[inline]
+fn emit_mic_level(samples: &[f32]) {
+    let rms = mic_level_rms(samples);
+    tracing::debug!(rms, "mic level");
+}
+
 impl Pipeline {
     pub fn new(config: RekodyConfig) -> Result<Self> {
         let provider_chain = build_provider_chain(&config);
@@ -799,14 +835,21 @@ impl Pipeline {
         tracing::info!("hotkey listener started");
 
         // 2. Create audio capture and open the device stream.
+        //
+        //    The live tap is subscribed BEFORE open() (the processing thread
+        //    picks the sender up there) purely to drive the waveform: this
+        //    loop transcribes from `segment_rx` and throws the tap's samples
+        //    away after taking their level. Without it the pill's bar sits
+        //    dead for the whole recording on every Whisper dictation (#140).
         let audio_config = AudioConfig {
             vad_threshold: self.config.vad_threshold,
             record_all_audio: self.config.record_all_audio,
             input_device: self.config.input_device_chain(),
         };
         let audio_capture = rekody_audio::AudioCapture::new(audio_config.clone());
+        let mut live_rx = audio_capture.live_chunks();
         let mut segment_rx = audio_capture.open(audio_config)?;
-        tracing::info!("audio capture initialized");
+        tracing::info!("audio capture initialized (live tap active)");
 
         let llm_enabled = has_llm_providers(&self.config);
         if llm_enabled {
@@ -823,6 +866,11 @@ impl Pipeline {
         // One-time notice when Tab is pressed without an LLM provider.
         let mut skill_cycle_notice_logged = false;
 
+        // Gate for the waveform tap: a cpal callback in flight at RecordStop
+        // can still land a chunk in `live_rx` after the key is up. Dropping
+        // those keeps the bar from twitching once the pill says "working…".
+        let mut recording = false;
+
         // 3. Main event loop — listen for hotkey events and audio segments
         //    concurrently using tokio::select!.
         loop {
@@ -833,15 +881,18 @@ impl Pipeline {
                             tracing::info!(source = "hotkey", "recording started");
                             app_cache = None;
                             app_probe = Some(spawn_app_probe());
+                            recording = true;
                             audio_capture.start_recording();
                         }
                         Some(HotkeyEvent::RecordStop) => {
                             tracing::info!(source = "hotkey", "recording stopped");
+                            recording = false;
                             audio_capture.stop_recording();
                         }
                         Some(HotkeyEvent::RecordStopForced) => {
                             tracing::warn!(source = "deadman", "recording force-stopped at the duration cap");
                             notify_max_recording_stop(self.config.max_recording_secs);
+                            recording = false;
                             audio_capture.stop_recording();
                         }
                         Some(HotkeyEvent::RecordLatched) => {
@@ -875,6 +926,21 @@ impl Pipeline {
                         }
                         None => {
                             tracing::warn!("hotkey channel closed, shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                // Waveform only. The transcript comes from `segment_rx`
+                // below; these samples exist so the pill and the terminal
+                // sparkline can show that the mic is live, and are dropped
+                // straight after their level is taken.
+                chunk = live_rx.recv() => {
+                    match chunk {
+                        Some(samples) if recording => emit_mic_level(&samples),
+                        Some(_) => {}
+                        None => {
+                            tracing::warn!("live audio channel closed, shutting down");
                             break;
                         }
                     }
@@ -1129,10 +1195,7 @@ impl Pipeline {
                         Some(samples) if recording => {
                             // Mic level for the UI waveform (picked up by the
                             // tracing UI layer; ~20-100 events/s while held).
-                            let rms = (samples.iter().map(|s| s * s).sum::<f32>()
-                                / samples.len().max(1) as f32)
-                                .sqrt();
-                            tracing::debug!(rms, "mic level");
+                            emit_mic_level(&samples);
                             utterance_sample_count += samples.len() as u64;
                             if self.config.save_training_data {
                                 utterance_samples.extend_from_slice(&samples);
@@ -1824,5 +1887,247 @@ mod apple_fm_tests {
         assert_eq!(out.provider, "apple-foundation-models");
         // Filler should be gone.
         assert!(!out.text.to_lowercase().contains(" um "));
+    }
+}
+
+#[cfg(test)]
+mod mic_level_tests {
+    //! Apple Silicon neutrality guard for issue #140.
+    //!
+    //! The streaming loop used to compute its own RMS inline; both loops now
+    //! call [`emit_mic_level`]. Moving that expression is the one place a
+    //! careless refactor could silently change what the streaming path emits,
+    //! so these tests capture the emitted event sequence for a fixed input
+    //! under the LEGACY expression and under the shared helper and require
+    //! them to be identical, field for field and bit for bit.
+    //!
+    //! Run with `--nocapture` to print both sequences for an external diff.
+
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use tracing::field::{Field, Visit};
+
+    /// The expression `run_streaming` carried before the extraction, copied
+    /// verbatim from lib.rs at 0.5.29 (commit 67721c4). Do not "tidy" it.
+    fn legacy_streaming_rms(samples: &[f32]) -> f32 {
+        (samples.iter().map(|s| s * s).sum::<f32>() / samples.len().max(1) as f32).sqrt()
+    }
+
+    /// The legacy emit, replayed with `target:` pinned to `rekody_core`.
+    ///
+    /// The pin is needed because `tracing` derives an event's target from the
+    /// module path where the macro EXPANDS, and this replica lives in a test
+    /// submodule (`rekody_core::mic_level_tests`) rather than at the crate
+    /// root where `run_streaming` and `emit_mic_level` both sit. Pinning
+    /// reproduces the production target instead of the test module's.
+    ///
+    /// That same rule is why the emit stayed in `rekody-core`: raising it
+    /// from the audio crate would have retargeted it to `rekody_audio`, which
+    /// the default `EnvFilter` (`info,rekody=debug,rekody_core=debug`) drops
+    /// before either UI layer runs. `the_event_keeps_its_target_level_and_field_name`
+    /// asserts the shipped helper's real, unpinned target.
+    fn legacy_emit_mic_level(samples: &[f32]) {
+        let rms = legacy_streaming_rms(samples);
+        tracing::debug!(target: "rekody_core", rms, "mic level");
+    }
+
+    /// One captured event, rendered so a byte-diff of two runs is meaningful.
+    /// The rms is printed as its exact bit pattern, not a rounded decimal.
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    struct Captured(String);
+
+    /// Mirrors `main.rs`'s `EventVisitor` so what this captures is what the
+    /// UI layers actually consume: tracing widens the f32 to f64, the visitor
+    /// stringifies it, and `on_mic_level` parses that string back to f32.
+    /// Both the rendered string and the exact bits are kept.
+    #[derive(Default)]
+    struct Recorder {
+        message: String,
+        rms: Option<(String, u32)>,
+        other: Vec<String>,
+    }
+
+    impl Visit for Recorder {
+        fn record_f64(&mut self, field: &Field, value: f64) {
+            if field.name() == "rms" {
+                self.rms = Some((value.to_string(), (value as f32).to_bits()));
+            } else {
+                self.other.push(format!("{}=f64:{}", field.name(), value));
+            }
+        }
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" {
+                self.message = format!("{value:?}");
+            } else {
+                self.other.push(format!("{}={value:?}", field.name()));
+            }
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct Capture(Arc<Mutex<Vec<Captured>>>);
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Capture {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            let meta = event.metadata();
+            let mut r = Recorder::default();
+            event.record(&mut r);
+            let rms = r
+                .rms
+                .map(|(text, bits)| format!("{text} (0x{bits:08x})"))
+                .unwrap_or_else(|| "<none>".into());
+            self.0.lock().unwrap().push(Captured(format!(
+                "target={} level={} msg={} rms={} extra={:?}",
+                meta.target(),
+                meta.level(),
+                r.message,
+                rms,
+                r.other
+            )));
+        }
+    }
+
+    /// Replay `chunks` through `emit`, gating exactly the way the streaming
+    /// select arm does (`Some(samples) if recording` emits, `Some(_)` drops),
+    /// and return the events that reached the subscriber.
+    fn replay(chunks: &[(bool, Vec<f32>)], emit: impl Fn(&[f32])) -> Vec<Captured> {
+        use tracing_subscriber::layer::SubscriberExt;
+        let cap = Capture::default();
+        let subscriber = tracing_subscriber::registry().with(cap.clone());
+        tracing::subscriber::with_default(subscriber, || {
+            for (recording, samples) in chunks {
+                if *recording {
+                    emit(samples);
+                }
+            }
+        });
+        cap.0.lock().unwrap().clone()
+    }
+
+    /// A fixed, deterministic stand-in for a held dictation: an amplitude
+    /// envelope over three tones, sliced into the run lengths the 48 kHz ->
+    /// 16 kHz resampler actually produces (341/342 samples), plus the edge
+    /// cases the loop can legitimately hand us.
+    fn fixture_chunks() -> Vec<(bool, Vec<f32>)> {
+        let mut signal: Vec<f32> = Vec::with_capacity(16_000 * 3);
+        for n in 0..(16_000 * 3) {
+            let t = n as f32 / 16_000.0;
+            let env = (t * 2.7).sin().abs() * 0.35 + 0.004;
+            let s = (2.0 * std::f32::consts::PI * 220.0 * t).sin() * 0.6
+                + (2.0 * std::f32::consts::PI * 517.0 * t).sin() * 0.3
+                + (2.0 * std::f32::consts::PI * 1_310.0 * t).sin() * 0.1;
+            signal.push(s * env);
+        }
+
+        // Edge cases first: an empty run (`max(1)` territory), a single
+        // sample, silence, both clipping rails, and a denormal run.
+        let mut chunks: Vec<(bool, Vec<f32>)> = vec![
+            (true, Vec::new()),
+            (true, vec![0.5]),
+            (true, vec![0.0; 341]),
+            (true, vec![1.0; 342]),
+            (true, vec![-1.0; 341]),
+            (true, vec![f32::MIN_POSITIVE; 480]),
+        ];
+
+        // The steady state: alternating 341/342-sample runs, the shape
+        // FftFixedIn(48000 -> 16000, 1024) emits.
+        let mut pos = 0usize;
+        let mut take_342 = false;
+        while pos < signal.len() {
+            let len = if take_342 { 342 } else { 341 };
+            let end = (pos + len).min(signal.len());
+            chunks.push((true, signal[pos..end].to_vec()));
+            pos = end;
+            take_342 = !take_342;
+        }
+
+        // Stragglers after key release: the arm must drop these, not emit.
+        chunks.push((false, vec![0.9; 341]));
+        chunks.push((false, vec![0.2; 342]));
+        chunks
+    }
+
+    /// The neutrality proof: same input, same emitted sequence.
+    #[test]
+    fn streaming_path_emits_an_identical_event_sequence_after_the_extraction() {
+        let chunks = fixture_chunks();
+        let before = replay(&chunks, legacy_emit_mic_level);
+        let after = replay(&chunks, emit_mic_level);
+
+        println!("--- BEFORE ({} events) ---", before.len());
+        for e in &before {
+            println!("{}", e.0);
+        }
+        println!("--- AFTER ({} events) ---", after.len());
+        for e in &after {
+            println!("{}", e.0);
+        }
+
+        assert_eq!(
+            before.len(),
+            after.len(),
+            "event COUNT changed: the streaming cadence is not neutral"
+        );
+        assert_eq!(
+            before, after,
+            "event PAYLOAD changed: target, level, message, or rms bits differ"
+        );
+        // Guard the fixture itself: a silently empty replay would pass above.
+        assert_eq!(
+            after.len(),
+            chunks.iter().filter(|(rec, _)| *rec).count(),
+            "one event per recorded chunk, and none for post-release stragglers"
+        );
+    }
+
+    /// Bit-for-bit, not approximately: f32 summation order and the `max(1)`
+    /// divisor are both part of the value the waveform renders.
+    #[test]
+    fn mic_level_is_bit_identical_to_the_legacy_streaming_expression() {
+        for (recording, samples) in fixture_chunks() {
+            let _ = recording;
+            assert_eq!(
+                mic_level_rms(&samples).to_bits(),
+                legacy_streaming_rms(&samples).to_bits(),
+                "rms bits differ for a {}-sample chunk",
+                samples.len()
+            );
+        }
+    }
+
+    /// The three contractual properties of the event, asserted directly:
+    /// both UI layers depend on all three and none is enforced by the type
+    /// system.
+    #[test]
+    fn the_event_keeps_its_target_level_and_field_name() {
+        let events = replay(&[(true, vec![0.25; 341])], emit_mic_level);
+        assert_eq!(events.len(), 1);
+        let line = &events[0].0;
+        // Exact, not a prefix: `rekody_core::something` would also start with
+        // `rekody_core` yet be a different filter target.
+        assert!(
+            line.starts_with("target=rekody_core level="),
+            "must stay in the rekody_core target: the default EnvFilter only \
+             carries rekody_core=debug, so any other target (rekody_audio, a \
+             submodule) is filtered away before either UI layer sees it. \
+             got: {line}"
+        );
+        assert!(
+            line.contains("level=DEBUG"),
+            "must stay at debug so default log filtering is unchanged: {line}"
+        );
+        assert!(
+            line.contains("msg=mic level"),
+            "both UI layers match on the literal message: {line}"
+        );
+        assert!(
+            !line.contains("rms=<none>"),
+            "both UI layers read the value out of a field named `rms`: {line}"
+        );
     }
 }
