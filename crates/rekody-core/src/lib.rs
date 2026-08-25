@@ -22,6 +22,46 @@ pub const TRIGGER_LABEL: &str = "Ctrl + space";
 #[cfg(not(target_os = "windows"))]
 pub const TRIGGER_LABEL: &str = "⌥ + space";
 
+/// Whether this build can put the Whisper encoder on the Apple Neural Engine.
+///
+/// The predicate is the same one that gates the `coreml` feature on
+/// `whisper-rs` in `crates/rekody-stt/Cargo.toml`, so it is true exactly when
+/// `ensure_coreml_encoder` has an encoder to install and whisper.cpp has a
+/// backend to run it on. Everywhere else the encoder runs on CPU: Rekody
+/// compiles whisper.cpp with `GGML_METAL=OFF` on every target (whisper-rs
+/// 0.13 ships `default = []`), and there is no Neural Engine to fall back to.
+pub const HAS_NEURAL_ENGINE: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+
+/// The Whisper size Setup preselects, chosen for the machine this build runs
+/// on rather than assumed.
+///
+/// Turbo is `large-v3-turbo`: the decoder is cut from 32 layers to 4, but the
+/// ENCODER is byte-for-byte the 32-layer large-v3 encoder (636,968,960
+/// parameters in both). whisper.cpp classifies it as `MODEL_LARGE` for that
+/// reason. Encoding is also a fixed cost per dictation, not a per-second one,
+/// because `whisper_full` zero-pads every utterance to a 30 s window
+/// (`WHISPER_CHUNK_SIZE`). So on Apple Silicon, where the encoder runs on the
+/// Neural Engine, Turbo really is "fast with near-large accuracy"; on a CPU
+/// it is a large-model encode on every sentence and the label is a promise
+/// the hardware cannot keep (#141).
+///
+/// Small is the pick off the CPU cost/accuracy curve: on the one laptop-class
+/// Intel Mac in whisper.cpp's benchmark thread (i7-8750H, 8 threads, AVX2
+/// BLAS) the published per-window encode times are tiny 0.49 s, small 3.96 s,
+/// medium 13.08 s, large 25.56 s, while multilingual WER goes 21.71 (tiny),
+/// 13.96 (small), 12.50 (medium). Small buys 36% of the available accuracy
+/// for 8% of large's time; medium and turbo cost 3x and 6x more per point
+/// gained. Tiny is rejected on quality, not speed: roughly one word in five
+/// is not dictation.
+///
+/// Those numbers are from 2022 and cover one laptop, so they set the ORDER
+/// with confidence and the absolute times only loosely. `rekody bench
+/// --model <size>` reproduces them on real hardware in a couple of minutes.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub const DEFAULT_WHISPER_MODEL: &str = "turbo";
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+pub const DEFAULT_WHISPER_MODEL: &str = "small";
+
 pub mod bench;
 pub mod cleanup_guard;
 pub mod command_mode;
@@ -324,7 +364,7 @@ impl Default for RekodyConfig {
             llm_provider: "groq".into(),
             groq_api_key: None,
             cerebras_api_key: None,
-            whisper_model: "turbo".into(),
+            whisper_model: DEFAULT_WHISPER_MODEL.into(),
             stt_engine: "local".into(),
             deepgram_api_key: None,
             cohere_stt_port: 8099,
@@ -1295,7 +1335,23 @@ impl Pipeline {
         // path keeps working unchanged.
         let dict = dictionary::Dictionary::load_or_empty();
         self.stt.set_bias_terms(dict.terms());
-        let transcript = self.stt.transcribe(&segment.samples).await?;
+        // Batch transcription has a real pause between the last word and the
+        // text, and on a CPU-only encode that pause is measured in seconds.
+        // A static "transcribing…" with no sense of duration reads as a hang
+        // (#141), so tick a counter for the UI layers for exactly as long as
+        // the engine holds the audio. It stops before LLM cleanup, which has
+        // its own verb, and the streaming loop never reaches here at all.
+        let heartbeat = tokio::spawn(async move {
+            let mut secs = 0u64;
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                secs += 1;
+                tracing::debug!(secs, "transcription in progress");
+            }
+        });
+        let transcribed = self.stt.transcribe(&segment.samples).await;
+        heartbeat.abort();
+        let transcript = transcribed?;
 
         if transcript.text.is_empty() {
             tracing::debug!("empty transcript, skipping injection");

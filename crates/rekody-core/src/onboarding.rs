@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{Context, Result};
+
+use crate::DEFAULT_WHISPER_MODEL;
 use cliclack::{Theme, ThemeState, confirm, input, intro, outro, select, spinner};
 use console::Style;
 
@@ -438,19 +440,16 @@ pub fn run_onboarding() -> Result<()> {
         groq_stt_api_key
     };
 
-    // For local Whisper, ask model size and download
+    // For local Whisper, ask model size and download.
+    //
+    // The offer is architecture-aware (#141). Turbo carries the full 32-layer
+    // large-v3 encoder, and whisper.cpp pays that encode once per dictation
+    // against a zero-padded 30 s window, so "fast" is true only where the
+    // encoder runs on the Neural Engine. Recommending it to a machine with no
+    // ANE promises Apple Silicon speed the hardware cannot deliver, which is
+    // what the first Intel user hit. See `DEFAULT_WHISPER_MODEL`.
     let whisper_size: &str = if stt_engine == "local" {
-        select("Choose local Whisper model size")
-            .item(
-                "turbo",
-                "Turbo (574 MB)",
-                "fast + near-large accuracy (recommended)",
-            )
-            .item("tiny", "Tiny (75 MB)", "fastest — basic accuracy")
-            .item("small", "Small (488 MB)", "balanced")
-            .item("medium", "Medium (1.5 GB)", "better accuracy")
-            .item("large", "Large (3.1 GB)", "best accuracy")
-            .initial_value("turbo")
+        whisper_size_prompt()
             .interact()
             .map_err(|e| anyhow::anyhow!(e))?
     } else {
@@ -458,7 +457,7 @@ pub fn run_onboarding() -> Result<()> {
         // written to config. Write the recommended default so a later hand
         // edit to stt_engine = "local" points at the model Setup and the app
         // actually fetch, not at a never-downloaded tiny.
-        "turbo"
+        DEFAULT_WHISPER_MODEL
     };
 
     let (whisper_file, whisper_remote) = whisper_download_spec(whisper_size);
@@ -517,8 +516,7 @@ pub fn run_onboarding() -> Result<()> {
             );
             println!(
                 "     {}",
-                console::style("(rekody will still work; you'll just be on Metal-only speed)")
-                    .dim()
+                console::style("(rekody will still work; the encoder just runs on the CPU)").dim()
             );
         }
     } // end if stt_engine == "local"
@@ -1256,6 +1254,79 @@ fn set_keychain(provider: &str, key: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Whisper model picker
+// ---------------------------------------------------------------------------
+
+/// One row of Setup's local-Whisper size picker: `(value, label, hint)`.
+type SizeItem = (&'static str, &'static str, &'static str);
+
+/// The picker's prompt and rows for the machine this build runs on.
+///
+/// Split out from the `cliclack` builder so the offer is assertable without
+/// driving a TTY: `whisper_size_offer_tests` pins the Apple Silicon rows
+/// character for character against what shipped before #141.
+///
+/// Two separate lists rather than one list with conditional strings, so the
+/// Apple Silicon offer can be read straight off the page.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn whisper_size_offer() -> (&'static str, [SizeItem; 5]) {
+    (
+        "Choose local Whisper model size",
+        [
+            (
+                "turbo",
+                "Turbo (574 MB)",
+                "fast + near-large accuracy (recommended)",
+            ),
+            ("tiny", "Tiny (75 MB)", "fastest — basic accuracy"),
+            ("small", "Small (488 MB)", "balanced"),
+            ("medium", "Medium (1.5 GB)", "better accuracy"),
+            ("large", "Large (3.1 GB)", "best accuracy"),
+        ],
+    )
+}
+
+/// No Neural Engine here, so the encoder runs on CPU and the ordering by
+/// speed changes completely. Turbo stays on the list (it is the accuracy
+/// ceiling, and someone transcribing long-form on a fast desktop may still
+/// want it) but it is no longer preselected and no longer described as fast.
+/// The hints say which way each choice trades, and the prompt names the
+/// reason so the recommendation does not look arbitrary.
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+fn whisper_size_offer() -> (&'static str, [SizeItem; 5]) {
+    (
+        "Choose local Whisper model size (this machine has no Neural Engine)",
+        [
+            (
+                "small",
+                "Small (488 MB)",
+                "recommended here: good accuracy at a workable speed on CPU",
+            ),
+            ("tiny", "Tiny (75 MB)", "fastest, but visibly less accurate"),
+            (
+                "turbo",
+                "Turbo (574 MB)",
+                "near-large accuracy, but a large-model encode on every sentence",
+            ),
+            ("medium", "Medium (1.5 GB)", "slower again than turbo"),
+            ("large", "Large (3.1 GB)", "best accuracy, slowest"),
+        ],
+    )
+}
+
+/// Assemble the picker. The preselection is `DEFAULT_WHISPER_MODEL` on every
+/// architecture, which on Apple Silicon is "turbo": the same value, and the
+/// same first row, that shipped before #141.
+fn whisper_size_prompt() -> cliclack::Select<&'static str> {
+    let (prompt, items) = whisper_size_offer();
+    let mut sel = select(prompt);
+    for (value, label, hint) in items {
+        sel = sel.item(value, label, hint);
+    }
+    sel.initial_value(DEFAULT_WHISPER_MODEL)
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -1322,8 +1393,10 @@ fn whisper_file_name(size: &str) -> &str {
 //
 // whisper.cpp loads `<model>-encoder.mlmodelc` from the same directory as the
 // `.bin` file when the binary is built with WHISPER_COREML=1 (whisper-rs
-// `coreml` feature). The encoder runs on the Neural Engine, typically ~2×
-// faster than Metal-only inference. First use compiles the MIL bytecode into
+// `coreml` feature). The encoder then runs on the Neural Engine instead of
+// the CPU, which is the whole reason Turbo is a sensible Apple Silicon
+// default (Metal is never compiled in: whisper-rs 0.13 sets GGML_METAL=OFF).
+// First use compiles the MIL bytecode into
 // `~/Library/Caches/com.apple.e5rt.e5bundlecache` (30–60 s, one-time).
 
 /// Return `(mlmodelc_dir_name, remote_archive_name)` for the given whisper
@@ -1332,6 +1405,12 @@ fn whisper_file_name(size: &str) -> &str {
 /// The remote name is the artifact in both the Rekody model mirror and
 /// upstream whisper.cpp (see whisper_asset_urls); the local dir name is what
 /// whisper.cpp derives from the model filename on disk.
+///
+/// Only `ensure_coreml_encoder` (and its tests) call this, and that is
+/// compiled out where there is no Neural Engine, so the cfg keeps the Intel
+/// release build free of a dead-code warning while the tests still run on
+/// every host.
+#[cfg(any(all(target_os = "macos", target_arch = "aarch64"), test))]
 fn coreml_archive_for(size: &str) -> Option<(&'static str, &'static str)> {
     match size.to_lowercase().as_str() {
         "tiny" => Some((
@@ -1589,6 +1668,118 @@ pub fn unverified_installed_models() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Setup's model offer, per architecture (#141).
+    ///
+    /// The Apple Silicon half is a neutrality guard, not a spec: it pins the
+    /// prompt, the five rows, their order, their hints, and the preselection
+    /// to exactly what shipped in 0.5.29, so a change to the Intel offer
+    /// cannot quietly move what Apple Silicon users see.
+    mod whisper_size_offer_tests {
+        use super::*;
+
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        #[test]
+        fn apple_silicon_offer_is_unchanged_character_for_character() {
+            let (prompt, items) = whisper_size_offer();
+            assert_eq!(prompt, "Choose local Whisper model size");
+            assert_eq!(
+                items,
+                [
+                    (
+                        "turbo",
+                        "Turbo (574 MB)",
+                        "fast + near-large accuracy (recommended)"
+                    ),
+                    ("tiny", "Tiny (75 MB)", "fastest — basic accuracy"),
+                    ("small", "Small (488 MB)", "balanced"),
+                    ("medium", "Medium (1.5 GB)", "better accuracy"),
+                    ("large", "Large (3.1 GB)", "best accuracy"),
+                ]
+            );
+            assert_eq!(
+                crate::DEFAULT_WHISPER_MODEL,
+                "turbo",
+                "Apple Silicon still preselects Turbo"
+            );
+        }
+
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        #[test]
+        fn without_a_neural_engine_the_offer_leads_with_small_and_stops_calling_turbo_fast() {
+            let (prompt, items) = whisper_size_offer();
+            assert!(
+                prompt.contains("no Neural Engine"),
+                "the prompt must say why the recommendation differs: {prompt}"
+            );
+            assert_eq!(items[0].0, "small", "small leads the list");
+            assert_eq!(crate::DEFAULT_WHISPER_MODEL, "small");
+
+            let turbo = items
+                .iter()
+                .find(|(value, _, _)| *value == "turbo")
+                .expect("turbo stays available as the accuracy ceiling");
+            let hint = turbo.2.to_lowercase();
+            assert!(
+                !hint.contains("fast") && !hint.contains("recommended"),
+                "turbo must not be sold as fast or recommended where the \
+                 encoder runs on the CPU: {hint}"
+            );
+        }
+
+        /// Whatever the architecture, the preselected value has to be a real
+        /// row in the list, a size the engine can parse, and a file Setup can
+        /// actually fetch and checksum.
+        #[test]
+        fn the_preselected_size_is_offered_downloadable_and_pinned() {
+            let (_, items) = whisper_size_offer();
+            assert!(
+                items
+                    .iter()
+                    .any(|(value, _, _)| *value == crate::DEFAULT_WHISPER_MODEL),
+                "the preselection must be one of the offered rows"
+            );
+            let (local, _remote) = whisper_download_spec(crate::DEFAULT_WHISPER_MODEL);
+            assert_eq!(
+                expected_checksum_for(local).len(),
+                64,
+                "{local} must carry a pinned checksum"
+            );
+        }
+
+        /// Every row still resolves, so reordering or relabelling cannot
+        /// smuggle in a size with no artifact behind it.
+        #[test]
+        fn every_offered_row_resolves_to_a_pinned_artifact() {
+            let (_, items) = whisper_size_offer();
+            let mut seen: Vec<&str> = Vec::new();
+            for (value, label, hint) in items {
+                assert!(!seen.contains(&value), "{value} listed twice");
+                seen.push(value);
+                assert!(!label.is_empty() && !hint.is_empty());
+                let (local, _remote) = whisper_download_spec(value);
+                assert_eq!(expected_checksum_for(local).len(), 64, "{local}");
+            }
+            assert_eq!(seen.len(), 5, "all five sizes stay on offer");
+        }
+
+        /// The predicate that picks the default is the same one that decides
+        /// whether a Core ML encoder gets installed. If those ever disagree,
+        /// a machine could be steered to Turbo with no Neural Engine to run
+        /// it on, which is the bug.
+        #[test]
+        fn the_default_tracks_the_core_ml_predicate() {
+            assert_eq!(
+                crate::HAS_NEURAL_ENGINE,
+                cfg!(all(target_os = "macos", target_arch = "aarch64"))
+            );
+            assert_eq!(
+                crate::DEFAULT_WHISPER_MODEL == "turbo",
+                crate::HAS_NEURAL_ENGINE,
+                "turbo is the default exactly where the encoder can run on the ANE"
+            );
+        }
+    }
 
     /// Every size the wizard offers must resolve to a local file with a
     /// pinned, well-formed SHA-256 — an empty hash would silently skip

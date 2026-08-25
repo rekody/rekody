@@ -1,9 +1,16 @@
 //! `rekody bench` — measure local Whisper transcription latency.
 //!
 //! Runs the bundled audio sample(s) through the local Whisper engine N times
-//! and reports mean / p50 / p95 latency plus real-time factor (RTF). The big
-//! intended use is A/B: rename the `.mlmodelc` directory out of the way to
-//! compare Metal-only vs Core ML / ANE.
+//! and reports mean / p50 / p95 latency plus real-time factor (RTF).
+//!
+//! Two intended uses:
+//!
+//! * A/B one model against itself: rename the `.mlmodelc` directory out of
+//!   the way to compare CPU against Core ML / ANE (Apple Silicon only).
+//! * A/B model sizes against each other: `--model tiny --model small --model
+//!   turbo` runs each in turn and prints a comparison table. This is how the
+//!   right default for a machine gets PICKED rather than guessed, which is
+//!   what issue #141 needed on Intel.
 //!
 //! Samples are embedded in the binary (`include_bytes!`) so the command works
 //! anywhere without a download step. Currently shipping with `jfk.wav` —
@@ -80,6 +87,24 @@ fn resolve_model_dir() -> PathBuf {
         })
 }
 
+/// How the encoder is actually running, in plain terms.
+///
+/// Rekody compiles whisper.cpp with `GGML_METAL=OFF` on every target
+/// (whisper-rs 0.13 ships `default = []`), and enables `coreml` only on
+/// macOS/aarch64. So there are exactly two states: encoder on the Neural
+/// Engine, or encoder on the CPU. Naming the fallback "Metal" was wrong and
+/// hid the reason Intel is slow.
+fn acceleration_label(model_dir: &std::path::Path, model: WhisperModel) -> (&'static str, bool) {
+    if !crate::HAS_NEURAL_ENGINE {
+        return ("CPU  (no Neural Engine on this machine)", false);
+    }
+    if coreml_present_for(model_dir, model) {
+        ("Core ML / ANE  (encoder on Neural Engine)", true)
+    } else {
+        ("CPU  (Core ML encoder not installed for this size)", false)
+    }
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn coreml_present_for(model_dir: &std::path::Path, model: WhisperModel) -> bool {
     let name = match model {
@@ -124,7 +149,12 @@ fn stats(times: &[Duration]) -> Stats {
 }
 
 /// Public entrypoint for `rekody bench`.
-pub async fn run(config: &RekodyConfig, runs: usize, warmup: usize) -> Result<()> {
+pub async fn run(
+    config: &RekodyConfig,
+    runs: usize,
+    warmup: usize,
+    models: &[String],
+) -> Result<()> {
     if !matches!(config.stt_engine.to_lowercase().as_str(), "local") {
         anyhow::bail!(
             "`rekody bench` benchmarks the local Whisper engine; your config uses `{}`.\n\
@@ -132,14 +162,39 @@ pub async fn run(config: &RekodyConfig, runs: usize, warmup: usize) -> Result<()
             config.stt_engine
         );
     }
-    let model = model_from_str(&config.whisper_model)?;
+
+    // No --model means "whatever the config runs", which is the historical
+    // behaviour. Sizes are de-duplicated but keep the order they were typed,
+    // so the comparison table reads the way the tester asked for it.
+    let requested: Vec<String> = if models.is_empty() {
+        vec![config.whisper_model.clone()]
+    } else {
+        let mut seen: Vec<String> = Vec::new();
+        for m in models {
+            let key = m.to_lowercase();
+            if !seen.contains(&key) {
+                seen.push(key);
+            }
+        }
+        seen
+    };
+
     let model_dir = resolve_model_dir();
-    let model_path = model_dir.join(WhisperModel::multilingual_file_name(model));
-    if !model_path.exists() {
-        anyhow::bail!(
-            "Whisper model not found at {}. Run `rekody setup` first.",
-            model_path.display()
-        );
+    // Resolve and check EVERY model up front: a missing 3 GB download should
+    // fail before the first benchmark runs, not twenty minutes into a pass.
+    let mut plan: Vec<(WhisperModel, PathBuf)> = Vec::with_capacity(requested.len());
+    for name in &requested {
+        let model = model_from_str(name)?;
+        let model_path = model_dir.join(WhisperModel::multilingual_file_name(model));
+        if !model_path.exists() {
+            anyhow::bail!(
+                "Whisper model `{name}` not found at {}.\n\
+                 Run `rekody setup` and pick it, so the file is downloaded and \
+                 checksum-verified before it is benchmarked.",
+                model_path.display()
+            );
+        }
+        plan.push((model, model_path));
     }
 
     // ── Header ──
@@ -159,109 +214,161 @@ pub async fn run(config: &RekodyConfig, runs: usize, warmup: usize) -> Result<()
     );
     println!("  {brand}│{reset}");
     println!(
-        "  {brand}│{reset}   {dim}Model :{reset}  {cream}{bold}{:?}{reset}  {dim}({}){reset}",
-        model,
-        model_path.display()
-    );
-    let acceleration = if coreml_present_for(&model_dir, model) {
-        format!("{ok}{bold}Core ML / ANE{reset}  {dim}(encoder on Neural Engine){reset}")
-    } else {
-        format!("{warn}{bold}Metal{reset}  {dim}(no Core ML encoder — rename rules apply){reset}")
-    };
-    println!("  {brand}│{reset}   {dim}Accel :{reset}  {acceleration}");
-    println!(
         "  {brand}│{reset}   {dim}Runs  :{reset}  {cream}{bold}{}{reset}  {dim}(+ {} warmup, discarded){reset}",
         runs, warmup
     );
     println!("  {brand}│{reset}");
 
-    for sample in SAMPLES {
-        // Load engine per sample so we can use the right language hint —
-        // saves an auto-detect pass and prevents misclassification of short
-        // mono audio. The .bin and .mlmodelc are cached after first load,
-        // so the extra construction cost is negligible.
-        let engine = LocalWhisperEngine::with_language(
+    // (model, sample, mean_ms, rtf) for the comparison table.
+    let mut results: Vec<(WhisperModel, &'static str, f64, f64)> = Vec::new();
+
+    for (model, model_path) in &plan {
+        let (model, model_path) = (*model, model_path.as_path());
+        println!(
+            "  {brand}│{reset}   {dim}Model :{reset}  {cream}{bold}{:?}{reset}  {dim}({}){reset}",
             model,
-            model_path.to_str().unwrap_or(""),
-            Some(sample.language.to_string()),
-        )
-        .context("loading whisper model")?;
-        let (pcm, duration_secs) = decode_wav(sample.wav).context("decoding sample WAV")?;
-
-        println!(
-            "  {brand}│{reset}   {brand_light}{bold}{}.wav{reset}  {dim}{:.2}s audio, {} samples{reset}",
-            sample.name,
-            duration_secs,
-            pcm.len()
+            model_path.display()
         );
+        let (accel_text, accelerated) = acceleration_label(&model_dir, model);
+        let accel_color = if accelerated { ok } else { warn };
+        println!("  {brand}│{reset}   {dim}Accel :{reset}  {accel_color}{bold}{accel_text}{reset}");
 
-        // Warmup runs (discarded; absorb Core ML compile + model state warm-up).
-        for w in 0..warmup {
-            print!(
-                "\r  {brand}│{reset}     {dim}warmup {}/{}…{reset}    ",
-                w + 1,
-                warmup
+        for sample in SAMPLES {
+            // Load engine per sample so we can use the right language hint —
+            // saves an auto-detect pass and prevents misclassification of short
+            // mono audio. The .bin and .mlmodelc are cached after first load,
+            // so the extra construction cost is negligible.
+            let engine = LocalWhisperEngine::with_language(
+                model,
+                model_path.to_str().unwrap_or(""),
+                Some(sample.language.to_string()),
+            )
+            .context("loading whisper model")?;
+            let (pcm, duration_secs) = decode_wav(sample.wav).context("decoding sample WAV")?;
+
+            println!(
+                "  {brand}│{reset}   {brand_light}{bold}{}.wav{reset}  {dim}{:.2}s audio, {} samples{reset}",
+                sample.name,
+                duration_secs,
+                pcm.len()
             );
-            std::io::Write::flush(&mut std::io::stdout()).ok();
-            let _ = engine.transcribe(&pcm).await?;
-        }
 
-        // Measured runs.
-        let mut times = Vec::with_capacity(runs);
-        let mut last_text = String::new();
-        for r in 0..runs {
-            print!(
-                "\r  {brand}│{reset}     {dim}run {}/{}…{reset}    ",
-                r + 1,
-                runs
+            // Warmup runs (discarded; absorb Core ML compile + model state warm-up).
+            for w in 0..warmup {
+                print!(
+                    "\r  {brand}│{reset}     {dim}warmup {}/{}…{reset}    ",
+                    w + 1,
+                    warmup
+                );
+                std::io::Write::flush(&mut std::io::stdout()).ok();
+                let _ = engine.transcribe(&pcm).await?;
+            }
+
+            // Measured runs.
+            let mut times = Vec::with_capacity(runs);
+            let mut last_text = String::new();
+            for r in 0..runs {
+                print!(
+                    "\r  {brand}│{reset}     {dim}run {}/{}…{reset}    ",
+                    r + 1,
+                    runs
+                );
+                std::io::Write::flush(&mut std::io::stdout()).ok();
+                let t = Instant::now();
+                let tx = engine.transcribe(&pcm).await?;
+                times.push(t.elapsed());
+                last_text = tx.text;
+            }
+            // Clear the progress line.
+            print!("\r  {brand}│{reset}                                          \r");
+
+            let s = stats(&times);
+            let rtf = s.mean_ms / (duration_secs * 1000.0);
+            println!(
+                "  {brand}│{reset}     {dim}mean  :{reset}  {cream}{bold}{:7.1} ms{reset}    {dim}p50 {:.1} · p95 {:.1} · min {:.1} · max {:.1}{reset}",
+                s.mean_ms, s.p50_ms, s.p95_ms, s.min_ms, s.max_ms
             );
-            std::io::Write::flush(&mut std::io::stdout()).ok();
-            let t = Instant::now();
-            let tx = engine.transcribe(&pcm).await?;
-            times.push(t.elapsed());
-            last_text = tx.text;
+            let rtf_color = if rtf < 0.3 {
+                ok
+            } else if rtf < 0.6 {
+                brand_light
+            } else {
+                warn
+            };
+            println!(
+                "  {brand}│{reset}     {dim}RTF   :{reset}  {rtf_color}{bold}{:.3}×{reset}  {dim}(transcribe-time ÷ audio-time; lower = faster){reset}",
+                rtf
+            );
+            println!(
+                "  {brand}│{reset}     {dim}out   :{reset}  {dim}\u{201c}{}\u{201d}{reset}",
+                truncate(&last_text, 70)
+            );
+            println!("  {brand}│{reset}");
+            results.push((model, sample.name, s.mean_ms, rtf));
         }
-        // Clear the progress line.
-        print!("\r  {brand}│{reset}                                          \r");
+    }
 
-        let s = stats(&times);
-        let rtf = s.mean_ms / (duration_secs * 1000.0);
+    // ── Comparison table (only earns its space with something to compare) ──
+    if plan.len() > 1 {
+        println!("  {brand}│{reset}   {brand_light}{bold}size comparison{reset}");
         println!(
-            "  {brand}│{reset}     {dim}mean  :{reset}  {cream}{bold}{:7.1} ms{reset}    {dim}p50 {:.1} · p95 {:.1} · min {:.1} · max {:.1}{reset}",
-            s.mean_ms, s.p50_ms, s.p95_ms, s.min_ms, s.max_ms
+            "  {brand}│{reset}     {dim}{:<8} {:>10}  {:>8}   verdict{reset}",
+            "model", "mean", "RTF"
         );
-        let rtf_color = if rtf < 0.3 {
-            ok
-        } else if rtf < 0.6 {
-            brand_light
-        } else {
-            warn
-        };
+        for (model, sample, mean_ms, rtf) in &results {
+            // Faster than real time is the bar that matters for dictation:
+            // above 1.0x the wait after every sentence is longer than the
+            // sentence took to say.
+            let (verdict, color) = if *rtf < 0.3 {
+                ("comfortably faster than real time", ok)
+            } else if *rtf < 1.0 {
+                ("faster than real time", brand_light)
+            } else {
+                ("SLOWER than real time", warn)
+            };
+            println!(
+                "  {brand}│{reset}     {cream}{:<8}{reset} {:>8.0} ms  {color}{:>7.3}×{reset}   {dim}{} ({}.wav){reset}",
+                format!("{model:?}").to_lowercase(),
+                mean_ms,
+                rtf,
+                verdict,
+                sample
+            );
+        }
+        println!("  {brand}│{reset}");
         println!(
-            "  {brand}│{reset}     {dim}RTF   :{reset}  {rtf_color}{bold}{:.3}×{reset}  {dim}(transcribe-time ÷ audio-time; lower = faster){reset}",
-            rtf
+            "  {brand}│{reset}     {dim}The right default is the LARGEST size that stays{reset}"
         );
         println!(
-            "  {brand}│{reset}     {dim}out   :{reset}  {dim}\u{201c}{}\u{201d}{reset}",
-            truncate(&last_text, 70)
+            "  {brand}│{reset}     {dim}comfortably faster than real time on this machine.{reset}"
         );
         println!("  {brand}│{reset}");
     }
 
-    // ── A/B hint ──
-    println!("  {brand}│{reset}   {dim}A/B vs Metal:{reset}");
-    println!(
-        "  {brand}│{reset}     {dim}1. mv {model_dir}/<model>-encoder.mlmodelc /tmp/{reset}",
-        model_dir = model_dir.display()
-    );
-    println!(
-        "  {brand}│{reset}     {dim}2. rekody bench   {dim}# Metal-only numbers{reset}{reset}"
-    );
-    println!(
-        "  {brand}│{reset}     {dim}3. mv /tmp/<model>-encoder.mlmodelc {model_dir}/{reset}",
-        model_dir = model_dir.display()
-    );
-    println!("  {brand}│{reset}     {dim}4. rekody bench   {dim}# Core ML numbers{reset}{reset}");
+    // ── A/B hint: only where there is a Neural Engine to A/B against ──
+    if crate::HAS_NEURAL_ENGINE {
+        println!("  {brand}│{reset}   {dim}A/B the Neural Engine against the CPU:{reset}");
+        println!(
+            "  {brand}│{reset}     {dim}1. mv {model_dir}/<model>-encoder.mlmodelc /tmp/{reset}",
+            model_dir = model_dir.display()
+        );
+        println!("  {brand}│{reset}     {dim}2. rekody bench   # CPU-only numbers{reset}");
+        println!(
+            "  {brand}│{reset}     {dim}3. mv /tmp/<model>-encoder.mlmodelc {model_dir}/{reset}",
+            model_dir = model_dir.display()
+        );
+        println!("  {brand}│{reset}     {dim}4. rekody bench   # Core ML numbers{reset}");
+    } else {
+        println!(
+            "  {brand}│{reset}   {dim}No Neural Engine here, so the encoder runs on CPU and{reset}"
+        );
+        println!(
+            "  {brand}│{reset}   {dim}pays a full 30 s window per dictation whatever you say.{reset}"
+        );
+        println!(
+            "  {brand}│{reset}   {dim}Compare sizes with: rekody bench --model tiny --model small --model turbo{reset}"
+        );
+    }
 
     println!("  {brand}│{reset}");
     println!("  {brand}╰{}{reset}", rule);

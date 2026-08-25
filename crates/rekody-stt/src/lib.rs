@@ -186,8 +186,14 @@ impl WhisperModel {
 /// Local Whisper STT engine using whisper.cpp via whisper-rs.
 ///
 /// Loads a GGML Whisper model and performs on-device transcription.
-/// On macOS, GPU acceleration via Metal is used automatically when
-/// available through whisper-rs defaults.
+///
+/// Acceleration, precisely: whisper-rs 0.13 ships `default = []` and its
+/// build script sets `GGML_METAL=OFF`, so Metal is never compiled in on any
+/// target. The only accelerator Rekody enables is Core ML, and only on
+/// macOS/aarch64 (see this crate's Cargo.toml), which puts the ENCODER on the
+/// Neural Engine. Everywhere else, encoder and decoder both run on the CPU
+/// with Accelerate BLAS. That is why model-size defaults are chosen per
+/// architecture rather than globally (#141).
 pub struct LocalWhisperEngine {
     model: WhisperModel,
     ctx: WhisperContext,

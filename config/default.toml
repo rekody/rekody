@@ -5,8 +5,18 @@
 activation_mode = "push_to_talk"
 
 # Whisper model size: "turbo", "tiny", "small", "medium", "large"
-# "turbo" (default): distilled large-v3 quantized to ~574 MB — fast decode
-# with near-large accuracy. Best for local STT in most cases.
+#
+# Setup preselects by architecture, because the answer differs:
+#   Apple Silicon -> "turbo" (~574 MB). The encoder runs on the Neural Engine,
+#                    so it is genuinely fast at near-large accuracy.
+#   no Neural Engine -> "small" (~488 MB). Turbo carries the full 32-layer
+#                    large-v3 encoder and whisper.cpp pays that encode once per
+#                    dictation, so on a CPU turbo is a large-model encode after
+#                    every sentence. Small is the largest size that stays
+#                    comfortably faster than real time there.
+#
+# This file is the Apple Silicon default. Measure before overriding:
+#   rekody bench --model tiny --model small --model turbo
 whisper_model = "turbo"
 
 # VAD sensitivity — RMS energy above this = speech.
