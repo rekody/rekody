@@ -147,7 +147,7 @@ export const rows: Row[] = [
   {
     label: 'Platforms',
     cells: [
-      { kind: 'text', text: 'macOS. App needs macOS 13+ on Apple Silicon; the CLI also runs on Intel.' },
+      { kind: 'text', text: 'macOS 13+, Apple Silicon and Intel. Real-time streaming is Apple Silicon only; Intel Macs transcribe with Whisper.' },
       { kind: 'text', text: 'Built into macOS.' },
       { kind: 'text', text: 'macOS, Windows, iPhone, Android.' },
       { kind: 'text', text: 'macOS, plus a separate iOS app.' },
