@@ -2,9 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Setup picks a Whisper model that suits your Mac.** The model list always led with Turbo, labelled "fast + near-large accuracy (recommended)". That is true on Apple Silicon, where the encoder runs on the Neural Engine. It is not true anywhere else: Turbo trims the decoder but keeps the full large-v3 encoder, and whisper.cpp pays that encode once per sentence however short the sentence is, so on a Mac without a Neural Engine every dictation is a large-model encode. Setup now leads with Small there, stops calling Turbo fast, and says in the prompt why the recommendation differs. Apple Silicon still gets Turbo, with the same description it has always carried. Turbo stays on the list everywhere for anyone who wants the accuracy and can wait for it.
+- **`rekody bench` compares model sizes in one pass.** `rekody bench --model tiny --model small --model turbo` runs each size on the bundled clip and prints mean latency, real-time factor, and whether each one keeps up with speech, so the right model for a machine is something you measure rather than argue about. Every size is checked before the first run, so a missing download fails immediately instead of twenty minutes in.
+
 ### Fixed
 
 - **The waveform moves whatever engine you use.** The bar in the pill sat flat for the whole recording whenever local Whisper was doing the transcribing, which is every Intel Mac since 0.4.25 and anyone on Apple Silicon who sets `stt_engine = "local"`. Every other part of the pill worked, so it read as a broken app rather than a slower engine. The microphone level now comes from the audio capture tap in both run loops rather than only the streaming one, so the bar moves whenever the microphone is live. The terminal's sparkline carried a second copy of the same assumption and no longer does.
+
+- **A slow transcription now looks slow, not stuck.** Local Whisper has a real pause between your last word and the text, and on a Mac without a Neural Engine that pause can run to seconds. A motionless "transcribing…" through all of it reads as a crash. The pill now counts while the engine has your audio, and the terminal's WORKING badge carries a clock the same way the recording badge does.
 
 ## [0.5.29] - 2026-08-25
 
