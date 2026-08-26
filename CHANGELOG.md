@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.30] - 2026-08-25
+
 ### Changed
 
 - **Setup picks a Whisper model that suits your Mac.** The model list always led with Turbo, labelled "fast + near-large accuracy (recommended)". That is true on Apple Silicon, where the encoder runs on the Neural Engine. It is not true anywhere else: Turbo trims the decoder but keeps the full large-v3 encoder, and whisper.cpp pays that encode once per sentence however short the sentence is, so on a Mac without a Neural Engine every dictation is a large-model encode. Setup now leads with Small there, stops calling Turbo fast, and says in the prompt why the recommendation differs. Apple Silicon still gets Turbo, with the same description it has always carried. Turbo stays on the list everywhere for anyone who wants the accuracy and can wait for it.
