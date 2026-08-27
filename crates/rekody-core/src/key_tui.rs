@@ -43,8 +43,12 @@ const ERR: Color = Color::Rgb(0xD9, 0x6B, 0x6B);
 
 const SERVICE: &str = "com.rekody.voice";
 
-/// Providers shown in the picker. Order matters — most-used first.
-const PROVIDERS: &[&str] = &[
+/// LLM providers shown in the picker. Order matters: most-used first.
+///
+/// Speech-to-text accounts are not listed here: they come from
+/// `stt_catalog`, so a provider added to the catalog shows up in
+/// `rekody key` without an edit. See [`providers`].
+const LLM_PROVIDERS: &[&str] = &[
     "groq",
     "deepgram",
     "anthropic",
@@ -55,6 +59,21 @@ const PROVIDERS: &[&str] = &[
     "openrouter",
     "fireworks",
 ];
+
+/// Every keychain account the picker offers: the LLM providers above, plus
+/// each speech-to-text provider that takes a key, deduplicated (Groq and
+/// Deepgram are both).
+fn providers() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = LLM_PROVIDERS.to_vec();
+    for provider in crate::stt_catalog::catalog() {
+        if let Some(key) = &provider.key
+            && !all.contains(&key.keyring_account)
+        {
+            all.push(key.keyring_account);
+        }
+    }
+    all
+}
 
 // ── Public entrypoint ───────────────────────────────────────────────────────
 
@@ -142,8 +161,8 @@ impl App {
 }
 
 fn load_rows() -> Vec<Row> {
-    PROVIDERS
-        .iter()
+    providers()
+        .into_iter()
         .map(|p| Row {
             provider: p,
             masked: read_key(p).ok().filter(|k| !k.is_empty()).map(|k| mask(&k)),

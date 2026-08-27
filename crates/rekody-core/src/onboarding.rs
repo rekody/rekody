@@ -11,6 +11,7 @@ use std::process::Command;
 use anyhow::{Context, Result};
 
 use crate::DEFAULT_WHISPER_MODEL;
+use crate::stt_catalog;
 use cliclack::{Theme, ThemeState, confirm, input, intro, outro, select, spinner};
 use console::Style;
 
@@ -251,193 +252,86 @@ pub fn run_onboarding() -> Result<()> {
     };
 
     // --- Step 2: Speech-to-text engine ------------------------------------
-    // Priority order: Nemotron streaming first (the flagship engine and the
-    // preselected default), then local Whisper, then the cloud engines.
-    #[allow(unused_mut)]
+    // Every option, its order, and its one-line description come from
+    // `stt_catalog`. Nothing here names an engine, so a build compiled
+    // without the streaming engine simply does not offer it and local
+    // Whisper leads instead.
     let mut stt_select = select("Choose your speech-to-text engine");
-    #[cfg(feature = "nemotron")]
-    {
-        stt_select = stt_select.item(
-            "nemotron",
-            "Rekody Streaming (English)",
-            "private + instant — transcribes WHILE you talk (881 MB download, English only)",
+    for provider in stt_catalog::catalog() {
+        stt_select = stt_select.item(provider.id, provider.display_name, provider.description);
+    }
+    let stt_engine: &str = stt_select.interact().map_err(|e| anyhow::anyhow!(e))?;
+    let stt_provider =
+        stt_catalog::find(stt_engine).expect("the picker only offers ids from the catalog");
+
+    // Where the audio goes, said before anything is configured. Rekody's
+    // promise is that cloud engines are optional and labeled, and the
+    // wizard is one of the places that has to keep it.
+    if stt_provider.sends_audio_off_device() {
+        println!(
+            "  {}  {}",
+            console::style("!").yellow().bold(),
+            console::style(format!(
+                "{} is a cloud engine: your recorded audio leaves this Mac.",
+                stt_provider.display_name
+            ))
+            .dim()
         );
     }
-    stt_select = stt_select
-        .item(
-            "local",
-            "Local Whisper",
-            "private — 100+ languages, audio stays on your Mac (needs model download)",
-        )
-        .item(
-            "groq",
-            "Groq Cloud Whisper",
-            "fastest cloud — audio sent to Groq (uses your Groq API key)",
-        )
-        .item(
-            "deepgram",
-            "Deepgram Nova-3",
-            "cloud accuracy — audio sent to Deepgram (needs separate API key)",
-        );
-    let stt_engine: &str = stt_select.interact().map_err(|e| anyhow::anyhow!(e))?;
 
-    // Deepgram needs its own API key — check Keychain first
-    let deepgram_api_key: Option<String> = if stt_engine == "deepgram" {
-        if let Some(masked) = get_keychain_masked("deepgram") {
-            println!("  Found in Keychain: {masked}");
-            let use_existing: bool = confirm("Use existing key? (No = enter a new one)")
-                .initial_value(true)
-                .interact()
-                .map_err(|e| anyhow::anyhow!(e))?;
-            if use_existing {
-                // Retrieve the actual key from Keychain and write it to config
-                get_keychain_full("deepgram")
-            } else {
-                let key: String = input("Enter your new Deepgram API key")
-                    .placeholder("dg_...")
+    // --- Step 2b: that provider's own fields ------------------------------
+    // The URL comes before the key, because on a custom endpoint the key is
+    // meaningless until Rekody knows where it is going.
+    let mut custom_stt_base_url: Option<String> = None;
+    let mut custom_stt_model: Option<String> = None;
+    for field in stt_provider.fields {
+        match field.config_key {
+            "custom_stt_base_url" => {
+                custom_stt_base_url = Some(prompt_endpoint_url(field)?);
+            }
+            "custom_stt_model" => {
+                let model: String = input(field.label)
+                    .placeholder(field.placeholder)
                     .interact()
                     .map_err(|e| anyhow::anyhow!(e))?;
-                if key.is_empty() {
-                    None
-                } else {
-                    set_keychain("deepgram", &key);
-                    Some(key)
-                }
+                custom_stt_model = Some(model.trim().to_string());
             }
-        } else {
-            let key: String = input("Enter your Deepgram API key")
-                .placeholder("dg_...")
-                .interact()
-                .map_err(|e| anyhow::anyhow!(e))?;
-            if key.is_empty() {
-                None
-            } else {
-                set_keychain("deepgram", &key);
-                Some(key)
-            }
+            // `whisper_model` has its own architecture-aware step below, and
+            // `cohere_stt_port` keeps its config-file default. Both are
+            // still declared in the catalog so every other surface renders
+            // them; the wizard just owns their prompts.
+            _ => {}
         }
-    } else {
-        None
-    };
+    }
 
-    // --- Validate Deepgram API key ---------------------------------------
-    let deepgram_api_key: Option<String> = if let Some(ref dg_key) = deepgram_api_key {
-        if !dg_key.is_empty() {
-            let mut current_key = dg_key.clone();
-            loop {
-                let sp = spinner();
-                sp.start("Validating Deepgram API key...");
-                if validate_api_key("deepgram", &current_key) {
-                    sp.stop("Deepgram API key valid \u{2713}");
-                    break Some(current_key);
-                } else {
-                    sp.stop("Deepgram API key validation failed \u{2014} check your key");
-                    let proceed: bool = confirm("Continue anyway?")
-                        .initial_value(false)
-                        .interact()
-                        .map_err(|e| anyhow::anyhow!(e))?;
-                    if proceed {
-                        break Some(current_key);
-                    }
-                    let key: String = input("Enter your Deepgram API key")
-                        .placeholder("dg_...")
-                        .interact()
-                        .map_err(|e| anyhow::anyhow!(e))?;
-                    if !key.is_empty() {
-                        set_keychain("deepgram", &key);
-                    }
-                    current_key = key;
-                }
-            }
-        } else {
-            deepgram_api_key
+    if let Some(url) = &custom_stt_base_url {
+        // Say the destination host plainly, once, before a key is typed.
+        if let Ok(endpoint) = rekody_stt::resolve_transcription_endpoint(url) {
+            println!(
+                "  {}  {}",
+                console::style("→").cyan().bold(),
+                console::style(format!(
+                    "Audio will be sent to {}",
+                    endpoint.host_str().unwrap_or("this endpoint")
+                ))
+                .dim()
+            );
         }
-    } else {
-        deepgram_api_key
-    };
+    }
 
-    // Groq STT needs a Groq key. The LLM step's key is only a Groq key when
-    // that provider is itself Groq; any other provider's key must never be
-    // written to groq_api_key. Otherwise prompt for one, Keychain first
-    // (same pattern as the Deepgram key above).
+    // --- Step 2c: that provider's API key ---------------------------------
+    // Keychain first, then validation where there is a real endpoint to
+    // validate against. Entirely driven by the catalog's KeySpec, so a new
+    // provider inherits the whole flow.
     let reuse_llm_key_for_groq_stt =
         can_reuse_llm_key_for_groq_stt(stt_engine, provider_name, &api_key);
-    let groq_stt_api_key: Option<String> = if stt_engine != "groq" {
-        None
-    } else if reuse_llm_key_for_groq_stt {
-        Some(api_key.clone())
-    } else if let Some(masked) = get_keychain_masked("groq") {
-        println!("  Found in Keychain: {masked}");
-        let use_existing: bool = confirm("Use existing key? (No = enter a new one)")
-            .initial_value(true)
-            .interact()
-            .map_err(|e| anyhow::anyhow!(e))?;
-        if use_existing {
-            // Retrieve the actual key from Keychain and write it to config
-            get_keychain_full("groq")
-        } else {
-            let key: String = input("Enter your new Groq API key")
-                .placeholder("gsk_...")
-                .interact()
-                .map_err(|e| anyhow::anyhow!(e))?;
-            if key.is_empty() {
-                None
-            } else {
-                set_keychain("groq", &key);
-                Some(key)
-            }
-        }
-    } else {
-        let key: String = input("Enter your Groq API key")
-            .placeholder("gsk_...")
-            .interact()
-            .map_err(|e| anyhow::anyhow!(e))?;
-        if key.is_empty() {
-            None
-        } else {
-            set_keychain("groq", &key);
-            Some(key)
-        }
-    };
-
-    // --- Validate Groq STT API key ----------------------------------------
-    // Skipped when the key was reused from the LLM step, which already
-    // validated it.
-    let groq_stt_api_key: Option<String> = if reuse_llm_key_for_groq_stt {
-        groq_stt_api_key
-    } else if let Some(ref groq_key) = groq_stt_api_key {
-        if !groq_key.is_empty() {
-            let mut current_key = groq_key.clone();
-            loop {
-                let sp = spinner();
-                sp.start("Validating Groq API key...");
-                if validate_api_key("groq", &current_key) {
-                    sp.stop("Groq API key valid \u{2713}");
-                    break Some(current_key);
-                } else {
-                    sp.stop("Groq API key validation failed: check your key");
-                    let proceed: bool = confirm("Continue anyway?")
-                        .initial_value(false)
-                        .interact()
-                        .map_err(|e| anyhow::anyhow!(e))?;
-                    if proceed {
-                        break Some(current_key);
-                    }
-                    let key: String = input("Enter your Groq API key")
-                        .placeholder("gsk_...")
-                        .interact()
-                        .map_err(|e| anyhow::anyhow!(e))?;
-                    if !key.is_empty() {
-                        set_keychain("groq", &key);
-                    }
-                    current_key = key;
-                }
-            }
-        } else {
-            groq_stt_api_key
-        }
-    } else {
-        groq_stt_api_key
+    let stt_api_key: Option<String> = match &stt_provider.key {
+        // The LLM step's key is only a Groq key when that provider is itself
+        // Groq; any other provider's key must never be written to
+        // groq_api_key.
+        Some(_) if reuse_llm_key_for_groq_stt => Some(api_key.clone()),
+        Some(spec) => prompt_stt_key(stt_provider.display_name, spec)?,
+        None => None,
     };
 
     // For local Whisper, ask model size and download.
@@ -677,18 +571,26 @@ pub fn run_onboarding() -> Result<()> {
         String::new()
     };
 
-    let deepgram_line = match &deepgram_api_key {
-        Some(key) if !key.is_empty() => format!("deepgram_api_key = \"{key}\""),
+    // The selected provider's key goes to the config key its catalog entry
+    // names. That is how `groq_api_key` still carries a Groq STT key (a real
+    // Groq key, either reused from a Groq LLM step or prompted for above,
+    // never another provider's) without this code knowing about Groq.
+    let stt_key_line = match (&stt_provider.key, &stt_api_key) {
+        (Some(spec), Some(key)) if !key.is_empty() => {
+            format!("{} = {}", spec.config_key, toml_string(key))
+        }
         _ => String::new(),
     };
 
-    // If STT is groq, groq_api_key carries the STT key: a real Groq key,
-    // either reused from a Groq LLM step or prompted for above. Never
-    // another provider's key.
-    let groq_stt_line = match &groq_stt_api_key {
-        Some(key) if !key.is_empty() => format!("groq_api_key = \"{key}\""),
-        _ => String::new(),
-    };
+    // Extra fields the provider declared, in catalog order.
+    let mut stt_field_lines: Vec<String> = Vec::new();
+    if let Some(url) = &custom_stt_base_url {
+        stt_field_lines.push(format!("custom_stt_base_url = {}", toml_string(url)));
+    }
+    if let Some(model) = &custom_stt_model {
+        stt_field_lines.push(format!("custom_stt_model = {}", toml_string(model)));
+    }
+    let stt_field_block = stt_field_lines.join("\n");
 
     let provider_block = if provider_name == "none" {
         String::new()
@@ -739,16 +641,16 @@ injection_method = "clipboard"
 # Folder: ~/.local/share/rekody/training-data — set false to disable.
 save_training_data = {save_training_data}
 {stt_line}
-{deepgram_line}
-{groq_stt_line}
+{stt_key_line}
+{stt_field_block}
 
 {provider_block}
 "#,
         trigger_key = trigger_key,
         whisper_size = whisper_size,
         stt_line = stt_line,
-        deepgram_line = deepgram_line,
-        groq_stt_line = groq_stt_line,
+        stt_key_line = stt_key_line,
+        stt_field_block = stt_field_block,
         provider_block = provider_block,
     );
 
@@ -774,11 +676,12 @@ save_training_data = {save_training_data}
     }
 
     // --- Summary & Done --------------------------------------------------
-    let stt_display = match stt_engine {
-        "groq" => "Groq Cloud Whisper Large v3".to_string(),
-        "deepgram" => "Deepgram Nova-3".to_string(),
-        "nemotron" => "Rekody Streaming (English)".to_string(),
-        _ => format!("Local Whisper ({whisper_size})"),
+    // One naming table, the catalog's. Whisper is the only entry whose
+    // summary carries more than its name, because the size was just chosen.
+    let stt_display = if stt_engine == "local" {
+        format!("{} ({whisper_size})", stt_provider.display_name)
+    } else {
+        stt_provider.display_name.to_string()
     };
 
     let summary = format!(
@@ -835,6 +738,115 @@ fn provider_has_key_check(provider: &str) -> bool {
 /// network failures. Only meaningful for providers where
 /// [`provider_has_key_check`] is true; anything else returns `true` without
 /// checking, and callers must not present that as validation.
+/// A TOML basic string, quotes and all.
+///
+/// The wizard writes config lines by hand, and a value typed by a user can
+/// contain a quote or a backslash. A model name like `whis"per` would
+/// otherwise produce a config file the daemon cannot parse, which looks
+/// like setup silently breaking Rekody. `toml` does the escaping.
+fn toml_string(value: &str) -> String {
+    toml::Value::String(value.to_string()).to_string()
+}
+
+/// Ask for a URL the user's voice will be sent to, and refuse to accept one
+/// Rekody would not send audio to.
+///
+/// The same guard the engine enforces, run while the URL is being typed, so
+/// nobody finishes setup with an endpoint that cannot work.
+fn prompt_endpoint_url(field: &stt_catalog::Field) -> anyhow::Result<String> {
+    loop {
+        let raw: String = input(field.label)
+            .placeholder(field.placeholder)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        match rekody_stt::resolve_transcription_endpoint(&raw) {
+            Ok(_) => return Ok(raw.trim().to_string()),
+            Err(e) => println!("  {}  {}", console::style("✗").red().bold(), e),
+        }
+    }
+}
+
+/// Prompt for a speech-to-text provider's API key: keychain first, then
+/// validation where the provider has an endpoint worth validating against.
+///
+/// Driven entirely by [`stt_catalog::KeySpec`], so a provider added to the
+/// catalog inherits existing-key detection, the masked preview, rotation,
+/// validation, and the "continue anyway" escape without a line of new code.
+/// The key is written to the keychain and returned; it is never printed.
+fn prompt_stt_key(
+    display_name: &str,
+    spec: &stt_catalog::KeySpec,
+) -> anyhow::Result<Option<String>> {
+    let account = spec.keyring_account;
+
+    // Ask for a key, remembering it in the keychain when one is given.
+    let ask = |prompt: &str| -> anyhow::Result<Option<String>> {
+        if !spec.obtain_label.is_empty() {
+            println!(
+                "  {}  {}",
+                console::style("→").cyan().bold(),
+                console::style(format!("Get one at {}", spec.obtain_label)).dim()
+            );
+        }
+        let key: String = input(prompt)
+            .placeholder(spec.placeholder)
+            // An optional key is genuinely optional: a transcription server
+            // on localhost usually wants none.
+            .required(spec.required)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let key = key.trim().to_string();
+        if key.is_empty() {
+            return Ok(None);
+        }
+        set_keychain(account, &key);
+        Ok(Some(key))
+    };
+
+    let mut key = if let Some(masked) = get_keychain_masked(account) {
+        println!("  Found in Keychain: {masked}");
+        let use_existing: bool = confirm("Use existing key? (No = enter a new one)")
+            .initial_value(true)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if use_existing {
+            get_keychain_full(account)
+        } else {
+            ask(&format!("Enter your new {display_name} API key"))?
+        }
+    } else {
+        ask(&format!("Enter your {display_name} API key"))?
+    };
+
+    // Validate only where a real endpoint answers. Claiming "valid" for a
+    // provider with no check would be a lie the user acts on.
+    if !provider_has_key_check(account) {
+        return Ok(key);
+    }
+    loop {
+        let Some(current) = key.clone().filter(|k| !k.is_empty()) else {
+            return Ok(key);
+        };
+        let sp = spinner();
+        sp.start(format!("Validating {display_name} API key..."));
+        if validate_api_key(account, &current) {
+            sp.stop(format!("{display_name} API key valid \u{2713}"));
+            return Ok(Some(current));
+        }
+        sp.stop(format!(
+            "{display_name} API key validation failed: check your key"
+        ));
+        let proceed: bool = confirm("Continue anyway?")
+            .initial_value(false)
+            .interact()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if proceed {
+            return Ok(Some(current));
+        }
+        key = ask(&format!("Enter your {display_name} API key"))?;
+    }
+}
+
 fn validate_api_key(provider: &str, key: &str) -> bool {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -1230,11 +1242,25 @@ fn get_keychain_masked(provider: &str) -> Option<String> {
     if key.is_empty() {
         return None;
     }
-    if key.len() > 8 {
-        Some(format!("{}...{}", &key[..4], &key[key.len() - 4..]))
-    } else {
-        Some("****".to_string())
-    }
+    Some(mask_secret(&key))
+}
+
+/// Show only the last four characters of a secret, the way `rekody key` and
+/// `rekody config` already do (`key_tui::mask`, `main::mask_key`).
+///
+/// This used to reveal the first four as well, which is eight characters of
+/// a live key on screen and in terminal scrollback for no benefit: the tail
+/// alone is enough to tell two keys apart. Counted in characters rather than
+/// bytes so a non-ASCII value cannot panic on a slice boundary.
+fn mask_secret(key: &str) -> String {
+    let tail: String = {
+        let chars: Vec<char> = key.chars().collect();
+        if chars.len() <= 4 {
+            return "████".to_string();
+        }
+        chars[chars.len() - 4..].iter().collect()
+    };
+    format!("████████████{tail}")
 }
 
 /// Retrieve the full (unmasked) API key from macOS Keychain, or None.
@@ -1938,6 +1964,81 @@ mod tests {
             !can_reuse_llm_key_for_groq_stt("local", "groq", "gsk_abc"),
             "non-Groq STT never writes groq_api_key from this path"
         );
+    }
+
+    /// A masked key must never show the front of the secret. It used to show
+    /// the first four characters as well as the last four, which is eight
+    /// characters of a live key on screen for no benefit.
+    #[test]
+    fn masking_reveals_only_the_tail() {
+        let masked = mask_secret("gsk_liveSecretValue1234");
+        assert!(masked.ends_with("1234"));
+        assert!(
+            !masked.contains("gsk_"),
+            "the prefix must not survive: {masked}"
+        );
+        assert!(
+            !masked.contains("liveSecret"),
+            "leaked the middle: {masked}"
+        );
+        // Short values reveal nothing at all.
+        assert_eq!(mask_secret("abcd"), "████");
+        assert_eq!(mask_secret(""), "████");
+        // Multibyte input must not panic on a slice boundary.
+        assert!(mask_secret("kéy-wíth-ünicode").ends_with("code"));
+    }
+
+    /// The wizard writes config lines by hand. A value a user typed can
+    /// contain a quote, and an unescaped one produces a config file the
+    /// daemon refuses to parse: setup appearing to have broken Rekody.
+    #[test]
+    fn wizard_written_values_survive_a_toml_round_trip() {
+        for value in [
+            "whisper-1",
+            "whis\"per-1",
+            "back\\slash",
+            "https://api.example.com/v1",
+            "tab\there",
+        ] {
+            let line = format!("custom_stt_model = {}", toml_string(value));
+            let parsed: toml::Value =
+                toml::from_str(&line).unwrap_or_else(|e| panic!("{line} did not parse: {e}"));
+            assert_eq!(
+                parsed["custom_stt_model"].as_str(),
+                Some(value),
+                "value changed on the way through TOML"
+            );
+        }
+    }
+
+    /// The whole wizard-written config has to parse as a RekodyConfig, with
+    /// the selected provider's key landing in the config key its catalog
+    /// entry names.
+    #[test]
+    fn a_custom_provider_config_parses_back_into_rekody_config() {
+        let spec = stt_catalog::find("custom").unwrap().key.as_ref().unwrap();
+        let config = format!(
+            "activation_mode = \"both\"\n\
+             whisper_model = \"turbo\"\n\
+             vad_threshold = 0.01\n\
+             injection_method = \"clipboard\"\n\
+             stt_engine = \"custom\"\n\
+             {}\n\
+             custom_stt_base_url = {}\n\
+             custom_stt_model = {}\n",
+            format_args!("{} = {}", spec.config_key, toml_string("sk-test")),
+            toml_string("https://api.openai.com/v1"),
+            toml_string("whis\"per-1"),
+        );
+        let parsed: crate::RekodyConfig =
+            toml::from_str(&config).unwrap_or_else(|e| panic!("wizard config did not parse: {e}"));
+        assert_eq!(parsed.stt_engine, "custom");
+        assert_eq!(parsed.custom_stt_api_key.as_deref(), Some("sk-test"));
+        assert_eq!(
+            parsed.custom_stt_base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
+        assert_eq!(parsed.custom_stt_model.as_deref(), Some("whis\"per-1"));
     }
 
     /// The wizard may only show a "Validating..." spinner (and say "valid")

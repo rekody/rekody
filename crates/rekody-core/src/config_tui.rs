@@ -35,6 +35,7 @@ use ratatui::widgets::{
 };
 
 use crate::RekodyConfig;
+use crate::stt_catalog;
 
 // ── Brand palette ───────────────────────────────────────────────────────────
 // Duplicated from history_tui.rs intentionally — history_tui is the gold
@@ -107,13 +108,15 @@ impl SectionKind {
 
 /// Which field within the active section is selected. Each section has its
 /// own ordered field list; we identify a field by an enum-per-section.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FieldId {
     // STT
     SttEngine,
     WhisperModel,
     SttLanguage,
     CohereSttPort,
+    CustomSttBaseUrl,
+    CustomSttModel,
     // LLM
     LlmEnabled,
     // Activation
@@ -134,6 +137,8 @@ impl FieldId {
             Self::WhisperModel => "Whisper model",
             Self::SttLanguage => "Language",
             Self::CohereSttPort => "Cohere port",
+            Self::CustomSttBaseUrl => "API base URL",
+            Self::CustomSttModel => "Model",
             Self::LlmEnabled => "Post-processing",
             Self::ActivationMode => "Mode",
             Self::TriggerKey => "Trigger key",
@@ -152,7 +157,11 @@ impl FieldId {
             Self::CohereSttPort => {
                 "Port for the local Cohere STT server (only used if engine=cohere)"
             }
-            Self::LlmEnabled => "auto = on for Whisper engines, off for Deepgram",
+            Self::CustomSttBaseUrl => {
+                "https, or http on localhost. Rekody appends /audio/transcriptions."
+            }
+            Self::CustomSttModel => "Model id your endpoint expects, e.g. whisper-1",
+            Self::LlmEnabled => "auto = off when the engine formats its own text",
             Self::ActivationMode => "How the hotkey starts/stops recording",
             Self::TriggerKey => "Which key triggers dictation",
             Self::MaxRecordingSecs => "Deadman switch in seconds (0 = unlimited)",
@@ -166,13 +175,18 @@ impl FieldId {
 fn fields_for(section: SectionKind, cfg: &RekodyConfig) -> Vec<FieldId> {
     match section {
         SectionKind::Stt => {
+            // Which rows this section shows is the selected provider's own
+            // business, so it comes from the catalog rather than from a
+            // ladder of `if engine == ...` here. A new provider that needs a
+            // port or a URL gets its row by declaring the field.
             let mut v = vec![FieldId::SttEngine];
-            if cfg.stt_engine == "local" {
-                v.push(FieldId::WhisperModel);
+            let provider = stt_catalog::find(&cfg.stt_engine);
+            if let Some(p) = provider {
+                v.extend(p.fields.iter().filter_map(|f| field_id_for(f.config_key)));
             }
-            v.push(FieldId::SttLanguage);
-            if cfg.stt_engine == "cohere" {
-                v.push(FieldId::CohereSttPort);
+            // A language hint is meaningless for an English-only engine.
+            if provider.is_none_or(|p| p.supports_language_hint) {
+                v.push(FieldId::SttLanguage);
             }
             v
         }
@@ -284,14 +298,24 @@ impl App {
     }
 }
 
-// ── Edit dialog construction ────────────────────────────────────────────────
+/// The editable row that owns a catalog field's config key.
+///
+/// The catalog speaks in config keys; this TUI speaks in [`FieldId`]s. This
+/// is the only place the two vocabularies meet, so adding a provider field
+/// means adding one arm here and nothing else.
+fn field_id_for(config_key: &str) -> Option<FieldId> {
+    match config_key {
+        "whisper_model" => Some(FieldId::WhisperModel),
+        "cohere_stt_port" => Some(FieldId::CohereSttPort),
+        "custom_stt_base_url" => Some(FieldId::CustomSttBaseUrl),
+        "custom_stt_model" => Some(FieldId::CustomSttModel),
+        // API keys are `rekody key`'s job, not this editor's: nothing here
+        // should put a secret on screen or in the TOML round-trip.
+        _ => None,
+    }
+}
 
-/// Engines the STT picker offers. Nemotron, the flagship streaming engine
-/// and the wizard's preselected default, leads when the build includes it.
-#[cfg(feature = "nemotron")]
-const STT_ENGINE_OPTIONS: &[&str] = &["nemotron", "local", "groq", "deepgram", "cohere"];
-#[cfg(not(feature = "nemotron"))]
-const STT_ENGINE_OPTIONS: &[&str] = &["local", "groq", "deepgram", "cohere"];
+// ── Edit dialog construction ────────────────────────────────────────────────
 
 /// Whisper sizes Setup can actually download and the engine can load.
 /// "base" is not one of them: the Pipeline maps it to turbo and the
@@ -300,7 +324,7 @@ const WHISPER_MODEL_OPTIONS: &[&str] = &["tiny", "small", "medium", "large", "tu
 
 fn open_editor_for(field: FieldId, cfg: &RekodyConfig) -> Editor {
     match field {
-        FieldId::SttEngine => picker(field, STT_ENGINE_OPTIONS, &cfg.stt_engine),
+        FieldId::SttEngine => picker(field, &stt_catalog::ids(), &cfg.stt_engine),
         FieldId::WhisperModel => picker(field, WHISPER_MODEL_OPTIONS, &cfg.whisper_model),
         FieldId::ActivationMode => picker(
             field,
@@ -347,6 +371,16 @@ fn open_editor_for(field: FieldId, cfg: &RekodyConfig) -> Editor {
         FieldId::CohereSttPort => Editor::Text {
             field,
             buffer: cfg.cohere_stt_port.to_string(),
+            error: None,
+        },
+        FieldId::CustomSttBaseUrl => Editor::Text {
+            field,
+            buffer: cfg.custom_stt_base_url.clone().unwrap_or_default(),
+            error: None,
+        },
+        FieldId::CustomSttModel => Editor::Text {
+            field,
+            buffer: cfg.custom_stt_model.clone().unwrap_or_default(),
             error: None,
         },
         FieldId::MaxRecordingSecs => Editor::Text {
@@ -420,6 +454,27 @@ fn commit_editor(editor: &Editor, cfg: &mut RekodyConfig) -> Result<()> {
                     .trim()
                     .parse()
                     .map_err(|_| anyhow!("port must be an integer 0–65535"))?;
+            }
+            // Validated here, by the same guard the engine uses, so a bad
+            // URL is rejected while it is being typed rather than at the
+            // moment someone speaks.
+            FieldId::CustomSttBaseUrl => {
+                let trimmed = buffer.trim();
+                cfg.custom_stt_base_url = if trimmed.is_empty() {
+                    None
+                } else {
+                    rekody_stt::resolve_transcription_endpoint(trimmed)
+                        .map_err(|e| anyhow!("{e}"))?;
+                    Some(trimmed.into())
+                };
+            }
+            FieldId::CustomSttModel => {
+                let trimmed = buffer.trim();
+                cfg.custom_stt_model = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.into())
+                };
             }
             FieldId::MaxRecordingSecs => {
                 cfg.max_recording_secs = buffer
@@ -834,6 +889,14 @@ fn current_value_str(field: FieldId, cfg: &RekodyConfig) -> String {
         FieldId::WhisperModel => cfg.whisper_model.clone(),
         FieldId::SttLanguage => cfg.stt_language.clone().unwrap_or_else(|| "auto".into()),
         FieldId::CohereSttPort => cfg.cohere_stt_port.to_string(),
+        FieldId::CustomSttBaseUrl => cfg
+            .custom_stt_base_url
+            .clone()
+            .unwrap_or_else(|| "not set".into()),
+        FieldId::CustomSttModel => cfg
+            .custom_stt_model
+            .clone()
+            .unwrap_or_else(|| "not set".into()),
         FieldId::LlmEnabled => match cfg.llm_enabled {
             None => "auto".into(),
             Some(true) => "on".into(),
@@ -1117,16 +1180,99 @@ mod tests {
 
     /// The engine picker must match what this build's pipeline supports.
     /// The regression: nemotron, the flagship engine, was not selectable.
+    ///
+    /// Asserted against the catalog rather than against a second hand-typed
+    /// list, because a hand-typed list is how that regression happened. The
+    /// catalog's own tests pin its contents.
     #[test]
-    fn stt_engine_picker_matches_supported_engines() {
-        let opts = picker_options(FieldId::SttEngine);
+    fn stt_engine_picker_offers_exactly_the_catalog() {
+        assert_eq!(picker_options(FieldId::SttEngine), stt_catalog::ids());
+        // The two properties a reader of this file actually cares about.
+        assert!(picker_options(FieldId::SttEngine).contains(&"local"));
         #[cfg(feature = "nemotron")]
         assert_eq!(
-            opts,
-            vec!["nemotron", "local", "groq", "deepgram", "cohere"]
+            picker_options(FieldId::SttEngine).first(),
+            Some(&"nemotron")
         );
         #[cfg(not(feature = "nemotron"))]
-        assert_eq!(opts, vec!["local", "groq", "deepgram", "cohere"]);
+        assert_eq!(picker_options(FieldId::SttEngine).first(), Some(&"local"));
+    }
+
+    /// Each provider's own rows come from its catalog entry. Before this,
+    /// two `if engine == ...` branches decided it and neither knew about a
+    /// provider added later.
+    #[test]
+    fn stt_section_rows_follow_the_selected_provider() {
+        fn rows(engine: &str) -> Vec<FieldId> {
+            let cfg = RekodyConfig {
+                stt_engine: engine.into(),
+                ..Default::default()
+            };
+            fields_for(SectionKind::Stt, &cfg)
+        }
+
+        assert_eq!(
+            rows("local"),
+            vec![
+                FieldId::SttEngine,
+                FieldId::WhisperModel,
+                FieldId::SttLanguage
+            ]
+        );
+        assert_eq!(
+            rows("cohere"),
+            vec![FieldId::SttEngine, FieldId::CohereSttPort]
+        );
+        assert_eq!(
+            rows("custom"),
+            vec![
+                FieldId::SttEngine,
+                FieldId::CustomSttBaseUrl,
+                FieldId::CustomSttModel,
+                FieldId::SttLanguage
+            ]
+        );
+        // Deepgram has no extra fields, only the language hint.
+        assert_eq!(
+            rows("deepgram"),
+            vec![FieldId::SttEngine, FieldId::SttLanguage]
+        );
+        // An unknown engine from a hand-edited config still renders.
+        assert_eq!(
+            rows("something-else"),
+            vec![FieldId::SttEngine, FieldId::SttLanguage]
+        );
+        // An English-only engine is not asked for a language.
+        #[cfg(feature = "nemotron")]
+        assert_eq!(rows("nemotron"), vec![FieldId::SttEngine]);
+    }
+
+    /// The custom endpoint is validated where it is typed. A URL that would
+    /// put someone's voice on the network in the clear must not be saveable.
+    #[test]
+    fn custom_base_url_is_validated_on_apply() {
+        fn apply_url(url: &str) -> Result<RekodyConfig> {
+            let mut cfg = RekodyConfig::default();
+            let editor = Editor::Text {
+                field: FieldId::CustomSttBaseUrl,
+                buffer: url.into(),
+                error: None,
+            };
+            commit_editor(&editor, &mut cfg)?;
+            Ok(cfg)
+        }
+
+        assert_eq!(
+            apply_url("https://api.openai.com/v1")
+                .unwrap()
+                .custom_stt_base_url
+                .as_deref(),
+            Some("https://api.openai.com/v1")
+        );
+        assert!(apply_url("http://example.com/v1").is_err());
+        assert!(apply_url("nonsense").is_err());
+        // Clearing the field is always allowed.
+        assert!(apply_url("  ").unwrap().custom_stt_base_url.is_none());
     }
 
     /// Every size offered maps to a model Setup downloads and the engine

@@ -80,6 +80,13 @@ enum Cmd {
     },
     /// Check STT and LLM provider connectivity
     Doctor,
+    /// List the speech-to-text engines this build offers
+    Engines {
+        /// Output the provider catalog as JSON: the contract every surface
+        /// renders from, including the Mac app's Settings page
+        #[arg(long)]
+        json: bool,
+    },
     /// Manage API keys stored in the system keychain (interactive when run in a terminal)
     Key {
         #[command(subcommand)]
@@ -299,6 +306,7 @@ async fn main() -> Result<()> {
             interactive,
         }) => cmd_history(count, search, app, full, stats, json, copy, interactive),
         Some(Cmd::Doctor) => cmd_doctor().await,
+        Some(Cmd::Engines { json }) => cmd_engines(json),
         Some(Cmd::Key { action }) => cmd_key(action),
         Some(Cmd::Update { check }) => cmd_update(check).await,
         Some(Cmd::Changelog { all }) => cmd_changelog(all).await,
@@ -954,6 +962,95 @@ fn cmd_history(
     Ok(())
 }
 
+// ── Subcommand: engines ──────────────────────────────────────────────────────
+
+/// Version of the JSON shape `--json` prints.
+///
+/// The Mac app generates its Swift catalog from this output, so the shape is
+/// a contract between the two repos. Bump it when a field changes meaning or
+/// disappears; adding a field is backward compatible and does not.
+const ENGINE_CATALOG_SCHEMA: u32 = 1;
+
+fn cmd_engines(json: bool) -> Result<()> {
+    use rekody_core::stt_catalog;
+
+    if json {
+        // Serialized straight off the catalog: no second description of the
+        // providers exists anywhere for this to drift from.
+        let doc = serde_json::json!({
+            "schema": ENGINE_CATALOG_SCHEMA,
+            "recommended": stt_catalog::recommended().id,
+            "providers": stt_catalog::catalog(),
+        });
+        println!("{}", serde_json::to_string_pretty(&doc)?);
+        return Ok(());
+    }
+
+    let config = load_config_or_default(&find_config_path());
+    let active = config.stt_engine.to_lowercase();
+
+    println!();
+    println!(
+        "  {BRAND}╭─{RESET}  {BRAND_LIGHT}{BOLD}rekody engines{RESET}  {DIM}speech-to-text providers this build offers{RESET}"
+    );
+    println!("  {BRAND}│{RESET}");
+    for provider in stt_catalog::catalog() {
+        let marker = if provider.id == active {
+            format!("{OK}{BOLD}●{RESET}")
+        } else {
+            format!("{DIM}○{RESET}")
+        };
+        let recommended = if provider.id == stt_catalog::recommended().id {
+            format!("  {BRAND_LIGHT}recommended{RESET}")
+        } else {
+            String::new()
+        };
+        println!(
+            "  {BRAND}│{RESET}   {}  {CREAM}{BOLD}{}{RESET}  {DIM}{}{RESET}{}",
+            marker, provider.display_name, provider.id, recommended
+        );
+        // The destination is the thing to be loud about.
+        let where_line = if provider.sends_audio_off_device() {
+            format!(
+                "{WARN}{}{RESET}  {DIM}audio leaves this Mac{RESET}",
+                provider.locality.label()
+            )
+        } else {
+            format!("{DIM}{}{RESET}", provider.locality.label())
+        };
+        println!("  {BRAND}│{RESET}        {}", where_line);
+        println!(
+            "  {BRAND}│{RESET}        {DIM}{}{RESET}",
+            provider.description
+        );
+        if let Some(key) = &provider.key {
+            let requirement = if key.required { "needs" } else { "optional" };
+            let obtain = if key.obtain_label.is_empty() {
+                String::new()
+            } else {
+                format!("  {DIM}·  {}{RESET}", key.obtain_label)
+            };
+            println!(
+                "  {BRAND}│{RESET}        {DIM}key: {} {} · rekody key set {}{RESET}{}",
+                requirement, key.config_key, key.keyring_account, obtain
+            );
+        }
+        for field in provider.fields {
+            println!(
+                "  {BRAND}│{RESET}        {DIM}{}: {}{RESET}",
+                field.config_key, field.help
+            );
+        }
+        println!("  {BRAND}│{RESET}");
+    }
+    println!("  {BRAND}╰{}{RESET}", "─".repeat(48));
+    println!(
+        "  {DIM}Pick one with `rekody config`, or `rekody engines --json` for the raw catalog.{RESET}"
+    );
+    println!();
+    Ok(())
+}
+
 // ── Subcommand: doctor ───────────────────────────────────────────────────────
 
 async fn cmd_doctor() -> Result<()> {
@@ -1035,6 +1132,80 @@ async fn cmd_doctor() -> Result<()> {
                     missing.join(", ")
                 );
             }
+        }
+        // The user's own endpoint. There is nothing to probe (Rekody does not
+        // know what this server answers to), so report what it is configured
+        // to do and let the destination host speak for itself.
+        "custom" => {
+            let configured = config
+                .custom_stt_base_url
+                .as_deref()
+                .map(rekody_stt::resolve_transcription_endpoint);
+            match configured {
+                Some(Ok(endpoint)) => {
+                    let key_note = if config
+                        .custom_stt_api_key
+                        .as_deref()
+                        .is_some_and(|k| !k.is_empty())
+                    {
+                        "key set"
+                    } else {
+                        "no key (fine for a server you run)"
+                    };
+                    let model_note = config.custom_stt_model.as_deref().unwrap_or("no model set");
+                    println!(
+                        "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {DIM}sends audio to {} · {} · {}{RESET}",
+                        stt_name,
+                        endpoint.host_str().unwrap_or("unknown host"),
+                        model_note,
+                        key_note
+                    );
+                }
+                Some(Err(e)) => {
+                    println!(
+                        "  {BRAND}│{RESET}     {SLOW}{BOLD}✗{RESET}  {CREAM}{}{RESET}  {WARN}{}{RESET}",
+                        stt_name, e
+                    );
+                }
+                None => {
+                    println!(
+                        "  {BRAND}│{RESET}     {SLOW}{BOLD}✗{RESET}  {CREAM}{}{RESET}  {WARN}no custom_stt_base_url set · run: rekody config{RESET}",
+                        stt_name
+                    );
+                }
+            }
+        }
+        // A server the user runs. Probing it is the only useful check, and
+        // it costs nothing because it is on loopback.
+        "cohere" => {
+            let t = Instant::now();
+            let url = format!("http://localhost:{}/", config.cohere_stt_port);
+            let reachable = reqwest::Client::new()
+                .get(&url)
+                .timeout(std::time::Duration::from_millis(500))
+                .send()
+                .await
+                .is_ok();
+            let ms = t.elapsed().as_millis();
+            if reachable {
+                println!(
+                    "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {DIM}{}ms{RESET}",
+                    stt_name, ms
+                );
+            } else {
+                println!(
+                    "  {BRAND}│{RESET}     {SLOW}{BOLD}✗{RESET}  {CREAM}{}{RESET}  {WARN}nothing answering on port {}{RESET}",
+                    stt_name, config.cohere_stt_port
+                );
+            }
+        }
+        // An engine id this build does not have: a hand-edited config, or a
+        // config written by a build that shipped more engines than this one.
+        other if rekody_core::stt_catalog::find(other).is_none() => {
+            println!(
+                "  {BRAND}│{RESET}     {SLOW}{BOLD}✗{RESET}  {CREAM}{}{RESET}  {WARN}unknown engine · pick one with: rekody config{RESET}",
+                stt_name
+            );
         }
         _ => {
             // Local Whisper needs no network, but it does need the GGML file
@@ -2292,13 +2463,36 @@ fn rekody_models_dir() -> std::path::PathBuf {
         })
 }
 
+/// The provider's name as people see it, plus the one detail that varies per
+/// config. Names themselves come from `stt_catalog`, so this can never drift
+/// from what the pickers and the app show.
 fn stt_display_name(config: &RekodyConfig) -> String {
-    match config.stt_engine.to_lowercase().as_str() {
-        "groq" => "Groq Cloud Whisper Large v3".to_string(),
-        "deepgram" => "Deepgram Nova-3".to_string(),
-        "cohere" => format!("Cohere local (port {})", config.cohere_stt_port),
-        "nemotron" => "Rekody Streaming (English)".to_string(),
-        _ => format!("Local Whisper ({})", config.whisper_model),
+    let Some(provider) = rekody_core::stt_catalog::find(&config.stt_engine) else {
+        // A hand-edited config naming an engine this build does not have.
+        // Show what it says rather than pretending it is something else.
+        return format!("{} (not available in this build)", config.stt_engine);
+    };
+    match provider.id {
+        "local" => format!("{} ({})", provider.display_name, config.whisper_model),
+        "cohere" => format!(
+            "{} (port {})",
+            provider.display_name, config.cohere_stt_port
+        ),
+        "custom" => match &config.custom_stt_base_url {
+            Some(url) => match rekody_stt::resolve_transcription_endpoint(url) {
+                // The destination host, shown plainly wherever the engine is
+                // named. Nobody should have to read a config file to find out
+                // where their voice goes.
+                Ok(endpoint) => format!(
+                    "{} ({})",
+                    provider.display_name,
+                    endpoint.host_str().unwrap_or("unknown host")
+                ),
+                Err(_) => format!("{} (invalid URL)", provider.display_name),
+            },
+            None => format!("{} (no URL set)", provider.display_name),
+        },
+        _ => provider.display_name.to_string(),
     }
 }
 
@@ -2517,6 +2711,20 @@ fn inject_keychain_keys(config: &mut RekodyConfig) {
             });
         }
     }
+    // The custom STT endpoint's key, if it lives only in the keychain.
+    // Named by the catalog rather than here, so a provider added later with
+    // its own config key is injected without touching this function.
+    if config
+        .custom_stt_api_key
+        .as_deref()
+        .unwrap_or("")
+        .is_empty()
+        && let Some(spec) = rekody_core::stt_catalog::find("custom").and_then(|p| p.key.as_ref())
+        && let Ok(key) = get_keychain_key(spec.keyring_account)
+        && !key.is_empty()
+    {
+        config.custom_stt_api_key = Some(key);
+    }
     // Inject keychain keys into any providers array entries that lack a key.
     for p in config.providers.iter_mut() {
         if p.api_key.is_empty()
@@ -2604,12 +2812,13 @@ impl Ui {
         let llm_enabled = rekody_core::has_llm_providers(config);
 
         // Header chips: (accented, label).
+        // Same naming table as everywhere else, lowercased for the chip.
         let engine = match config.stt_engine.to_lowercase().as_str() {
-            "nemotron" => "● streaming · en".to_string(),
-            "groq" => "● groq whisper".to_string(),
-            "deepgram" => "● deepgram nova-3".to_string(),
-            "cohere" => "● cohere local".to_string(),
-            _ => format!("● whisper {}", config.whisper_model),
+            "local" => format!("● whisper {}", config.whisper_model),
+            other => match rekody_core::stt_catalog::find(other) {
+                Some(p) => format!("● {}", p.display_name.to_lowercase()),
+                None => format!("● {other}"),
+            },
         };
         let cleanup = if llm_enabled {
             config

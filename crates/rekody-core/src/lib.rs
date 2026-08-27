@@ -82,6 +82,7 @@ pub mod snippets;
 pub mod stats;
 #[cfg(feature = "nemotron")]
 pub mod streaming;
+pub mod stt_catalog;
 pub mod training_data;
 
 /// Configuration for a single LLM provider.
@@ -176,6 +177,23 @@ pub struct RekodyConfig {
     /// Port for the local Cohere STT server (only needed if stt_engine = "cohere").
     #[serde(default = "default_cohere_stt_port")]
     pub cohere_stt_port: u16,
+
+    // --- Custom OpenAI-compatible STT provider (stt_engine = "custom") ---
+    //
+    // Opt-in only. These three keys are inert for every other engine, and
+    // the pipeline refuses to start rather than guess a destination for
+    // someone's voice. See `stt_catalog`'s CUSTOM entry.
+    /// API base URL for `stt_engine = "custom"`, e.g.
+    /// `"https://api.openai.com/v1"`. Must be https, or http on localhost.
+    #[serde(default)]
+    pub custom_stt_base_url: Option<String>,
+    /// Model id the custom endpoint expects, e.g. `"whisper-1"`.
+    #[serde(default)]
+    pub custom_stt_model: Option<String>,
+    /// API key for the custom endpoint. Optional: a vLLM or LM Studio server
+    /// on localhost usually wants none.
+    #[serde(default)]
+    pub custom_stt_api_key: Option<String>,
     /// BCP-47 language code for transcription (e.g. `"en"`, `"sw"`, `"fr"`).
     ///
     /// `None` (default, omit from config) = auto-detect:
@@ -368,6 +386,9 @@ impl Default for RekodyConfig {
             stt_engine: "local".into(),
             deepgram_api_key: None,
             cohere_stt_port: 8099,
+            custom_stt_base_url: None,
+            custom_stt_model: None,
+            custom_stt_api_key: None,
             vad_threshold: 0.01,
             record_all_audio: false,
             input_device: None,
@@ -543,9 +564,14 @@ fn build_provider_chain(config: &RekodyConfig) -> rekody_llm::ProviderChain {
 /// Logic:
 /// - Explicit `llm_enabled = false` → always skip.
 /// - Explicit `llm_enabled = true` → run if providers exist.
-/// - `llm_enabled` omitted (None, the default):
-///   - Deepgram STT → skip (smart_format already produces clean output).
-///   - All other STT engines → run if providers exist.
+/// - `llm_enabled` omitted (None, the default): skip when the STT provider
+///   already formats its own text, run otherwise.
+///
+/// The "already formats its own text" set is not spelled out here. It is
+/// [`stt_catalog::SttProvider::formats_own_text`], so a future provider with
+/// its own punctuation declares that in the catalog and this function needs
+/// no edit. An engine id this build does not know keeps cleanup ON, which is
+/// the safe direction: raw transcripts read worse than doubly-cleaned ones.
 pub fn has_llm_providers(config: &RekodyConfig) -> bool {
     if config.providers.is_empty() {
         return false;
@@ -553,7 +579,7 @@ pub fn has_llm_providers(config: &RekodyConfig) -> bool {
     match config.llm_enabled {
         Some(false) => false,
         Some(true) => true,
-        None => config.stt_engine.to_lowercase() != "deepgram",
+        None => !stt_catalog::find(&config.stt_engine).is_some_and(|p| p.formats_own_text),
     }
 }
 
@@ -603,7 +629,9 @@ fn dictionary_terms_if_changed(
 /// Wraps the different STT engine types behind a common enum.
 enum SttBackend {
     Local(rekody_stt::LocalWhisperEngine),
-    Groq(rekody_stt::GroqWhisperEngine),
+    /// Any endpoint speaking OpenAI's `/v1/audio/transcriptions`:
+    /// the `groq` preset, or a `custom` endpoint the user supplied.
+    OpenAiCompat(rekody_stt::OpenAiCompatEngine),
     Deepgram(rekody_stt::DeepgramEngine),
     Cohere(rekody_stt::CohereLocalEngine),
     /// Nemotron cache-aware streaming (English). The engine itself lives on a
@@ -620,7 +648,7 @@ impl SttBackend {
         use rekody_stt::SttEngine;
         match self {
             SttBackend::Local(e) => e.transcribe(samples).await,
-            SttBackend::Groq(e) => e.transcribe(samples).await,
+            SttBackend::OpenAiCompat(e) => e.transcribe(samples).await,
             SttBackend::Deepgram(e) => e.transcribe(samples).await,
             SttBackend::Cohere(e) => e.transcribe(samples).await,
             #[cfg(feature = "nemotron")]
@@ -638,7 +666,7 @@ impl SttBackend {
         use rekody_stt::SttEngine;
         match self {
             SttBackend::Local(e) => e.set_bias_terms(terms),
-            SttBackend::Groq(e) => e.set_bias_terms(terms),
+            SttBackend::OpenAiCompat(e) => e.set_bias_terms(terms),
             SttBackend::Deepgram(e) => e.set_bias_terms(terms),
             SttBackend::Cohere(e) => e.set_bias_terms(terms),
             #[cfg(feature = "nemotron")]
@@ -748,11 +776,36 @@ impl Pipeline {
 
         // Initialize the STT engine based on config.
         let lang = config.stt_language.clone();
-        let stt = match config.stt_engine.to_lowercase().as_str() {
+        // Trimmed to match `stt_catalog::find`, which every other surface
+        // uses. Without this a padded `stt_engine = "  deepgram  "` chose
+        // one engine here and a different cleanup default there.
+        let stt = match config.stt_engine.trim().to_lowercase().as_str() {
             "groq" => {
                 let key = config.groq_api_key.clone().unwrap_or_default();
                 tracing::info!(language = ?lang, "using Groq cloud STT (Whisper Large v3)");
-                SttBackend::Groq(rekody_stt::GroqWhisperEngine::with_language(key, lang))
+                SttBackend::OpenAiCompat(rekody_stt::OpenAiCompatEngine::groq(key, lang))
+            }
+            // The user's own endpoint. Every failure mode is reported here,
+            // before a microphone is ever opened, and none of them falls
+            // through to another engine: sending someone's voice somewhere
+            // they did not choose would be worse than not starting.
+            "custom" => {
+                let base_url = config.custom_stt_base_url.clone().unwrap_or_default();
+                let model = config.custom_stt_model.clone().unwrap_or_default();
+                let key = config.custom_stt_api_key.clone().unwrap_or_default();
+                let engine = rekody_stt::OpenAiCompatEngine::custom(&base_url, model, key, lang)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "{e}\n\nThe custom speech-to-text provider is configured with \
+                                 custom_stt_base_url and custom_stt_model in config.toml, \
+                                 or in Settings."
+                        )
+                    })?;
+                tracing::info!(
+                    host = %engine.destination_host(),
+                    "using a custom OpenAI-compatible STT endpoint"
+                );
+                SttBackend::OpenAiCompat(engine)
             }
             "deepgram" => {
                 let key = config.deepgram_api_key.clone().unwrap_or_default();
@@ -1905,6 +1958,150 @@ injection_method = "clipboard"
         assert!(serialized.contains("input_device = ["));
         let reparsed: RekodyConfig = toml::from_str(&serialized).expect("round-trip parses");
         assert_eq!(reparsed.input_device, chained.input_device);
+    }
+}
+
+#[cfg(test)]
+mod stt_engine_compat_tests {
+    //! Existing configs must keep working. Every `stt_engine` value Rekody
+    //! has ever shipped is exercised here against the behaviour it had
+    //! before the provider catalog replaced the hand-maintained lists.
+
+    use super::*;
+
+    fn config_with(engine: &str) -> RekodyConfig {
+        RekodyConfig {
+            stt_engine: engine.into(),
+            providers: vec![ProviderConfig {
+                name: "groq".into(),
+                api_key: "k".into(),
+                model: "m".into(),
+                base_url: None,
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// The cleanup default used to be spelled `stt_engine != "deepgram"`.
+    /// It is now `!formats_own_text`, and must decide identically for every
+    /// engine id, including ids this build does not know.
+    #[test]
+    fn cleanup_default_matches_the_rule_it_replaced() {
+        for engine in [
+            "local",
+            "nemotron",
+            "groq",
+            "cohere",
+            "custom",
+            "deepgram",
+            "Deepgram",
+            "  deepgram  ",
+            "an-engine-from-the-future",
+        ] {
+            let cfg = config_with(engine);
+            let expected = engine.trim().to_lowercase() != "deepgram";
+            assert_eq!(
+                has_llm_providers(&cfg),
+                expected,
+                "cleanup default changed for stt_engine = {engine:?}"
+            );
+        }
+    }
+
+    /// An explicit `llm_enabled` still wins over the provider's own habits.
+    #[test]
+    fn explicit_llm_enabled_still_overrides_the_provider() {
+        let mut cfg = config_with("deepgram");
+        cfg.llm_enabled = Some(true);
+        assert!(has_llm_providers(&cfg));
+        let mut cfg = config_with("local");
+        cfg.llm_enabled = Some(false);
+        assert!(!has_llm_providers(&cfg));
+    }
+
+    /// A config with no provider chain never runs cleanup, whatever the
+    /// engine says.
+    #[test]
+    fn no_providers_means_no_cleanup() {
+        let cfg = RekodyConfig {
+            stt_engine: "local".into(),
+            ..Default::default()
+        };
+        assert!(!has_llm_providers(&cfg));
+    }
+
+    /// The new custom keys are optional everywhere. A config written by any
+    /// earlier version parses unchanged and leaves them unset.
+    #[test]
+    fn a_config_without_the_custom_keys_still_parses() {
+        let toml = r#"
+activation_mode = "both"
+whisper_model = "turbo"
+stt_engine = "deepgram"
+deepgram_api_key = "dg_test"
+vad_threshold = 0.01
+injection_method = "clipboard"
+"#;
+        let cfg: RekodyConfig = toml::from_str(toml).expect("legacy config must parse");
+        assert_eq!(cfg.stt_engine, "deepgram");
+        assert_eq!(cfg.deepgram_api_key.as_deref(), Some("dg_test"));
+        assert!(cfg.custom_stt_base_url.is_none());
+        assert!(cfg.custom_stt_model.is_none());
+        assert!(cfg.custom_stt_api_key.is_none());
+    }
+
+    /// Every id the catalog offers must be constructible, or the pickers
+    /// would offer an engine the pipeline cannot build. The two that need
+    /// files on disk or a user-supplied URL are expected to fail loudly,
+    /// which is itself the contract: no silent fallback to another engine.
+    #[test]
+    fn every_catalog_id_is_understood_by_the_pipeline() {
+        for provider in stt_catalog::catalog() {
+            let cfg = config_with(provider.id);
+            let built = Pipeline::new(cfg);
+            match provider.id {
+                // Needs custom_stt_base_url, which this config does not set.
+                "custom" => {
+                    let err = built.err().expect("custom must refuse an unset URL");
+                    let msg = err.to_string();
+                    assert!(
+                        msg.contains("base URL"),
+                        "custom must say what is missing: {msg}"
+                    );
+                    assert!(
+                        msg.contains("custom_stt_base_url"),
+                        "custom must name the setting: {msg}"
+                    );
+                }
+                // Needs model files this test machine may or may not have.
+                "nemotron" | "local" => {}
+                _ => assert!(
+                    built.is_ok(),
+                    "{} is offered but cannot be built",
+                    provider.id
+                ),
+            }
+        }
+    }
+
+    /// The guard that matters most: `custom` must never be reached by
+    /// accident. An unset URL fails, and a plain-http remote URL fails, so
+    /// no path exists where audio quietly goes somewhere unvetted.
+    #[test]
+    fn custom_refuses_rather_than_falling_back() {
+        let mut cfg = config_with("custom");
+        cfg.custom_stt_base_url = Some("http://example.com/v1".into());
+        cfg.custom_stt_model = Some("whisper-1".into());
+        let err = Pipeline::new(cfg)
+            .err()
+            .expect("plain http must be refused");
+        assert!(err.to_string().contains("example.com"));
+
+        let mut cfg = config_with("custom");
+        cfg.custom_stt_base_url = Some("https://api.openai.com/v1".into());
+        cfg.custom_stt_model = None;
+        let err = Pipeline::new(cfg).err().expect("a missing model must fail");
+        assert!(err.to_string().contains("model name"));
     }
 }
 

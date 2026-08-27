@@ -5,8 +5,10 @@ description: "Rekody Streaming, local Whisper, and the optional cloud engines."
 
 Rekody's speech-to-text is pluggable. Pick an engine in `rekody setup` or set `stt_engine` in [config.toml](/developers/configuration). The Mac app exposes the same engines in Settings, where the streaming model is the default.
 
-<Frame caption="The same engines in the Mac app: Rekody Streaming by default, with local Whisper and opt-in cloud engines.">
-  <img src="/images/settings-engines.png" alt="Rekody Settings showing the engine picker with Rekody Streaming, Whisper, Groq, and Deepgram." />
+Every surface reads one table, the provider catalog in `rekody-core/src/stt_catalog.rs`. `rekody engines` prints it, and `rekody engines --json` prints the machine-readable form the Mac app's Settings page is generated from, so the list can never differ between the CLI, the wizard, and the app.
+
+<Frame caption="Settings on Apple silicon: the recommended engine is selected and visible, and every other engine lives behind one picker. On an Intel Mac the top card is Whisper, because that build has no streaming engine.">
+  <img src="/images/settings-engines.png" alt="Rekody Settings: a selected Rekody Streaming card above a collapsed More engines picker." />
 </Frame>
 
 | Engine | Where it runs | Release to text | Notes |
@@ -16,6 +18,7 @@ Rekody's speech-to-text is pluggable. Pick an engine in `rekody setup` or set `s
 | `deepgram` | Cloud | ~200ms | Nova-3 with smart formatting. Needs a Deepgram API key. |
 | `groq` | Cloud | ~300ms | Whisper Large v3 on Groq. Needs a Groq API key. |
 | `cohere` | Local server | varies | Talks to a local STT server on a configurable port. |
+| `custom` | Wherever you point it | varies | Any endpoint speaking OpenAI's `/v1/audio/transcriptions`. Opt-in only. |
 
 ## Rekody Streaming
 
@@ -85,6 +88,24 @@ Cloud engines are strictly opt-in and use your own API keys ([privacy details](/
 - **Deepgram** (`stt_engine = "deepgram"`): Nova-3. Because its `smart_format` already returns clean, punctuated text, Rekody auto-disables LLM post-processing for this engine unless you force `llm_enabled = true`.
 - **Groq** (`stt_engine = "groq"`): Whisper Large v3 behind Groq's API.
 - **Cohere** (`stt_engine = "cohere"`): a local STT server reached on `cohere_stt_port` (default 8099).
+
+## Other (any OpenAI-compatible endpoint)
+
+`stt_engine = "custom"` points Rekody at any service that answers OpenAI's `/v1/audio/transcriptions`: OpenAI itself, Together, Fireworks, or a vLLM or LM Studio server you run. Groq is the same shape and ships as a preset of the same engine.
+
+```toml
+stt_engine = "custom"
+custom_stt_base_url = "https://api.openai.com/v1"
+custom_stt_model = "whisper-1"
+custom_stt_api_key = ""              # optional: a local server usually needs none
+```
+
+Because you supply the address your voice is sent to, this engine is fenced:
+
+- **https is required**, with one exception: plain `http` is accepted on localhost and other loopback addresses, so self-hosting works.
+- **The destination host is shown before it is used**, in Settings, in `rekody engines`, in `rekody doctor`, and in the run-loop header.
+- **It is never a default and never a fallback.** Nothing selects it for you, and if the URL or model is missing Rekody refuses to start rather than guessing.
+- **A wrong endpoint fails in plain language.** If the server answers with something other than a transcription, the message says so and quotes what came back, instead of surfacing a parse error.
 
 ## LLM post-processing
 
