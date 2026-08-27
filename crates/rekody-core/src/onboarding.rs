@@ -1242,11 +1242,25 @@ fn get_keychain_masked(provider: &str) -> Option<String> {
     if key.is_empty() {
         return None;
     }
-    if key.len() > 8 {
-        Some(format!("{}...{}", &key[..4], &key[key.len() - 4..]))
-    } else {
-        Some("****".to_string())
-    }
+    Some(mask_secret(&key))
+}
+
+/// Show only the last four characters of a secret, the way `rekody key` and
+/// `rekody config` already do (`key_tui::mask`, `main::mask_key`).
+///
+/// This used to reveal the first four as well, which is eight characters of
+/// a live key on screen and in terminal scrollback for no benefit: the tail
+/// alone is enough to tell two keys apart. Counted in characters rather than
+/// bytes so a non-ASCII value cannot panic on a slice boundary.
+fn mask_secret(key: &str) -> String {
+    let tail: String = {
+        let chars: Vec<char> = key.chars().collect();
+        if chars.len() <= 4 {
+            return "████".to_string();
+        }
+        chars[chars.len() - 4..].iter().collect()
+    };
+    format!("████████████{tail}")
 }
 
 /// Retrieve the full (unmasked) API key from macOS Keychain, or None.
@@ -1950,6 +1964,28 @@ mod tests {
             !can_reuse_llm_key_for_groq_stt("local", "groq", "gsk_abc"),
             "non-Groq STT never writes groq_api_key from this path"
         );
+    }
+
+    /// A masked key must never show the front of the secret. It used to show
+    /// the first four characters as well as the last four, which is eight
+    /// characters of a live key on screen for no benefit.
+    #[test]
+    fn masking_reveals_only_the_tail() {
+        let masked = mask_secret("gsk_liveSecretValue1234");
+        assert!(masked.ends_with("1234"));
+        assert!(
+            !masked.contains("gsk_"),
+            "the prefix must not survive: {masked}"
+        );
+        assert!(
+            !masked.contains("liveSecret"),
+            "leaked the middle: {masked}"
+        );
+        // Short values reveal nothing at all.
+        assert_eq!(mask_secret("abcd"), "████");
+        assert_eq!(mask_secret(""), "████");
+        // Multibyte input must not panic on a slice boundary.
+        assert!(mask_secret("kéy-wíth-ünicode").ends_with("code"));
     }
 
     /// The wizard writes config lines by hand. A value a user typed can
