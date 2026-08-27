@@ -583,6 +583,11 @@ fn redact_for_output(mut cfg: RekodyConfig) -> RekodyConfig {
     {
         cfg.groq_api_key = Some("[REDACTED]".into());
     }
+    if let Some(k) = &cfg.gemini_api_key
+        && !k.is_empty()
+    {
+        cfg.gemini_api_key = Some("[REDACTED]".into());
+    }
     if let Some(k) = &cfg.cerebras_api_key
         && !k.is_empty()
     {
@@ -1113,6 +1118,56 @@ async fn cmd_doctor() -> Result<()> {
                 key,
             )
             .await;
+        }
+        // Also the one place the resolved transcription mode is shown. It is
+        // derived from save_training_data rather than set directly, so
+        // without this line a user would have no way to see which of the two
+        // Gemini modes their dictations are actually using.
+        "gemini" => {
+            let key = config.gemini_api_key.as_deref().unwrap_or("");
+            // Read from the same function the pipeline uses, so what the
+            // doctor reports and what the daemon does cannot drift apart.
+            let mode = rekody_core::gemini_mode_for(config.save_training_data).label();
+            let why = rekody_core::gemini_mode_reason(config.save_training_data);
+            if key.is_empty() {
+                println!(
+                    "  {BRAND}│{RESET}     {SLOW}{BOLD}✗{RESET}  {CREAM}{}{RESET}  {WARN}no API key, run: rekody key set gemini{RESET}",
+                    stt_name
+                );
+            } else {
+                println!(
+                    "  {BRAND}│{RESET}     {WARN}{BOLD}…{RESET}  {CREAM}{}{RESET}  {DIM}checking…{RESET}",
+                    stt_name
+                );
+                let t = Instant::now();
+                // Gemini answers an invalid key with a 400, so only a 2xx
+                // counts here. Same rule the setup wizard applies.
+                let ok = reqwest::Client::new()
+                    .get("https://generativelanguage.googleapis.com/v1beta/models")
+                    .header("x-goog-api-key", key)
+                    .send()
+                    .await
+                    .map(|r| r.status().is_success())
+                    .unwrap_or(false);
+                let ms = t.elapsed().as_millis();
+                // Overwrite the previous line with the final result.
+                print!("\x1b[1A\x1b[2K");
+                if ok {
+                    println!(
+                        "  {BRAND}│{RESET}     {OK}{BOLD}✓{RESET}  {CREAM}{}{RESET}  {DIM}{}ms{RESET}",
+                        stt_name, ms
+                    );
+                } else {
+                    println!(
+                        "  {BRAND}│{RESET}     {SLOW}{BOLD}✗{RESET}  {CREAM}{}{RESET}  {WARN}auth failed, run: rekody key set gemini{RESET}",
+                        stt_name
+                    );
+                }
+            }
+            println!(
+                "  {BRAND}│{RESET}       {DIM}mode{RESET}  {CREAM}{}{RESET}  {DIM}{}{RESET}",
+                mode, why
+            );
         }
         "nemotron" => {
             let model_dir = rekody_models_dir().join("nemotron-en-int8");
@@ -2689,6 +2744,16 @@ fn inject_keychain_keys(config: &mut RekodyConfig) {
         {
             config.deepgram_api_key = Some(key);
         }
+    }
+    // Gemini STT key. Google issues one key for transcription and for the
+    // Gemini LLM, so both read keychain account `gemini`. Only the STT field
+    // is filled here: finding a key must not enrol an LLM cleanup provider
+    // the user never picked.
+    if (config.gemini_api_key.is_none() || config.gemini_api_key.as_deref() == Some(""))
+        && let Ok(key) = get_keychain_key("gemini")
+        && !key.is_empty()
+    {
+        config.gemini_api_key = Some(key);
     }
     // Groq key for STT or LLM
     if (config.groq_api_key.is_none() || config.groq_api_key.as_deref() == Some(""))

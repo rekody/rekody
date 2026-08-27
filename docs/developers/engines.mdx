@@ -17,6 +17,7 @@ Every surface reads one table, the provider catalog in `rekody-core/src/stt_cata
 | `local` (Whisper) | On device | 1 to 3s | whisper.cpp with Core ML acceleration on Apple Silicon. |
 | `deepgram` | Cloud | ~200ms | Nova-3 with smart formatting. Needs a Deepgram API key. |
 | `groq` | Cloud | ~300ms | Whisper Large v3 on Groq. Needs a Groq API key. |
+| `gemini` | Cloud | 2 to 4s | Google `gemini-3.5-transcribe`, batch. Needs a Google AI Studio API key. |
 | `cohere` | Local server | varies | Talks to a local STT server on a configurable port. |
 | `custom` | Wherever you point it | varies | Any endpoint speaking OpenAI's `/v1/audio/transcriptions`. Opt-in only. |
 
@@ -87,6 +88,13 @@ Cloud engines are strictly opt-in and use your own API keys ([privacy details](/
 
 - **Deepgram** (`stt_engine = "deepgram"`): Nova-3. Because its `smart_format` already returns clean, punctuated text, Rekody auto-disables LLM post-processing for this engine unless you force `llm_enabled = true`.
 - **Groq** (`stt_engine = "groq"`): Whisper Large v3 behind Groq's API.
+- **Gemini** (`stt_engine = "gemini"`): Google's `gemini-3.5-transcribe`, sent in one request with the audio inline. Measured 2 to 4 seconds for a 5.5 second clip, so it is a batch engine and not a streaming one.
+
+  The model transcribes in one of two modes, and Rekody chooses which rather than offering it as a setting. `verbatim` returns every word, including filler and abandoned starts. `smart` removes them: "Let's meet Tuesday, no, Wednesday, um, to review the numbers" comes back as "Let's meet Wednesday to review the numbers", with nothing to say an edit happened.
+
+  Rekody uses **verbatim whenever `save_training_data` is on** (the default), and smart only when it is off. The reason is that Rekody files each dictation's audio next to its transcript as a fine-tuning dataset, and a smart transcript stored there is a label that does not match its audio. Run `rekody doctor` to see which mode is active.
+
+  Personal dictionary terms are forwarded as `custom_vocabulary`, capped at the first 50 in file order.
 - **Cohere** (`stt_engine = "cohere"`): a local STT server reached on `cohere_stt_port` (default 8099).
 
 ## Other (any OpenAI-compatible endpoint)

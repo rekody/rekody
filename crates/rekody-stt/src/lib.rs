@@ -19,6 +19,7 @@ pub mod nemotron;
 pub mod biasing;
 
 use anyhow::Result;
+use base64::Engine as _;
 use serde::Deserialize;
 use thiserror::Error;
 use tracing::{debug, info};
@@ -1236,6 +1237,305 @@ impl SttEngine for DeepgramEngine {
     }
 }
 
+// ── Gemini transcribe ───────────────────────────────────────────────────────
+
+/// How much of what was actually said Gemini is allowed to tidy away.
+///
+/// The two modes are not cosmetic variants of one another. Measured on one
+/// clip: verbatim returned "Let's meet Tuesday, no, Wednesday, um, to review
+/// the streaming latency numbers." and smart returned "Let's meet Wednesday
+/// to review the streaming latency numbers." Smart dropped a filler word and
+/// silently resolved a self-correction, so its output is a good sentence and
+/// a false record of the speech.
+///
+/// The engine takes the mode and does not decide it. The caller does, in
+/// `Pipeline::new`, because the thing that settles the question (whether the
+/// dictation is being written to a fine-tuning dataset) lives in the daemon's
+/// config and is none of this crate's business.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeminiMode {
+    /// Every word, including filler and abandoned starts. The only mode whose
+    /// output is a true transcript of the audio next to it.
+    Verbatim,
+    /// Reads better, matches the audio less. Fillers and self-corrections are
+    /// removed without any marker saying that they were.
+    Smart,
+}
+
+impl GeminiMode {
+    /// The value the API's `mode.type` field expects.
+    fn wire_name(self) -> &'static str {
+        match self {
+            GeminiMode::Verbatim => "verbatim",
+            GeminiMode::Smart => "smart",
+        }
+    }
+
+    /// Label for a log line or a health check.
+    pub fn label(self) -> &'static str {
+        self.wire_name()
+    }
+}
+
+/// Maximum dictionary terms forwarded as Gemini `custom_vocabulary` entries.
+///
+/// Google does not publish a limit for this field, and a request that is
+/// refused for being too large fails the whole dictation rather than
+/// degrading, so Rekody caps it rather than finding the ceiling in
+/// production. Unlike Deepgram's keyterms, which ride in the query string and
+/// so are bounded by URL length, these terms sit in the JSON body next to
+/// base64 audio that is already the dominant cost; the cap here is about not
+/// growing an unbounded, unvalidated field, not about bytes. The value
+/// matches [`DEEPGRAM_MAX_KEYTERMS`] deliberately: one personal dictionary
+/// should bias every cloud engine the same way, and a user whose term 51
+/// works on one provider and not the other has found a Rekody bug rather
+/// than a provider difference.
+const GEMINI_MAX_VOCAB_TERMS: usize = 50;
+
+/// The model Rekody pins. The streaming sibling (`-live`) is a different API
+/// with a persistent connection and is deliberately not offered here.
+const GEMINI_TRANSCRIBE_MODEL: &str = "gemini-3.5-transcribe";
+
+/// Google's transcription endpoint for this model.
+///
+/// Not `:generateContent`. That path accepts the audio, bills for it, and
+/// returns an empty part, which is indistinguishable from a silent recording
+/// and was verified by probe. `/v1beta/interactions` is the correct one.
+const GEMINI_ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1beta/interactions";
+
+/// One `steps[].content[]` element. Only text parts carry a transcript.
+#[derive(Debug, Deserialize)]
+struct GeminiContent {
+    #[serde(default)]
+    text: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiStep {
+    #[serde(default)]
+    content: Vec<GeminiContent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiResponse {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    steps: Vec<GeminiStep>,
+}
+
+/// Cloud STT engine using Google's `gemini-3.5-transcribe`.
+///
+/// Sends the recording inline as base64 WAV in a single request: there is no
+/// Files API upload and no second call. Requires a Google AI Studio API key
+/// (<https://aistudio.google.com/apikey>).
+///
+/// Batch, not streaming. A 5.5 second clip measured 2.3 to 3.8 seconds
+/// end to end, so this is an accuracy choice rather than a latency one.
+pub struct GeminiTranscribeEngine {
+    api_key: String,
+    model: String,
+    mode: GeminiMode,
+    client: reqwest::Client,
+    /// Dictionary terms sent as `custom_vocabulary`, capped at
+    /// [`GEMINI_MAX_VOCAB_TERMS`]. Empty = no biasing.
+    bias_terms: Mutex<Vec<String>>,
+}
+
+/// Hand-written so the API key can never reach a log line, a panic message,
+/// or a `{:?}` in someone's debugging session.
+impl std::fmt::Debug for GeminiTranscribeEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GeminiTranscribeEngine")
+            .field("model", &self.model)
+            .field("mode", &self.mode)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .finish()
+    }
+}
+
+impl GeminiTranscribeEngine {
+    /// Create an engine pinned to [`GEMINI_TRANSCRIBE_MODEL`] in `mode`.
+    pub fn new(api_key: String, mode: GeminiMode) -> Self {
+        Self {
+            api_key,
+            model: GEMINI_TRANSCRIBE_MODEL.to_string(),
+            mode,
+            client: reqwest::Client::new(),
+            bias_terms: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The mode this engine resolved to, for a health check or a log line.
+    pub fn mode(&self) -> GeminiMode {
+        self.mode
+    }
+}
+
+/// Build the JSON body for one transcription request.
+///
+/// A free function so the request shape is testable without an engine, a key,
+/// or a network, the same reason [`build_deepgram_query`] is one. Audio rides
+/// inline as base64 rather than through the Files API, which the probe
+/// confirmed works in a single call.
+fn build_gemini_request(
+    model: &str,
+    mode: GeminiMode,
+    audio_b64: String,
+    bias_terms: &[String],
+) -> serde_json::Value {
+    let mut transcription_config = serde_json::json!({
+        "mode": { "type": mode.wire_name() },
+    });
+    let vocabulary: Vec<&str> = bias_terms
+        .iter()
+        .take(GEMINI_MAX_VOCAB_TERMS)
+        .map(String::as_str)
+        .collect();
+    if !vocabulary.is_empty() {
+        transcription_config["custom_vocabulary"] = serde_json::json!(vocabulary);
+    }
+    serde_json::json!({
+        "model": model,
+        "input": [{
+            "type": "audio",
+            "data": audio_b64,
+            "mime_type": "audio/wav",
+        }],
+        "generation_config": {
+            "transcription_config": transcription_config,
+        },
+    })
+}
+
+/// Join the text across every step of a completed response.
+///
+/// The API returns a list of steps, each with a list of content parts; a
+/// transcript can arrive split across them. Non-text parts are skipped.
+fn gemini_transcript_text(resp: &GeminiResponse) -> String {
+    let mut out = String::new();
+    for step in &resp.steps {
+        for part in &step.content {
+            if let Some(text) = &part.text {
+                out.push_str(text);
+            }
+        }
+    }
+    out.trim().to_string()
+}
+
+impl SttEngine for GeminiTranscribeEngine {
+    async fn transcribe(&self, samples: &[f32]) -> Result<Transcript> {
+        if samples.is_empty() {
+            return Ok(Transcript {
+                text: String::new(),
+                latency_ms: 0,
+            });
+        }
+
+        debug!(
+            num_samples = samples.len(),
+            duration_secs = samples.len() as f64 / 16000.0,
+            model = %self.model,
+            mode = self.mode.label(),
+            "starting Gemini transcription"
+        );
+
+        let start = Instant::now();
+        let audio_b64 = base64::engine::general_purpose::STANDARD.encode(encode_wav(samples));
+
+        let bias_terms = self
+            .bias_terms
+            .lock()
+            .map(|terms| terms.clone())
+            .unwrap_or_default();
+        let body = build_gemini_request(&self.model, self.mode, audio_b64, &bias_terms);
+
+        let response = self
+            .client
+            .post(GEMINI_ENDPOINT)
+            .header("x-goog-api-key", &self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| SttError::ApiError(format!("request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(SttError::ApiError(format!(
+                "Gemini returned {}: {}",
+                status,
+                snippet(&body)
+            ))
+            .into());
+        }
+
+        let raw = response
+            .text()
+            .await
+            .map_err(|e| SttError::ApiError(format!("failed to read response: {}", e)))?;
+        let parsed: GeminiResponse = serde_json::from_str(&raw).map_err(|e| {
+            SttError::UnexpectedResponse(format!(
+                "Gemini returned something that is not a transcription response ({}): {}",
+                e,
+                snippet(&raw)
+            ))
+        })?;
+
+        // A non-completed interaction has no transcript to read, and an empty
+        // string from it would be indistinguishable from a silent recording.
+        match parsed.status.as_deref() {
+            Some("completed") => {}
+            Some(other) => {
+                return Err(SttError::ApiError(format!(
+                    "Gemini did not complete the transcription (status: {})",
+                    other
+                ))
+                .into());
+            }
+            None => {
+                return Err(SttError::UnexpectedResponse(format!(
+                    "Gemini response carried no status: {}",
+                    snippet(&raw)
+                ))
+                .into());
+            }
+        }
+
+        let text = gemini_transcript_text(&parsed);
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        info!(
+            latency_ms,
+            text_len = text.len(),
+            model = %self.model,
+            mode = self.mode.label(),
+            "Gemini transcription complete"
+        );
+
+        Ok(Transcript { text, latency_ms })
+    }
+
+    fn set_bias_terms(&self, terms: &[String]) {
+        if let Ok(mut stored) = self.bias_terms.lock() {
+            *stored = terms
+                .iter()
+                .map(|term| term.trim())
+                .filter(|term| !term.is_empty())
+                .map(str::to_owned)
+                .collect();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1336,6 +1636,145 @@ mod tests {
         // Empty input clears previous terms.
         engine.set_bias_terms(&[]);
         assert!(engine.bias_terms.lock().unwrap().is_empty());
+    }
+
+    // ----- Gemini transcribe -----
+
+    /// The request shape the probe verified. The endpoint, the inline audio
+    /// part, and the mode all live here, so a change to any of them has to
+    /// be deliberate.
+    #[test]
+    fn gemini_request_carries_mode_and_inline_audio() {
+        let body = build_gemini_request(
+            "gemini-3.5-transcribe",
+            GeminiMode::Verbatim,
+            "QUJD".to_string(),
+            &[],
+        );
+        assert_eq!(body["model"], "gemini-3.5-transcribe");
+        assert_eq!(body["input"][0]["type"], "audio");
+        assert_eq!(body["input"][0]["mime_type"], "audio/wav");
+        assert_eq!(body["input"][0]["data"], "QUJD");
+        assert_eq!(
+            body["generation_config"]["transcription_config"]["mode"]["type"],
+            "verbatim"
+        );
+        // No dictionary, no key: an empty custom_vocabulary would ask the
+        // model to bias toward nothing.
+        assert!(
+            body["generation_config"]["transcription_config"]
+                .get("custom_vocabulary")
+                .is_none()
+        );
+    }
+
+    /// Smart mode is a different request, not a different reading of the same
+    /// one. If these two ever serialize the same way the mode rule is dead.
+    #[test]
+    fn gemini_smart_and_verbatim_are_different_requests() {
+        let verbatim = build_gemini_request("m", GeminiMode::Verbatim, "QUJD".to_string(), &[]);
+        let smart = build_gemini_request("m", GeminiMode::Smart, "QUJD".to_string(), &[]);
+        assert_eq!(
+            verbatim["generation_config"]["transcription_config"]["mode"]["type"],
+            "verbatim"
+        );
+        assert_eq!(
+            smart["generation_config"]["transcription_config"]["mode"]["type"],
+            "smart"
+        );
+        assert_ne!(verbatim, smart);
+    }
+
+    #[test]
+    fn gemini_request_sends_dictionary_terms_as_custom_vocabulary() {
+        let body = build_gemini_request(
+            "m",
+            GeminiMode::Smart,
+            "QUJD".to_string(),
+            &terms(&["Rekody", "Kalenjin"]),
+        );
+        let vocab = body["generation_config"]["transcription_config"]["custom_vocabulary"]
+            .as_array()
+            .expect("custom_vocabulary should be an array");
+        assert_eq!(vocab.len(), 2);
+        assert_eq!(vocab[0], "Rekody");
+        assert_eq!(vocab[1], "Kalenjin");
+    }
+
+    /// Over-limit dictionaries are truncated in file order, the same rule
+    /// Deepgram's keyterms follow.
+    #[test]
+    fn gemini_request_caps_custom_vocabulary() {
+        let many: Vec<String> = (0..80).map(|i| format!("term{i}")).collect();
+        let body = build_gemini_request("m", GeminiMode::Verbatim, "QUJD".to_string(), &many);
+        let vocab = body["generation_config"]["transcription_config"]["custom_vocabulary"]
+            .as_array()
+            .expect("custom_vocabulary should be an array");
+        assert_eq!(vocab.len(), GEMINI_MAX_VOCAB_TERMS);
+        assert_eq!(vocab[0], "term0");
+        assert!(!vocab.iter().any(|v| v == "term50"));
+    }
+
+    #[test]
+    fn gemini_set_bias_terms_stores_trimmed_nonempty_terms() {
+        let engine = GeminiTranscribeEngine::new("test-key".to_string(), GeminiMode::Verbatim);
+        engine.set_bias_terms(&terms(&["  Rekody ", "   ", "Chamgei"]));
+        assert_eq!(
+            *engine.bias_terms.lock().unwrap(),
+            terms(&["Rekody", "Chamgei"])
+        );
+        engine.set_bias_terms(&[]);
+        assert!(engine.bias_terms.lock().unwrap().is_empty());
+    }
+
+    /// A transcript can arrive split across steps and across parts within a
+    /// step. All of it is the transcript.
+    #[test]
+    fn gemini_transcript_joins_text_across_steps_and_parts() {
+        let resp: GeminiResponse = serde_json::from_str(
+            r#"{"status":"completed","steps":[
+                 {"content":[{"type":"text","text":"Let's meet "},{"type":"text","text":"Wednesday"}]},
+                 {"content":[{"type":"text","text":" at noon."}]}
+               ]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            gemini_transcript_text(&resp),
+            "Let's meet Wednesday at noon."
+        );
+    }
+
+    /// A content part that is not text must not break parsing or leak into
+    /// the transcript.
+    #[test]
+    fn gemini_transcript_skips_non_text_parts() {
+        let resp: GeminiResponse = serde_json::from_str(
+            r#"{"status":"completed","steps":[{"content":[
+                 {"type":"thought"},{"type":"text","text":"hello"}]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(gemini_transcript_text(&resp), "hello");
+    }
+
+    /// The key must never reach a log line or a panic message.
+    #[test]
+    fn gemini_debug_redacts_the_api_key() {
+        let engine =
+            GeminiTranscribeEngine::new("AIzaSuperSecretValue".to_string(), GeminiMode::Smart);
+        let rendered = format!("{engine:?}");
+        assert!(!rendered.contains("AIzaSuperSecretValue"));
+        assert!(rendered.contains("[REDACTED]"));
+        assert!(rendered.contains("Smart"));
+
+        let empty = GeminiTranscribeEngine::new(String::new(), GeminiMode::Smart);
+        assert!(format!("{empty:?}").contains("[empty]"));
+    }
+
+    /// The wire names are the API's, not ours, and the probe pinned them.
+    #[test]
+    fn gemini_mode_wire_names_match_the_api() {
+        assert_eq!(GeminiMode::Verbatim.wire_name(), "verbatim");
+        assert_eq!(GeminiMode::Smart.wire_name(), "smart");
     }
 
     // ----- Groq multipart body -----

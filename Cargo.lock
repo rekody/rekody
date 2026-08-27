@@ -2708,6 +2708,7 @@ name = "rekody-stt"
 version = "0.5.30"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "hound",
  "libc",
  "parakeet-rs",

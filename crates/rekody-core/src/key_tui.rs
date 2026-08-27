@@ -61,8 +61,8 @@ const LLM_PROVIDERS: &[&str] = &[
 ];
 
 /// Every keychain account the picker offers: the LLM providers above, plus
-/// each speech-to-text provider that takes a key, deduplicated (Groq and
-/// Deepgram are both).
+/// each speech-to-text provider that takes a key, deduplicated (Groq,
+/// Deepgram, and Gemini are all both).
 fn providers() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = LLM_PROVIDERS.to_vec();
     for provider in crate::stt_catalog::catalog() {
