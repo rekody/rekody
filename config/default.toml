@@ -27,13 +27,28 @@ vad_threshold = 0.01
 injection_method = "clipboard"
 
 # ─── Speech-to-Text Engine ──────────────────────────────────
-# "local"    = on-device Whisper (default, private)
-# "groq"     = Groq cloud Whisper (fastest, uses groq_api_key)
-# "deepgram" = Deepgram Nova-3 (most accurate, needs deepgram_api_key)
+# Run `rekody engines` for this list with descriptions, or
+# `rekody engines --json` for the machine-readable catalog every
+# Rekody surface renders from.
+#
+# "nemotron" = Rekody Streaming, on-device, English (Apple silicon)
+# "local"    = on-device Whisper (private, 100+ languages)
+# "groq"     = Groq cloud Whisper (audio sent to Groq, uses groq_api_key)
+# "deepgram" = Deepgram Nova-3 (audio sent to Deepgram, needs deepgram_api_key)
 # "cohere"   = Local Cohere transcription server (needs cohere_stt_port)
+# "custom"   = Any endpoint speaking OpenAI's /v1/audio/transcriptions
 stt_engine = "local"
 # deepgram_api_key = ""              # Get yours at console.deepgram.com
 # cohere_stt_port = 8099             # Port for local Cohere STT server
+
+# The "custom" engine sends your audio wherever you point it, so it is
+# opt-in only: Rekody never falls back to it, and refuses to start if the
+# URL is missing or would put your voice on the network in the clear.
+# The URL must be https, or http on localhost for a server you run.
+# Rekody appends /audio/transcriptions to it.
+# custom_stt_base_url = "https://api.openai.com/v1"
+# custom_stt_model = "whisper-1"
+# custom_stt_api_key = ""            # Optional: a local vLLM needs none
 
 # Language for transcription (BCP-47 code, e.g. "en", "sw", "fr", "es").
 # Omit or leave commented to enable auto-detection:

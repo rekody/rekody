@@ -74,6 +74,15 @@ pub enum SttError {
     TranscriptionFailed(String),
     #[error("API error: {0}")]
     ApiError(String),
+    /// A user-supplied endpoint that Rekody will not send audio to.
+    #[error("{0}")]
+    InvalidEndpoint(String),
+    /// The endpoint answered, but not with an OpenAI transcription response.
+    /// Kept separate from [`SttError::ApiError`] so a misconfigured custom
+    /// endpoint reads as "this is not a transcription API" rather than as a
+    /// raw serde parse failure.
+    #[error("{0}")]
+    UnexpectedResponse(String),
 }
 
 /// Raw transcription result from an STT engine.
@@ -429,20 +438,141 @@ impl SttEngine for LocalWhisperEngine {
 }
 
 // ---------------------------------------------------------------------------
-// Groq Cloud Whisper Engine
+// OpenAI-compatible transcription engine (Groq, OpenAI, Together, vLLM, ...)
 // ---------------------------------------------------------------------------
 
-/// Response payload from the Groq transcription API.
+/// Response payload from an OpenAI-compatible transcription endpoint.
+///
+/// `response_format=json` is documented to return exactly `{"text": "..."}`.
+/// Extra fields are ignored, so an endpoint that returns the verbose shape
+/// still works as long as it carries `text`.
 #[derive(Debug, Deserialize)]
-struct GroqTranscriptionResponse {
+struct TranscriptionResponse {
     text: String,
 }
 
-/// Cloud-based STT engine that sends audio to Groq's Whisper API.
+/// Path every OpenAI-compatible transcription API exposes, relative to the
+/// API base URL.
+const TRANSCRIPTIONS_PATH: &str = "/audio/transcriptions";
+
+/// Groq's API base. Groq is a preset of the generic engine, not a separate
+/// implementation: it was already the OpenAI-compatible shape.
+const GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
+
+/// Whisper model Groq serves.
+const GROQ_DEFAULT_MODEL: &str = "whisper-large-v3";
+
+/// Longest error body echoed back to the user. Enough to recognise an HTML
+/// login page or a JSON error, short enough not to flood a notification.
+const MAX_ERROR_BODY_CHARS: usize = 300;
+
+/// Is this host on the loopback interface?
 ///
-/// Requires a valid Groq API key. Audio is encoded as a WAV file in memory
-/// and uploaded via multipart/form-data.
-pub struct GroqWhisperEngine {
+/// The one case where plain http is acceptable: a transcription server the
+/// user runs on their own machine never puts audio on a network.
+fn is_loopback_host(host: &str) -> bool {
+    // Strip the brackets reqwest keeps on IPv6 literals.
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
+        return ip.is_loopback();
+    }
+    // `localhost` and anything under it (`foo.localhost`) resolve to loopback
+    // by RFC 6761.
+    bare == "localhost" || bare.ends_with(".localhost")
+}
+
+/// Turn a user-supplied API base URL into the transcription endpoint Rekody
+/// will POST audio to, or refuse with a message that says what is wrong.
+///
+/// The user's voice goes to this address, so the rules are strict and the
+/// refusals are specific:
+///
+/// * https is required, because audio in flight must be encrypted;
+/// * plain http is allowed only on loopback, so self-hosting still works;
+/// * a base URL already ending in `/audio/transcriptions` is taken as-is,
+///   because pasting the full endpoint is the obvious mistake to forgive.
+///
+/// Never called with anything but user input, and never logs it beyond the
+/// host, which is what the UI shows anyway.
+pub fn resolve_transcription_endpoint(base_url: &str) -> Result<reqwest::Url, SttError> {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() {
+        return Err(SttError::InvalidEndpoint(
+            "no API base URL is set for the custom speech-to-text provider. \
+             Add one in Settings, or set custom_stt_base_url in config.toml."
+                .to_string(),
+        ));
+    }
+
+    let url = reqwest::Url::parse(trimmed).map_err(|_| {
+        SttError::InvalidEndpoint(format!(
+            "\"{trimmed}\" is not a valid URL. It should look like \
+             https://api.openai.com/v1"
+        ))
+    })?;
+
+    let scheme = url.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err(SttError::InvalidEndpoint(format!(
+            "Rekody only sends audio over https (or http on localhost), \
+             and this URL uses {scheme}."
+        )));
+    }
+
+    let host = url
+        .host_str()
+        .ok_or_else(|| {
+            SttError::InvalidEndpoint(format!("\"{trimmed}\" has no host to send audio to."))
+        })?
+        .to_string();
+
+    if scheme == "http" && !is_loopback_host(&host) {
+        return Err(SttError::InvalidEndpoint(format!(
+            "Rekody will not send your voice to {host} over plain http, \
+             which anyone on the network can read. Use https, or http on \
+             localhost for a server you run yourself."
+        )));
+    }
+
+    // Forgive a pasted full endpoint; otherwise append the standard path.
+    let path = url.path().trim_end_matches('/');
+    if path.ends_with(TRANSCRIPTIONS_PATH) {
+        return Ok(url);
+    }
+    let joined = format!(
+        "{}://{}{}{}",
+        scheme,
+        authority(&url),
+        path,
+        TRANSCRIPTIONS_PATH
+    );
+    reqwest::Url::parse(&joined).map_err(|_| {
+        SttError::InvalidEndpoint(format!(
+            "could not build a transcription endpoint from \"{trimmed}\"."
+        ))
+    })
+}
+
+/// `host` or `host:port`, as it belongs in a URL.
+fn authority(url: &reqwest::Url) -> String {
+    match (url.host_str(), url.port()) {
+        (Some(h), Some(p)) => format!("{h}:{p}"),
+        (Some(h), None) => h.to_string(),
+        (None, _) => String::new(),
+    }
+}
+
+/// Cloud (or self-hosted) STT engine speaking OpenAI's
+/// `/v1/audio/transcriptions`.
+///
+/// One implementation covers Groq, OpenAI, Together, Fireworks, a local
+/// vLLM or LM Studio, and anything else that answers the same shape. Audio
+/// is encoded as a WAV file in memory and uploaded via multipart/form-data.
+pub struct OpenAiCompatEngine {
+    /// Provider name for logs and error messages, e.g. `"Groq"`. Never a key.
+    label: String,
+    /// Full transcriptions endpoint, already validated.
+    endpoint: reqwest::Url,
     api_key: String,
     model: String,
     client: reqwest::Client,
@@ -453,44 +583,108 @@ pub struct GroqWhisperEngine {
     bias_prompt: Mutex<Option<String>>,
 }
 
-impl GroqWhisperEngine {
-    /// Create a new Groq Whisper engine with auto language detection.
+impl OpenAiCompatEngine {
+    /// Groq preset: Groq's own base URL and Whisper Large v3.
     ///
-    /// # Arguments
-    /// * `api_key` - Groq API key for authentication.
-    pub fn new(api_key: String) -> Self {
-        Self {
+    /// Kept as a named constructor so `stt_engine = "groq"` configs that
+    /// predate the generic engine behave byte for byte as they did.
+    pub fn groq(api_key: String, language: Option<String>) -> Self {
+        Self::preset(
+            "Groq",
+            GROQ_BASE_URL,
+            GROQ_DEFAULT_MODEL.to_string(),
             api_key,
-            model: "whisper-large-v3".to_string(),
-            client: reqwest::Client::new(),
-            language: None,
-            bias_prompt: Mutex::new(None),
-        }
+            language,
+        )
     }
 
-    /// Create a new Groq Whisper engine with a custom model name.
-    pub fn with_model(api_key: String, model: String) -> Self {
+    /// Groq preset with a different model name on Groq's endpoint.
+    pub fn groq_with_model(api_key: String, model: String) -> Self {
+        Self::preset("Groq", GROQ_BASE_URL, model, api_key, None)
+    }
+
+    /// A preset whose base URL Rekody chose, so validation cannot fail.
+    fn preset(
+        label: &str,
+        base_url: &str,
+        model: String,
+        api_key: String,
+        language: Option<String>,
+    ) -> Self {
+        let endpoint =
+            resolve_transcription_endpoint(base_url).expect("built-in preset base URLs are valid");
+        Self::build(label.to_string(), endpoint, model, api_key, language)
+    }
+
+    /// An endpoint the user supplied. Fails before any audio is recorded
+    /// rather than at the moment they speak.
+    pub fn custom(
+        base_url: &str,
+        model: String,
+        api_key: String,
+        language: Option<String>,
+    ) -> Result<Self, SttError> {
+        let endpoint = resolve_transcription_endpoint(base_url)?;
+        if model.trim().is_empty() {
+            return Err(SttError::InvalidEndpoint(
+                "the custom speech-to-text provider needs a model name, \
+                 for example whisper-1."
+                    .to_string(),
+            ));
+        }
+        let label = endpoint.host_str().unwrap_or("the endpoint").to_string();
+        Ok(Self::build(label, endpoint, model, api_key, language))
+    }
+
+    fn build(
+        label: String,
+        endpoint: reqwest::Url,
+        model: String,
+        api_key: String,
+        language: Option<String>,
+    ) -> Self {
         Self {
+            label,
+            endpoint,
             api_key,
             model,
-            client: reqwest::Client::new(),
-            language: None,
-            bias_prompt: Mutex::new(None),
-        }
-    }
-
-    /// Create a new Groq Whisper engine with a pinned language.
-    ///
-    /// Providing a language hint can slightly improve accuracy and speed.
-    /// Use `None` (via [`Self::new`]) for automatic language detection.
-    pub fn with_language(api_key: String, language: Option<String>) -> Self {
-        Self {
-            api_key,
-            model: "whisper-large-v3".to_string(),
             client: reqwest::Client::new(),
             language,
             bias_prompt: Mutex::new(None),
         }
+    }
+
+    /// The host this engine sends audio to. Surfaced in the UI before the
+    /// first recording so nobody has to read a config file to find out where
+    /// their voice is going.
+    pub fn destination_host(&self) -> &str {
+        self.endpoint.host_str().unwrap_or("")
+    }
+
+    /// The full endpoint, for diagnostics such as `rekody doctor`.
+    pub fn endpoint(&self) -> &reqwest::Url {
+        &self.endpoint
+    }
+}
+
+/// Hand-written so the API key can never reach a log line, a panic message,
+/// or a `{:?}` in someone's debugging session. Mirrors `ProviderConfig`.
+impl std::fmt::Debug for OpenAiCompatEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAiCompatEngine")
+            .field("label", &self.label)
+            .field("endpoint", &self.endpoint.as_str())
+            .field("model", &self.model)
+            .field("language", &self.language)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .finish()
     }
 }
 
@@ -593,7 +787,20 @@ fn build_multipart_body(
     (content_type, body)
 }
 
-impl SttEngine for GroqWhisperEngine {
+/// Shorten a response body for an error message, on a character boundary.
+fn snippet(body: &str) -> String {
+    let clean = body.trim();
+    if clean.is_empty() {
+        return "an empty body".to_string();
+    }
+    let mut out: String = clean.chars().take(MAX_ERROR_BODY_CHARS).collect();
+    if out.chars().count() < clean.chars().count() {
+        out.push('…');
+    }
+    out
+}
+
+impl SttEngine for OpenAiCompatEngine {
     async fn transcribe(&self, samples: &[f32]) -> Result<Transcript> {
         if samples.is_empty() {
             return Ok(Transcript {
@@ -606,7 +813,8 @@ impl SttEngine for GroqWhisperEngine {
             num_samples = samples.len(),
             duration_secs = samples.len() as f64 / 16000.0,
             model = %self.model,
-            "starting Groq cloud transcription"
+            host = %self.destination_host(),
+            "starting cloud transcription"
         );
 
         let start = Instant::now();
@@ -614,8 +822,8 @@ impl SttEngine for GroqWhisperEngine {
         // Encode samples to WAV in memory
         let wav_data = encode_wav(samples);
 
-        // Build the multipart body (language=None → Groq auto-detects;
-        // bias_prompt=None → no prompt field).
+        // Build the multipart body (language=None → the provider
+        // auto-detects; bias_prompt=None → no prompt field).
         let bias_prompt = self.bias_prompt.lock().ok().and_then(|guard| guard.clone());
         let (content_type, body) = build_multipart_body(
             &wav_data,
@@ -624,43 +832,65 @@ impl SttEngine for GroqWhisperEngine {
             bias_prompt.as_deref(),
         );
 
-        // Send to Groq API
-        let response = self
+        let mut request = self
             .client
-            .post("https://api.groq.com/openai/v1/audio/transcriptions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .post(self.endpoint.clone())
             .header("Content-Type", content_type)
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| SttError::ApiError(format!("request failed: {}", e)))?;
+            .body(body);
+        // A self-hosted server usually wants no key at all. Sending an empty
+        // bearer token makes some of them reject the request outright.
+        if !self.api_key.is_empty() {
+            request = request.header("Authorization", format!("Bearer {}", self.api_key));
+        }
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "unable to read response body".to_string());
+        let response = request.send().await.map_err(|e| {
+            SttError::ApiError(format!(
+                "could not reach {} at {}: {e}",
+                self.label,
+                self.destination_host()
+            ))
+        })?;
+
+        let status = response.status();
+        // Read as text first so a failure can quote what actually came back.
+        // A misconfigured endpoint usually answers with HTML or a plain
+        // error, and "expected value at line 1 column 1" helps nobody.
+        let raw = response.text().await.map_err(|e| {
+            SttError::ApiError(format!(
+                "{} sent a response Rekody could not read: {e}",
+                self.label
+            ))
+        })?;
+
+        if !status.is_success() {
             return Err(SttError::ApiError(format!(
-                "Groq API returned {}: {}",
-                status, error_body
+                "{} returned {}: {}",
+                self.label,
+                status,
+                snippet(&raw)
             ))
             .into());
         }
 
-        let groq_resp: GroqTranscriptionResponse = response
-            .json()
-            .await
-            .map_err(|e| SttError::ApiError(format!("failed to parse response: {}", e)))?;
+        let parsed: TranscriptionResponse = serde_json::from_str(&raw).map_err(|_| {
+            SttError::UnexpectedResponse(format!(
+                "{} answered, but not with a transcription. Rekody expected \
+                 JSON with a \"text\" field from {}, and got: {}",
+                self.label,
+                self.endpoint,
+                snippet(&raw)
+            ))
+        })?;
 
         let latency_ms = start.elapsed().as_millis() as u64;
-        let text = groq_resp.text.trim().to_string();
+        let text = parsed.text.trim().to_string();
 
         info!(
             latency_ms,
             text_len = text.len(),
             model = %self.model,
-            "Groq cloud transcription complete"
+            host = %self.destination_host(),
+            "cloud transcription complete"
         );
 
         Ok(Transcript { text, latency_ms })
@@ -1114,7 +1344,7 @@ mod tests {
 
     #[test]
     fn groq_set_bias_terms_builds_prompt_and_clears_on_empty() {
-        let engine = GroqWhisperEngine::new("test-key".to_string());
+        let engine = OpenAiCompatEngine::groq("test-key".to_string(), None);
         engine.set_bias_terms(&terms(&["Rekody"]));
         assert_eq!(
             engine.bias_prompt.lock().unwrap().as_deref(),
@@ -1122,5 +1352,148 @@ mod tests {
         );
         engine.set_bias_terms(&[]);
         assert_eq!(*engine.bias_prompt.lock().unwrap(), None);
+    }
+
+    // ----- OpenAI-compatible presets -----
+
+    /// The Groq preset must keep hitting the exact URL and model the
+    /// separate GroqWhisperEngine did, or existing `stt_engine = "groq"`
+    /// configs would quietly change behaviour.
+    #[test]
+    fn groq_preset_is_unchanged_by_the_generalisation() {
+        let engine = OpenAiCompatEngine::groq("k".to_string(), Some("en".to_string()));
+        assert_eq!(
+            engine.endpoint().as_str(),
+            "https://api.groq.com/openai/v1/audio/transcriptions"
+        );
+        assert_eq!(engine.model, "whisper-large-v3");
+        assert_eq!(engine.language.as_deref(), Some("en"));
+        assert_eq!(engine.destination_host(), "api.groq.com");
+    }
+
+    #[test]
+    fn groq_with_model_keeps_groqs_endpoint() {
+        let engine =
+            OpenAiCompatEngine::groq_with_model("k".into(), "whisper-large-v3-turbo".into());
+        assert_eq!(engine.model, "whisper-large-v3-turbo");
+        assert_eq!(engine.destination_host(), "api.groq.com");
+    }
+
+    // ----- Endpoint guard -----
+
+    #[test]
+    fn https_endpoints_get_the_transcriptions_path_appended() {
+        let url = resolve_transcription_endpoint("https://api.openai.com/v1").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.openai.com/v1/audio/transcriptions"
+        );
+        // A trailing slash must not produce a doubled one.
+        let url = resolve_transcription_endpoint("https://api.openai.com/v1/").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.openai.com/v1/audio/transcriptions"
+        );
+    }
+
+    /// Pasting the full endpoint is the obvious mistake, and it is harmless.
+    #[test]
+    fn a_full_endpoint_is_taken_as_given() {
+        let url =
+            resolve_transcription_endpoint("https://api.together.xyz/v1/audio/transcriptions")
+                .unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.together.xyz/v1/audio/transcriptions"
+        );
+    }
+
+    /// Self-hosting must keep working, so loopback over plain http is the
+    /// one allowed exception.
+    #[test]
+    fn plain_http_is_allowed_only_on_loopback() {
+        for base in [
+            "http://localhost:8000/v1",
+            "http://127.0.0.1:1234/v1",
+            "http://[::1]:8000/v1",
+            "http://whisper.localhost/v1",
+        ] {
+            assert!(
+                resolve_transcription_endpoint(base).is_ok(),
+                "{base} should be allowed"
+            );
+        }
+    }
+
+    /// The guard that matters: a user's voice never goes to a remote host in
+    /// the clear.
+    #[test]
+    fn plain_http_to_a_remote_host_is_refused() {
+        let err = resolve_transcription_endpoint("http://example.com/v1").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("example.com"),
+            "message must name the host: {msg}"
+        );
+        assert!(msg.contains("https"), "message must say what to do: {msg}");
+        // 10.0.0.5 is private but not loopback: still a network hop.
+        assert!(resolve_transcription_endpoint("http://10.0.0.5:8000/v1").is_err());
+    }
+
+    #[test]
+    fn non_http_schemes_and_junk_are_refused() {
+        for base in ["ftp://example.com", "file:///etc/passwd", "not a url", ""] {
+            assert!(
+                resolve_transcription_endpoint(base).is_err(),
+                "{base:?} should be refused"
+            );
+        }
+    }
+
+    /// A custom provider with no model name cannot work, and saying so at
+    /// construction beats failing at the moment someone speaks.
+    #[test]
+    fn custom_requires_a_model_name() {
+        let err =
+            OpenAiCompatEngine::custom("https://api.openai.com/v1", "  ".into(), "k".into(), None)
+                .unwrap_err();
+        assert!(err.to_string().contains("model name"));
+    }
+
+    #[test]
+    fn custom_labels_itself_with_the_destination_host() {
+        let engine = OpenAiCompatEngine::custom(
+            "https://api.openai.com/v1",
+            "whisper-1".into(),
+            String::new(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(engine.destination_host(), "api.openai.com");
+        assert_eq!(engine.label, "api.openai.com");
+    }
+
+    // ----- Error bodies -----
+
+    /// A misconfigured endpoint must read as "this is not a transcription
+    /// API", not as a serde parse error.
+    #[test]
+    fn snippet_truncates_on_a_character_boundary() {
+        assert_eq!(snippet("   "), "an empty body");
+        assert_eq!(snippet("  hello  "), "hello");
+        let long = "é".repeat(MAX_ERROR_BODY_CHARS + 50);
+        let out = snippet(&long);
+        assert!(out.ends_with('…'));
+        assert_eq!(out.chars().count(), MAX_ERROR_BODY_CHARS + 1);
+    }
+
+    #[test]
+    fn loopback_detection_covers_the_forms_people_type() {
+        for host in ["localhost", "127.0.0.1", "127.1.2.3", "::1", "[::1]"] {
+            assert!(is_loopback_host(host), "{host} is loopback");
+        }
+        for host in ["example.com", "10.0.0.5", "0.0.0.0", "localhost.evil.com"] {
+            assert!(!is_loopback_host(host), "{host} is not loopback");
+        }
     }
 }

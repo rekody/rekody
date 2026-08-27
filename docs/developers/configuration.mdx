@@ -20,7 +20,7 @@ Changes take effect the next time `rekody` starts.
 |---|---|---|---|
 | `activation_mode` | `"both"`, `"push_to_talk"`, `"toggle"` | `"both"` | How the hotkey starts and stops recording. `both` means hold for push-to-talk and quick-tap for a hands-free latch. Unrecognized values fall back to `both`. |
 | `trigger_key` | `"option_space"`, `"fn_key"` | `"option_space"` | Which key triggers dictation. `fn_key` requires System Settings, Keyboard, "Press globe key to" set to "Do Nothing". |
-| `stt_engine` | `"nemotron"`, `"local"`, `"groq"`, `"deepgram"`, `"cohere"` | `"local"` when the key is absent | Speech-to-text backend. The setup wizard preselects `nemotron` (Rekody Streaming). See [Engines](/developers/engines). |
+| `stt_engine` | `"nemotron"`, `"local"`, `"groq"`, `"deepgram"`, `"cohere"`, `"custom"` | `"local"` when the key is absent | Speech-to-text backend. The setup wizard preselects `nemotron` (Rekody Streaming). Run `rekody engines` for the live list this build offers. See [Engines](/developers/engines). |
 | `whisper_model` | `"tiny"`, `"small"`, `"medium"`, `"turbo"`, `"large"` | `"turbo"` on Apple Silicon, `"small"` otherwise | Local Whisper model size. Only used when `stt_engine = "local"`. Turbo is fast only where the encoder runs on the Neural Engine; see [engines](/developers/engines). |
 | `stt_language` | BCP-47 code, e.g. `"en"` | unset (auto-detect) | Transcription language hint. Setting it slightly improves accuracy and speed when the language is known in advance. |
 | `injection_method` | `"clipboard"`, `"native"` | `"clipboard"` | How text is inserted: clipboard paste works everywhere; native sends keystrokes via CGEvent. |
@@ -53,6 +53,9 @@ With a chain, each recording start walks the list in order and captures from the
 |---|---|---|
 | `deepgram_api_key` | unset | Required when `stt_engine = "deepgram"`. Prefer the Keychain (below) over writing keys here. |
 | `cohere_stt_port` | `8099` | Port of the local Cohere STT server, when `stt_engine = "cohere"`. |
+| `custom_stt_base_url` | unset | Required when `stt_engine = "custom"`. API base URL, e.g. `"https://api.openai.com/v1"`. Must be https, or http on localhost. Rekody appends `/audio/transcriptions`. |
+| `custom_stt_model` | unset | Required when `stt_engine = "custom"`. Model id the endpoint expects, e.g. `"whisper-1"`. |
+| `custom_stt_api_key` | unset | Optional for `stt_engine = "custom"`. A vLLM or LM Studio server you run usually needs none. Prefer the Keychain (below). |
 
 ## LLM providers
 
