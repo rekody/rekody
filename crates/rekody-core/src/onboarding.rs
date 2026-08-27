@@ -577,7 +577,7 @@ pub fn run_onboarding() -> Result<()> {
     // never another provider's) without this code knowing about Groq.
     let stt_key_line = match (&stt_provider.key, &stt_api_key) {
         (Some(spec), Some(key)) if !key.is_empty() => {
-            format!("{} = \"{}\"", spec.config_key, key)
+            format!("{} = {}", spec.config_key, toml_string(key))
         }
         _ => String::new(),
     };
@@ -585,10 +585,10 @@ pub fn run_onboarding() -> Result<()> {
     // Extra fields the provider declared, in catalog order.
     let mut stt_field_lines: Vec<String> = Vec::new();
     if let Some(url) = &custom_stt_base_url {
-        stt_field_lines.push(format!("custom_stt_base_url = \"{url}\""));
+        stt_field_lines.push(format!("custom_stt_base_url = {}", toml_string(url)));
     }
     if let Some(model) = &custom_stt_model {
-        stt_field_lines.push(format!("custom_stt_model = \"{model}\""));
+        stt_field_lines.push(format!("custom_stt_model = {}", toml_string(model)));
     }
     let stt_field_block = stt_field_lines.join("\n");
 
@@ -738,6 +738,16 @@ fn provider_has_key_check(provider: &str) -> bool {
 /// network failures. Only meaningful for providers where
 /// [`provider_has_key_check`] is true; anything else returns `true` without
 /// checking, and callers must not present that as validation.
+/// A TOML basic string, quotes and all.
+///
+/// The wizard writes config lines by hand, and a value typed by a user can
+/// contain a quote or a backslash. A model name like `whis"per` would
+/// otherwise produce a config file the daemon cannot parse, which looks
+/// like setup silently breaking Rekody. `toml` does the escaping.
+fn toml_string(value: &str) -> String {
+    toml::Value::String(value.to_string()).to_string()
+}
+
 /// Ask for a URL the user's voice will be sent to, and refuse to accept one
 /// Rekody would not send audio to.
 ///
@@ -1940,6 +1950,59 @@ mod tests {
             !can_reuse_llm_key_for_groq_stt("local", "groq", "gsk_abc"),
             "non-Groq STT never writes groq_api_key from this path"
         );
+    }
+
+    /// The wizard writes config lines by hand. A value a user typed can
+    /// contain a quote, and an unescaped one produces a config file the
+    /// daemon refuses to parse: setup appearing to have broken Rekody.
+    #[test]
+    fn wizard_written_values_survive_a_toml_round_trip() {
+        for value in [
+            "whisper-1",
+            "whis\"per-1",
+            "back\\slash",
+            "https://api.example.com/v1",
+            "tab\there",
+        ] {
+            let line = format!("custom_stt_model = {}", toml_string(value));
+            let parsed: toml::Value =
+                toml::from_str(&line).unwrap_or_else(|e| panic!("{line} did not parse: {e}"));
+            assert_eq!(
+                parsed["custom_stt_model"].as_str(),
+                Some(value),
+                "value changed on the way through TOML"
+            );
+        }
+    }
+
+    /// The whole wizard-written config has to parse as a RekodyConfig, with
+    /// the selected provider's key landing in the config key its catalog
+    /// entry names.
+    #[test]
+    fn a_custom_provider_config_parses_back_into_rekody_config() {
+        let spec = stt_catalog::find("custom").unwrap().key.as_ref().unwrap();
+        let config = format!(
+            "activation_mode = \"both\"\n\
+             whisper_model = \"turbo\"\n\
+             vad_threshold = 0.01\n\
+             injection_method = \"clipboard\"\n\
+             stt_engine = \"custom\"\n\
+             {}\n\
+             custom_stt_base_url = {}\n\
+             custom_stt_model = {}\n",
+            format_args!("{} = {}", spec.config_key, toml_string("sk-test")),
+            toml_string("https://api.openai.com/v1"),
+            toml_string("whis\"per-1"),
+        );
+        let parsed: crate::RekodyConfig =
+            toml::from_str(&config).unwrap_or_else(|e| panic!("wizard config did not parse: {e}"));
+        assert_eq!(parsed.stt_engine, "custom");
+        assert_eq!(parsed.custom_stt_api_key.as_deref(), Some("sk-test"));
+        assert_eq!(
+            parsed.custom_stt_base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
+        assert_eq!(parsed.custom_stt_model.as_deref(), Some("whis\"per-1"));
     }
 
     /// The wizard may only show a "Validating..." spinner (and say "valid")
