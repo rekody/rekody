@@ -1,0 +1,133 @@
+---
+// ArchLabel: tells a Mac visitor which Mac the download is for, without
+// splitting the artifact. Rekody ships ONE universal DMG (arm64 + x86_64);
+// every state below links to that same file. Only the wording changes.
+//
+// HOW THE SWAP WORKS
+//   Markup carries all three wordings inside `.arch-swap`. They stack in a
+//   single CSS grid cell, so the cell is always as wide and as tall as the
+//   longest one, and one of them is `visibility: visible` at a time. The
+//   script sets a single attribute on <html> (`data-mac-arch`) and CSS does
+//   the rest: no measuring, no DOM writes per element, no reflow when the
+//   label changes, and `visibility: hidden` keeps the inactive wordings out
+//   of the accessibility tree.
+//
+//   Server-rendered default = the neutral wording that shipped before this.
+//   No JS, JS that throws, a non-Mac visitor, or a Mac we cannot identify all
+//   land there, and the button still points at the same DMG.
+//
+// HOW DETECTION WORKS (in order, first confident answer wins)
+//   1. Is this even a Mac? navigator.platform says "MacIntel" on Apple
+//      silicon too, so it is only ever used to rule a Mac IN, never to call
+//      an architecture. maxTouchPoints > 1 rules out an iPad asking for the
+//      desktop site.
+//   2. UA Client Hints (Chromium only, ~0ms): architecture "arm" means Apple
+//      silicon, full stop. "x86" describes the browser build rather than the
+//      Mac, so it earns a GPU probe instead of a label and the GPU decides.
+//      (Chromium maps a Rosetta-translated browser to "arm" rather than
+//      "x86". The guard is cheap and covers us if that ever changes.)
+//   3. The GPU (every browser, but it costs a WebGL context: measured 88ms
+//      on a cold GPU stack and 2ms once warm, so it runs inside
+//      requestIdleCallback and never before paint).
+//      An Apple GPU only ever ships inside an Apple silicon Mac; an Intel,
+//      AMD or NVIDIA GPU only ever ships inside an Intel Mac. Safari masks
+//      every Mac GPU as the literal string "Apple GPU", so the mobile
+//      texture formats that ANGLE gates on the Apple GPU family separate a
+//      masked Apple GPU from a masked anything-else.
+//   Anything short of that stays neutral. A wrong architecture is worse than
+//   no architecture.
+---
+
+<script is:inline>
+  (() => {
+    // Nothing to relabel on this page (only pages with a download button
+    // carry .arch-swap), so do not spend a GPU probe on it.
+    if (!document.querySelector('.arch-swap')) return;
+
+    const root = document.documentElement;
+    const uaData = navigator.userAgentData;
+
+    // 1. Macs only. iPads request desktop sites and look like Macs here.
+    const isMac = uaData
+      ? uaData.platform === 'macOS'
+      : /Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || '');
+    if (!isMac || navigator.maxTouchPoints > 1) return;
+
+    // 3. Read the GPU. Returns 'apple-silicon', 'intel', or null for "no idea".
+    const fromGpu = () => {
+      let gl = null;
+      try {
+        gl = document.createElement('canvas').getContext('webgl');
+        if (!gl) return null;
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        const name = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '') : '';
+
+        // Chrome and Firefox hand back the real GPU name.
+        if (/Apple\s+M\d/i.test(name) || /Apple\s+silicon/i.test(name)) return 'apple-silicon';
+        if (/\b(Intel|AMD|Radeon|NVIDIA|GeForce|Iris)\b/i.test(name)) return 'intel';
+
+        // Safari masks it, so ask what the GPU can do instead of what it is
+        // called. ANGLE gates these mobile texture formats on the Apple GPU
+        // family, so they are present on Apple silicon and absent on the
+        // Intel and AMD GPUs that shipped in Intel Macs. PVRTC is the
+        // strongest of the three (no Mac GPU has ever had PowerVR hardware)
+        // but it is deprecated, so ASTC plus ETC together back it up.
+        if (name === '' || /Apple GPU/i.test(name)) {
+          const exts = gl.getSupportedExtensions() || [];
+          const has = (e) => exts.indexOf(e) !== -1;
+          if (has('WEBGL_compressed_texture_pvrtc')
+            || (has('WEBGL_compressed_texture_astc') && has('WEBGL_compressed_texture_etc'))) {
+            return 'apple-silicon';
+          }
+        }
+        return null;
+      } catch {
+        return null;
+      } finally {
+        try {
+          const lose = gl && gl.getExtension('WEBGL_lose_context');
+          if (lose) lose.loseContext();
+        } catch { /* nothing to release */ }
+      }
+    };
+
+    const idle = (fn) =>
+      typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback(fn, { timeout: 2000 })
+        : setTimeout(fn, 500);
+
+    const set = (arch) => { if (arch) root.dataset.macArch = arch; };
+
+    // 2. UA Client Hints, when the browser has them.
+    if (uaData && typeof uaData.getHighEntropyValues === 'function') {
+      uaData.getHighEntropyValues(['architecture'])
+        .then((hints) => {
+          if (hints.architecture === 'arm') return set('apple-silicon');
+          if (hints.architecture !== 'x86') return;
+          // "x86" describes the browser build, not the Mac, so it only
+          // earns the GPU probe and the GPU has the final word.
+          idle(() => set(fromGpu()));
+        })
+        .catch(() => { /* hints refused: stay neutral */ });
+      return;
+    }
+
+    idle(() => set(fromGpu()));
+  })();
+</script>
+
+<style is:global>
+  /* All wordings share one grid cell, so the cell reserves the width and
+     height of the longest one and nothing moves when the label changes. */
+  .arch-swap { display: inline-grid; max-width: 100%; }
+  .arch-swap > [data-arch] { grid-area: 1 / 1; visibility: hidden; }
+  .arch-swap > [data-arch='neutral'] { visibility: visible; }
+
+  /* Buttons keep their label on one line; prose lines are free to wrap. */
+  .arch-swap-cta > [data-arch] { white-space: nowrap; text-align: center; }
+
+  :root[data-mac-arch='apple-silicon'] .arch-swap > [data-arch='neutral'],
+  :root[data-mac-arch='intel'] .arch-swap > [data-arch='neutral'] { visibility: hidden; }
+  :root[data-mac-arch='apple-silicon'] .arch-swap > [data-arch='apple-silicon'] { visibility: visible; }
+  :root[data-mac-arch='intel'] .arch-swap > [data-arch='intel'] { visibility: visible; }
+</style>
