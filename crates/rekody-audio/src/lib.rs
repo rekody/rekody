@@ -1,7 +1,9 @@
 //! Audio capture, resampling, and voice activity detection for rekody.
 //!
-//! Captures audio from the system microphone via cpal, resamples to
-//! 16kHz mono via rubato, and filters silence using energy-based VAD.
+//! Captures audio from the system microphone via cpal and resamples to 16kHz
+//! mono via rubato. A held hotkey captures every frame and the release sends
+//! all of it; energy-based VAD is what splits a microphone left open with no
+//! key held into separate utterances. See [`SpeechSegmenter`].
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
