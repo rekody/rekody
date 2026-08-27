@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.31] - 2026-08-26
+
 ### Added
 
 - **Google's Gemini transcribe is a speech-to-text option.** Set `stt_engine = "gemini"`, or pick "Gemini Transcribe" in setup or Settings, and dictation goes to Google's `gemini-3.5-transcribe` with the recording sent inline in one request. It is a cloud engine, so your audio leaves this Mac, and it is a batch one: a 5.5 second clip took 2 to 4 seconds to come back, which is a different trade from the streaming engine rather than a faster version of it. Your personal dictionary is forwarded as custom vocabulary, capped at the first 50 terms. The key comes from Google AI Studio and shares its Keychain entry with the Gemini cleanup provider, because Google issues one key for both.
