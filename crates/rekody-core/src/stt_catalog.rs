@@ -95,6 +95,10 @@ pub struct Field {
     /// Allowed values for [`FieldKind::Choice`]. Empty for every other kind.
     pub options: &'static [&'static str],
     /// The provider cannot start without this value.
+    ///
+    /// False when the daemon supplies a working default, in which case the
+    /// placeholder shows what that default is. A UI must not nag about an
+    /// empty field the daemon already has an answer for.
     pub required: bool,
 }
 
@@ -257,9 +261,10 @@ const COHERE: SttProvider = SttProvider {
         config_key: "cohere_stt_port",
         label: "Port",
         placeholder: "8099",
-        help: "The port your local Cohere transcription server listens on.",
+        help: "The port your local Cohere transcription server listens on. Blank uses 8099.",
         options: &[],
-        required: true,
+        // The daemon defaults this to 8099, so an empty field still works.
+        required: false,
     }],
     formats_own_text: false,
     supports_language_hint: false,
@@ -554,6 +559,33 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `required` means the daemon has no default to fall back on. A field
+    /// the daemon defaults must not be marked required, or every UI nags
+    /// about a configuration that already works.
+    #[test]
+    fn only_fields_without_a_daemon_default_are_required() {
+        let required: Vec<&str> = catalog()
+            .iter()
+            .flat_map(|p| p.fields.iter())
+            .filter(|f| f.required)
+            .map(|f| f.config_key)
+            .collect();
+        // whisper_model defaults in RekodyConfig but is always written by
+        // every surface, so it is genuinely always present; the custom
+        // endpoint's two fields have no default at all.
+        assert_eq!(
+            required,
+            vec!["whisper_model", "custom_stt_base_url", "custom_stt_model"]
+        );
+        assert!(
+            !find("cohere")
+                .unwrap()
+                .field("cohere_stt_port")
+                .unwrap()
+                .required
+        );
     }
 
     #[test]

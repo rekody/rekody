@@ -526,6 +526,18 @@ pub fn resolve_transcription_endpoint(base_url: &str) -> Result<reqwest::Url, St
         })?
         .to_string();
 
+    // Credentials in the URL are dropped when the endpoint is rebuilt below,
+    // which would show up as an unexplained 401. Say so instead, and keep
+    // secrets out of a string that gets displayed in Settings and logged as
+    // a destination host.
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(SttError::InvalidEndpoint(
+            "put the API key in the key field, not in the URL. Rekody sends it \
+             as an Authorization header."
+                .to_string(),
+        ));
+    }
+
     if scheme == "http" && !is_loopback_host(&host) {
         return Err(SttError::InvalidEndpoint(format!(
             "Rekody will not send your voice to {host} over plain http, \
@@ -539,12 +551,19 @@ pub fn resolve_transcription_endpoint(base_url: &str) -> Result<reqwest::Url, St
     if path.ends_with(TRANSCRIPTIONS_PATH) {
         return Ok(url);
     }
+    // The query is carried over: an Azure-style endpoint puts its api-version
+    // there, and dropping it turns into an unexplained 404 from the server.
+    let query = match url.query() {
+        Some(q) if !q.is_empty() => format!("?{q}"),
+        _ => String::new(),
+    };
     let joined = format!(
-        "{}://{}{}{}",
+        "{}://{}{}{}{}",
         scheme,
         authority(&url),
         path,
-        TRANSCRIPTIONS_PATH
+        TRANSCRIPTIONS_PATH,
+        query
     );
     reqwest::Url::parse(&joined).map_err(|_| {
         SttError::InvalidEndpoint(format!(
@@ -1440,6 +1459,47 @@ mod tests {
         assert!(resolve_transcription_endpoint("http://10.0.0.5:8000/v1").is_err());
     }
 
+    /// A key belongs in the key field. Embedding it in the URL would be
+    /// dropped when the endpoint is rebuilt, surfacing as an unexplained
+    /// 401, and would put a secret in a string the UI displays.
+    #[test]
+    fn credentials_in_the_url_are_refused() {
+        for base in [
+            "https://user:pass@api.openai.com/v1",
+            "https://sk-secret@api.openai.com/v1",
+        ] {
+            let err = resolve_transcription_endpoint(base).unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("key field"), "unhelpful: {msg}");
+            assert!(
+                !msg.contains("pass"),
+                "the message must not echo the secret: {msg}"
+            );
+            assert!(
+                !msg.contains("sk-secret"),
+                "the message must not echo the secret: {msg}"
+            );
+        }
+    }
+
+    /// Short and normalised IPv4 forms are still loopback once the URL
+    /// parser has expanded them. The Swift side agrees; see CustomEndpoint.
+    #[test]
+    fn short_loopback_forms_are_accepted() {
+        for base in [
+            "http://127.1/v1",
+            "http://127.0.0.1/v1",
+            "http://LOCALHOST:8000/v1",
+        ] {
+            assert!(
+                resolve_transcription_endpoint(base).is_ok(),
+                "{base} should be allowed"
+            );
+        }
+        // A hostname that merely starts with a loopback address is not one.
+        assert!(resolve_transcription_endpoint("http://127.0.0.1.evil.com/v1").is_err());
+    }
+
     #[test]
     fn non_http_schemes_and_junk_are_refused() {
         for base in ["ftp://example.com", "file:///etc/passwd", "not a url", ""] {
@@ -1452,6 +1512,25 @@ mod tests {
 
     /// A custom provider with no model name cannot work, and saying so at
     /// construction beats failing at the moment someone speaks.
+    /// An Azure-style endpoint carries its api-version in the query. Dropping
+    /// it produced a 404 the user could not explain.
+    #[test]
+    fn the_query_string_survives_the_path_append() {
+        let url =
+            resolve_transcription_endpoint("https://x.openai.azure.com/v1?api-version=2026-01-01")
+                .unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://x.openai.azure.com/v1/audio/transcriptions?api-version=2026-01-01"
+        );
+        // A full endpoint keeps its query untouched, as before.
+        let url = resolve_transcription_endpoint(
+            "https://x.openai.azure.com/v1/audio/transcriptions?api-version=2026-01-01",
+        )
+        .unwrap();
+        assert!(url.as_str().ends_with("?api-version=2026-01-01"));
+    }
+
     #[test]
     fn custom_requires_a_model_name() {
         let err =

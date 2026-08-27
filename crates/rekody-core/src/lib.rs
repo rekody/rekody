@@ -776,7 +776,10 @@ impl Pipeline {
 
         // Initialize the STT engine based on config.
         let lang = config.stt_language.clone();
-        let stt = match config.stt_engine.to_lowercase().as_str() {
+        // Trimmed to match `stt_catalog::find`, which every other surface
+        // uses. Without this a padded `stt_engine = "  deepgram  "` chose
+        // one engine here and a different cleanup default there.
+        let stt = match config.stt_engine.trim().to_lowercase().as_str() {
             "groq" => {
                 let key = config.groq_api_key.clone().unwrap_or_default();
                 tracing::info!(language = ?lang, "using Groq cloud STT (Whisper Large v3)");
