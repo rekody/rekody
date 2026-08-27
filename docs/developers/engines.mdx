@@ -7,8 +7,8 @@ Rekody's speech-to-text is pluggable. Pick an engine in `rekody setup` or set `s
 
 Every surface reads one table, the provider catalog in `rekody-core/src/stt_catalog.rs`. `rekody engines` prints it, and `rekody engines --json` prints the machine-readable form the Mac app's Settings page is generated from, so the list can never differ between the CLI, the wizard, and the app.
 
-<Frame caption="The same engines in the Mac app: Rekody Streaming by default, with local Whisper and opt-in cloud engines.">
-  <img src="/images/settings-engines.png" alt="Rekody Settings showing the engine picker with Rekody Streaming, Whisper, Groq, and Deepgram." />
+<Frame caption="Settings on Apple silicon: the recommended engine is selected and visible, and every other engine lives behind one picker. On an Intel Mac the top card is Whisper, because that build has no streaming engine.">
+  <img src="/images/settings-engines.png" alt="Rekody Settings: a selected Rekody Streaming card above a collapsed More engines picker." />
 </Frame>
 
 | Engine | Where it runs | Release to text | Notes |
