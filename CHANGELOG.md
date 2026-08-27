@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Google's Gemini transcribe is a speech-to-text option.** Set `stt_engine = "gemini"`, or pick "Gemini Transcribe" in setup or Settings, and dictation goes to Google's `gemini-3.5-transcribe` with the recording sent inline in one request. It is a cloud engine, so your audio leaves this Mac, and it is a batch one: a 5.5 second clip took 2 to 4 seconds to come back, which is a different trade from the streaming engine rather than a faster version of it. Your personal dictionary is forwarded as custom vocabulary, capped at the first 50 terms. The key comes from Google AI Studio and shares its Keychain entry with the Gemini cleanup provider, because Google issues one key for both.
+
+  The model can transcribe two ways, and Rekody picks rather than asking. Verbatim keeps every word you said, filler and false starts included. Smart removes them, so "Let's meet Tuesday, no, Wednesday, um, to review the numbers" comes back as "Let's meet Wednesday to review the numbers", with nothing in the response marking the edit. Because Rekody saves each dictation's audio next to its transcript for fine-tuning, a smart transcript filed there would be a label of words nobody spoke. So saving training data means verbatim, always, and smart is available only to people who have turned that capture off. `rekody doctor` shows which mode is in effect.
+
 ## [0.5.30] - 2026-08-25
 
 ### Changed

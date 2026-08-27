@@ -250,6 +250,49 @@ const DEEPGRAM: SttProvider = SttProvider {
     user_supplied_endpoint: false,
 };
 
+/// Google's `gemini-3.5-transcribe`, batch (not the `-live` streaming
+/// sibling, which is a different API and a separate project).
+///
+/// The model has two transcription modes and they disagree about what was
+/// said: verbatim keeps filler and abandoned starts, smart removes them.
+/// Rekody does not offer that as a setting. `Pipeline::new` picks verbatim
+/// whenever `save_training_data` is on, because a smart transcript filed
+/// next to its audio as a fine-tuning label is a sentence the user never
+/// spoke. The description says so rather than leaving it to be discovered.
+const GEMINI: SttProvider = SttProvider {
+    id: "gemini",
+    display_name: "Gemini Transcribe",
+    locality: Locality::Cloud,
+    description: "Google's transcription model, and your audio is sent to Google. Keeps every word while training data is saved, tidies filler otherwise.",
+    key: Some(KeySpec {
+        // Same keychain account as the Gemini LLM provider, because it is
+        // the same Google API key. Groq already works this way.
+        keyring_account: "gemini",
+        config_key: "gemini_api_key",
+        placeholder: "AIza... or AQ...",
+        obtain_url: "https://aistudio.google.com/apikey",
+        obtain_label: "aistudio.google.com/apikey",
+        required: true,
+    }),
+    fields: &[],
+    // Deliberately false, and the mode rule is why. Rekody's default config
+    // saves training data, so the default Gemini mode is verbatim, whose
+    // output carries the filler and false starts the speaker actually
+    // produced. That is right for a dataset label and wrong for text about
+    // to be typed into someone's editor, so cleanup stays on and tidies the
+    // injected text. It cannot contaminate the dataset: the training pair is
+    // captured from the raw engine transcript before cleanup runs. In smart
+    // mode the pass is redundant rather than harmful, costing latency, and
+    // `llm_enabled = false` turns it off for anyone who would rather have
+    // the speed.
+    formats_own_text: false,
+    // The model takes no language hint on this path; it detects what it
+    // hears. Rekody makes no claim about which languages that covers.
+    supports_language_hint: false,
+    needs_download: false,
+    user_supplied_endpoint: false,
+};
+
 const COHERE: SttProvider = SttProvider {
     id: "cohere",
     display_name: "Cohere local server",
@@ -321,13 +364,13 @@ const CUSTOM: SttProvider = SttProvider {
 /// Recommendation order, best first. "Other" stays last: it is the escape
 /// hatch, not a suggestion.
 #[cfg(feature = "nemotron")]
-static CATALOG: &[SttProvider] = &[STREAMING, LOCAL, GROQ, DEEPGRAM, COHERE, CUSTOM];
+static CATALOG: &[SttProvider] = &[STREAMING, LOCAL, GROQ, DEEPGRAM, GEMINI, COHERE, CUSTOM];
 
 /// Same list without the streaming engine, which this build cannot run.
 /// The head becomes local Whisper, so every "recommended" surface is correct
 /// on Intel with no extra branch.
 #[cfg(not(feature = "nemotron"))]
-static CATALOG: &[SttProvider] = &[LOCAL, GROQ, DEEPGRAM, COHERE, CUSTOM];
+static CATALOG: &[SttProvider] = &[LOCAL, GROQ, DEEPGRAM, GEMINI, COHERE, CUSTOM];
 
 /// Every provider this build supports, in recommendation order.
 pub fn catalog() -> &'static [SttProvider] {
@@ -378,7 +421,7 @@ mod tests {
     /// today must still resolve tomorrow, so this list only ever grows.
     #[test]
     fn every_shipped_engine_id_still_resolves() {
-        for id in ["local", "groq", "deepgram", "cohere"] {
+        for id in ["local", "groq", "deepgram", "gemini", "cohere"] {
             assert!(find(id).is_some(), "{id} must stay in the catalog");
         }
         #[cfg(feature = "nemotron")]

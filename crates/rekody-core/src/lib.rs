@@ -168,12 +168,19 @@ pub struct RekodyConfig {
 
     /// Whisper model size.
     pub whisper_model: String,
-    /// STT engine: "local" (default, whisper.cpp), "groq", "deepgram", or "cohere".
+    /// STT engine id. Run `rekody engines` for the list this build offers;
+    /// `stt_catalog` is the table both that command and this field read.
     #[serde(default = "default_stt_engine")]
     pub stt_engine: String,
     /// Deepgram API key (only needed if stt_engine = "deepgram").
     #[serde(default)]
     pub deepgram_api_key: Option<String>,
+    /// Google AI Studio API key (only needed if stt_engine = "gemini").
+    ///
+    /// The same key the Gemini LLM provider uses, and the same keychain
+    /// account (`gemini`), because Google issues one key for both.
+    #[serde(default)]
+    pub gemini_api_key: Option<String>,
     /// Port for the local Cohere STT server (only needed if stt_engine = "cohere").
     #[serde(default = "default_cohere_stt_port")]
     pub cohere_stt_port: u16,
@@ -385,6 +392,7 @@ impl Default for RekodyConfig {
             whisper_model: DEFAULT_WHISPER_MODEL.into(),
             stt_engine: "local".into(),
             deepgram_api_key: None,
+            gemini_api_key: None,
             cohere_stt_port: 8099,
             custom_stt_base_url: None,
             custom_stt_model: None,
@@ -572,6 +580,37 @@ fn build_provider_chain(config: &RekodyConfig) -> rekody_llm::ProviderChain {
 /// its own punctuation declares that in the catalog and this function needs
 /// no edit. An engine id this build does not know keeps cleanup ON, which is
 /// the safe direction: raw transcripts read worse than doubly-cleaned ones.
+/// Which Gemini transcription mode a config resolves to.
+///
+/// The model can return what was said or a tidied version of it, and the two
+/// disagree: verbatim keeps "Tuesday, no, Wednesday, um", smart returns
+/// "Wednesday" with nothing marking the edit.
+///
+/// This is not a user setting, and deliberately so. Rekody files each
+/// dictation's audio next to its raw transcript as a fine-tuning dataset
+/// (`training_data::save_pair`, called with the engine's own text before any
+/// cleanup runs), so a smart transcript stored there is a label of words
+/// nobody spoke. Offering the mode as a choice would mean either letting a
+/// user create that contradiction or silently overriding the choice they
+/// made. Deriving it from `save_training_data` means there is one rule, it
+/// always holds, and `rekody doctor` can state it.
+pub fn gemini_mode_for(save_training_data: bool) -> rekody_stt::GeminiMode {
+    if save_training_data {
+        rekody_stt::GeminiMode::Verbatim
+    } else {
+        rekody_stt::GeminiMode::Smart
+    }
+}
+
+/// Why [`gemini_mode_for`] chose what it chose, in words a user reads.
+pub fn gemini_mode_reason(save_training_data: bool) -> &'static str {
+    if save_training_data {
+        "saving training data, so the transcript keeps every word you said"
+    } else {
+        "not saving training data, so filler and false starts are tidied away"
+    }
+}
+
 pub fn has_llm_providers(config: &RekodyConfig) -> bool {
     if config.providers.is_empty() {
         return false;
@@ -633,6 +672,9 @@ enum SttBackend {
     /// the `groq` preset, or a `custom` endpoint the user supplied.
     OpenAiCompat(rekody_stt::OpenAiCompatEngine),
     Deepgram(rekody_stt::DeepgramEngine),
+    /// Google `gemini-3.5-transcribe`, batch. The verbatim/smart mode was
+    /// resolved in `Pipeline::new` and is fixed for the engine's lifetime.
+    Gemini(rekody_stt::GeminiTranscribeEngine),
     Cohere(rekody_stt::CohereLocalEngine),
     /// Nemotron cache-aware streaming (English). The engine itself lives on a
     /// dedicated thread spawned in `run_streaming`; this variant only carries
@@ -650,6 +692,7 @@ impl SttBackend {
             SttBackend::Local(e) => e.transcribe(samples).await,
             SttBackend::OpenAiCompat(e) => e.transcribe(samples).await,
             SttBackend::Deepgram(e) => e.transcribe(samples).await,
+            SttBackend::Gemini(e) => e.transcribe(samples).await,
             SttBackend::Cohere(e) => e.transcribe(samples).await,
             #[cfg(feature = "nemotron")]
             SttBackend::NemotronStreaming { .. } => {
@@ -668,6 +711,7 @@ impl SttBackend {
             SttBackend::Local(e) => e.set_bias_terms(terms),
             SttBackend::OpenAiCompat(e) => e.set_bias_terms(terms),
             SttBackend::Deepgram(e) => e.set_bias_terms(terms),
+            SttBackend::Gemini(e) => e.set_bias_terms(terms),
             SttBackend::Cohere(e) => e.set_bias_terms(terms),
             #[cfg(feature = "nemotron")]
             SttBackend::NemotronStreaming { .. } => {}
@@ -813,6 +857,34 @@ impl Pipeline {
                 let dg_lang = lang.unwrap_or_else(|| "multi".to_string());
                 tracing::info!(language = %dg_lang, "using Deepgram cloud STT (Nova-3)");
                 SttBackend::Deepgram(rekody_stt::DeepgramEngine::with_language(key, dg_lang))
+            }
+            // Google's transcribe model has two modes that disagree about
+            // what was said. Verbatim keeps filler and abandoned starts;
+            // smart quietly removes them, so "Tuesday, no, Wednesday, um"
+            // comes back as "Wednesday" with nothing marking the edit.
+            //
+            // Rekody saves each dictation's audio next to its raw transcript
+            // as a fine-tuning dataset (`training_data::save_pair`, called
+            // with the engine's own text before any cleanup runs). A smart
+            // transcript filed there is a label that does not match its
+            // audio: it teaches an acoustic model that speech contains words
+            // nobody said. So the mode is not a setting. Saving training
+            // data means verbatim, full stop, and only a user who has turned
+            // that capture off gets the tidier text.
+            //
+            // Resolved once here because the daemon has no config reload:
+            // `Pipeline::new` runs at start and `self.config` cannot change
+            // under it, so the mode cannot drift out of step with the flag
+            // that chose it.
+            "gemini" => {
+                let key = config.gemini_api_key.clone().unwrap_or_default();
+                let mode = gemini_mode_for(config.save_training_data);
+                tracing::info!(
+                    mode = mode.label(),
+                    "using Gemini cloud STT (gemini-3.5-transcribe): {}",
+                    gemini_mode_reason(config.save_training_data)
+                );
+                SttBackend::Gemini(rekody_stt::GeminiTranscribeEngine::new(key, mode))
             }
             "cohere" => {
                 tracing::info!(port = config.cohere_stt_port, "using Cohere local STT");
@@ -2028,6 +2100,61 @@ mod stt_engine_compat_tests {
             ..Default::default()
         };
         assert!(!has_llm_providers(&cfg));
+    }
+
+    /// The rule this PR exists for. Saving training data must mean verbatim,
+    /// because the dataset stores the engine's own transcript as the label
+    /// for the audio beside it, and a smart transcript there is a sentence
+    /// the speaker never said.
+    #[test]
+    fn saving_training_data_forces_verbatim_gemini() {
+        assert_eq!(gemini_mode_for(true), rekody_stt::GeminiMode::Verbatim);
+        assert_eq!(gemini_mode_for(false), rekody_stt::GeminiMode::Smart);
+    }
+
+    /// Rekody ships with training capture on, so verbatim is what a user who
+    /// changes nothing gets. If that default ever flips, the mode a fresh
+    /// install runs in flips with it, and this test is where that shows up.
+    #[test]
+    fn the_default_config_puts_gemini_in_verbatim() {
+        let cfg = RekodyConfig::default();
+        assert!(cfg.save_training_data);
+        assert_eq!(
+            gemini_mode_for(cfg.save_training_data),
+            rekody_stt::GeminiMode::Verbatim
+        );
+    }
+
+    /// The mode is derived, never stored, so there is no config key that can
+    /// contradict it. A hand-edited config cannot ask for smart while the
+    /// dataset is being written.
+    #[test]
+    fn no_config_key_can_override_the_gemini_mode() {
+        assert!(!stt_catalog::config_keys("gemini").iter().any(|k| {
+            let k = k.to_lowercase();
+            k.contains("mode") || k.contains("verbatim") || k.contains("smart")
+        }));
+        assert_eq!(stt_catalog::config_keys("gemini"), vec!["gemini_api_key"]);
+    }
+
+    /// Gemini keeps cleanup on, unlike Deepgram. Verbatim is the default
+    /// mode and it returns filler, which is right for a dataset label and
+    /// wrong for text about to be typed. Cleanup cannot reach the dataset:
+    /// the training pair is captured from the raw transcript first.
+    #[test]
+    fn gemini_leaves_llm_cleanup_on_by_default() {
+        let cfg = RekodyConfig {
+            stt_engine: "gemini".into(),
+            providers: vec![ProviderConfig {
+                name: "ollama".into(),
+                api_key: String::new(),
+                model: "qwen2.5:3b".into(),
+                base_url: None,
+            }],
+            llm_enabled: None,
+            ..Default::default()
+        };
+        assert!(has_llm_providers(&cfg));
     }
 
     /// The new custom keys are optional everywhere. A config written by any

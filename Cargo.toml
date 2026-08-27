@@ -38,6 +38,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 thiserror = "2"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
+# Inline base64 audio for the Gemini transcribe engine. Already in the tree
+# via reqwest, so naming it directly adds no crate and no new license.
+base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 
 # vendor/parakeet-rs is upstream 0.3.6 with exactly two additive changes.
