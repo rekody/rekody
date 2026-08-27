@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css';
 import Analytics from '@vercel/analytics/astro';
+import ArchLabel from '../components/ArchLabel.astro';
 
 export interface Props {
   title?: string;
@@ -124,6 +125,9 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://rekody.com');
   <body>
     <slot />
     <Analytics />
+
+    <!-- Architecture-aware download wording (one universal DMG either way). -->
+    <ArchLabel />
 
     <!-- Scroll-reveal: below-fold sections fade up once on enter. JS-driven
          (no-JS sees everything), reduced-motion disabled, one-shot. -->
