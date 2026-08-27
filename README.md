@@ -189,7 +189,7 @@ Config file lives at `~/.config/rekody/config.toml`.
 ```toml
 activation_mode = "push_to_talk"   # "push_to_talk" | "toggle"
 injection_method = "clipboard"     # "clipboard" | "native"
-vad_threshold = 0.01               # RMS energy threshold (0.005–0.05)
+vad_threshold = 0.01               # utterance splitting for an open mic (0.005–0.05); a hold captures everything
 whisper_model = "tiny"             # "tiny" | "small" | "medium" | "turbo" | "large"
 
 # STT engine

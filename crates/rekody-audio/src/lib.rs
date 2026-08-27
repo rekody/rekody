@@ -23,8 +23,36 @@ pub const TARGET_SAMPLE_RATE: u32 = 16_000;
 /// Number of samples per VAD frame at 16kHz (30ms frames).
 const VAD_FRAME_SAMPLES: usize = 480;
 
-/// Minimum speech duration in seconds to emit a segment.
+/// Minimum speech duration in seconds for the VAD to close an utterance on
+/// its own. Applies only while no key is held; see [`SpeechSegmenter`].
 const MIN_SPEECH_DURATION_SECS: f32 = 0.15;
+
+/// Minimum audio a push-to-talk release must have CAPTURED for there to be
+/// anything worth transcribing. Under this the key was tapped, not held, so
+/// no dictation exists to send.
+///
+/// This is a floor on how much audio arrived, never on how loud it was. The
+/// old flush gate measured the buffer the VAD had let through, so a quiet
+/// microphone produced an empty buffer, a discarded recording, and a "no
+/// speech detected" error on audio local Whisper transcribes perfectly
+/// (issue #145). Deciding whether captured audio contains words is the
+/// engine's job, not an RMS threshold's.
+const MIN_CAPTURED_DURATION_SECS: f32 = 0.15;
+
+/// Warning logged when a push-to-talk hold was too short to capture audio.
+/// The UI layers match [`NO_AUDIO_MARKER`] and show these strings verbatim,
+/// so the wording lives here, once.
+pub const NO_AUDIO_TOO_SHORT: &str =
+    "no audio captured: hold the key while you speak, then release";
+
+/// Warning logged when audio arrived but every sample was digital silence:
+/// the input device is muted, or is not delivering signal at all.
+pub const NO_AUDIO_SILENT_DEVICE: &str =
+    "no audio captured: the microphone is muted or sending silence";
+
+/// Substring shared by every "nothing was captured" warning, so the terminal
+/// UI and the HUD pill can match one marker and print the specific reason.
+pub const NO_AUDIO_MARKER: &str = "no audio captured";
 
 /// Trailing silence duration (in seconds) before finalizing a speech segment.
 const SILENCE_TAIL_SECS: f32 = 0.6;
@@ -155,6 +183,183 @@ pub fn probe_microphone() -> MicStatus {
 
     drop(stream);
     MicStatus::Granted
+}
+
+/// What a push-to-talk release produced. Every release resolves to exactly
+/// one of these, so the pill can never sit on a working verb with no answer.
+#[derive(Debug)]
+enum FlushOutcome {
+    /// Audio to transcribe. Whether it contains words is the engine's call.
+    Segment(AudioSegment),
+    /// The hold was shorter than [`MIN_CAPTURED_DURATION_SECS`]: a tap, not
+    /// a dictation. There is no audio to send.
+    TooShort { captured_secs: f32 },
+    /// Audio arrived and every sample is exactly zero. A live microphone
+    /// always carries some room tone, so this means the device is muted or
+    /// is not delivering signal, and the recognizer would only hallucinate
+    /// on it.
+    SilentDevice { captured_secs: f32 },
+}
+
+/// The capture buffer and its voice-activity state machine.
+///
+/// Two jobs, and only one of them is the VAD's:
+///
+/// * **A key is held** (push-to-talk, or a hands-free latch): every frame is
+///   kept. Holding the key, speaking, and releasing it is an explicit request
+///   to transcribe that audio, so nothing decides on the user's behalf that it
+///   was too quiet to mean anything. Mid-recording splits were already
+///   disabled here, so the VAD had no segmenting job in this window; all it
+///   did was drop the audio of anyone whose microphone ran quiet (#145).
+/// * **The microphone is open with no key held**: the VAD earns its keep,
+///   cutting the continuous stream into utterances on the trailing-silence
+///   rule ([`SILENCE_TAIL_SECS`]) and dropping bursts under
+///   [`MIN_SPEECH_DURATION_SECS`]. Unchanged.
+///
+/// Pure and free of cpal, so both behaviors are unit-testable without a
+/// microphone.
+struct SpeechSegmenter {
+    vad_threshold: f32,
+    /// Capture every frame even outside a recording window.
+    record_all_audio: bool,
+    /// Longest buffer to hold before force-emitting it, in seconds.
+    max_secs: f32,
+    buf: Vec<f32>,
+    in_speech: bool,
+    consecutive_silence: usize,
+    silence_frames_limit: usize,
+    last_rms: f32,
+}
+
+impl SpeechSegmenter {
+    fn new(vad_threshold: f32, record_all_audio: bool) -> Self {
+        Self {
+            vad_threshold,
+            record_all_audio,
+            max_secs: MAX_RECORDING_SECS,
+            buf: Vec::new(),
+            in_speech: false,
+            consecutive_silence: 0,
+            silence_frames_limit: (SILENCE_TAIL_SECS * TARGET_SAMPLE_RATE as f32) as usize
+                / VAD_FRAME_SAMPLES,
+            last_rms: 0.0,
+        }
+    }
+
+    /// RMS of the most recent frame, for the live level meter.
+    fn last_rms(&self) -> f32 {
+        self.last_rms
+    }
+
+    fn buffered_secs(&self) -> f32 {
+        self.buf.len() as f32 / TARGET_SAMPLE_RATE as f32
+    }
+
+    /// Feed one 30ms frame. `recording` is the live push-to-talk flag.
+    ///
+    /// Returns a segment only when the VAD closes an utterance on its own
+    /// (possible only with no key held) or when the buffer hits the runaway
+    /// cap. A held key accumulates into one segment, flushed at release.
+    fn push_frame(&mut self, frame: &[f32], recording: bool) -> Option<AudioSegment> {
+        self.last_rms = compute_rms(frame);
+
+        if recording || self.record_all_audio {
+            self.in_speech = true;
+            self.consecutive_silence = 0;
+            self.buf.extend_from_slice(frame);
+            return self.cap_runaway();
+        }
+
+        if self.last_rms > self.vad_threshold {
+            self.consecutive_silence = 0;
+            if !self.in_speech {
+                self.in_speech = true;
+                tracing::trace!(rms = self.last_rms, "speech start detected");
+            }
+            self.buf.extend_from_slice(frame);
+        } else if self.in_speech {
+            self.buf.extend_from_slice(frame);
+            self.consecutive_silence += 1;
+
+            if self.consecutive_silence >= self.silence_frames_limit {
+                let trailing = self.silence_frames_limit * VAD_FRAME_SAMPLES;
+                let trimmed_len = self.buf.len().saturating_sub(trailing);
+                self.buf.truncate(trimmed_len);
+
+                let segment = self.take_segment(MIN_SPEECH_DURATION_SECS);
+                if let Some(ref s) = segment {
+                    tracing::debug!(duration = s.duration_secs, "emitting audio segment");
+                }
+                self.in_speech = false;
+                self.consecutive_silence = 0;
+                return segment;
+            }
+        }
+
+        self.cap_runaway()
+    }
+
+    /// End of a push-to-talk hold. Whatever was captured goes to the engine.
+    fn flush(&mut self) -> FlushOutcome {
+        self.in_speech = false;
+        self.consecutive_silence = 0;
+
+        let captured_secs = self.buffered_secs();
+        if captured_secs < MIN_CAPTURED_DURATION_SECS {
+            self.buf.clear();
+            return FlushOutcome::TooShort { captured_secs };
+        }
+        // Bit-exact, not a level threshold: a muted device sends zeros, and
+        // there is no volume at which a real microphone does.
+        if !self.buf.iter().any(|s| *s != 0.0) {
+            self.buf.clear();
+            return FlushOutcome::SilentDevice { captured_secs };
+        }
+
+        match self.take_segment(0.0) {
+            Some(segment) => FlushOutcome::Segment(segment),
+            // Unreachable: the buffer cleared the duration floor above.
+            None => FlushOutcome::TooShort { captured_secs },
+        }
+    }
+
+    /// Final drain when the capture thread stops. Unlike a release, this is
+    /// not a user gesture, so the VAD's own minimum still applies.
+    fn finish(&mut self) -> Option<AudioSegment> {
+        self.take_segment(MIN_SPEECH_DURATION_SECS)
+    }
+
+    /// Hand over the buffer when it holds at least `min_secs` of audio, and
+    /// drop it otherwise. Always leaves the buffer empty.
+    fn take_segment(&mut self, min_secs: f32) -> Option<AudioSegment> {
+        let duration_secs = self.buffered_secs();
+        if self.buf.is_empty() || duration_secs < min_secs {
+            self.buf.clear();
+            return None;
+        }
+        Some(AudioSegment {
+            samples: std::mem::take(&mut self.buf),
+            duration_secs,
+        })
+    }
+
+    /// Force out a buffer that has grown past the cap so a forgotten
+    /// hands-free session cannot eat memory forever. Keyed on the buffer
+    /// itself: with a held key the buffer fills whether or not the VAD ever
+    /// called anything speech.
+    fn cap_runaway(&mut self) -> Option<AudioSegment> {
+        if self.buffered_secs() < self.max_secs {
+            return None;
+        }
+        tracing::warn!(
+            max_secs = self.max_secs,
+            "max recording duration reached, auto-flushing"
+        );
+        let segment = self.take_segment(0.0);
+        self.in_speech = false;
+        self.consecutive_silence = 0;
+        segment
+    }
 }
 
 /// A captured audio segment ready for STT processing.
@@ -626,8 +831,6 @@ fn run_capture_session(
     );
 
     // ----- processing loop -----
-    let vad_threshold = config.vad_threshold;
-    let record_all_audio = config.record_all_audio;
     let needs_resample = input_rate != TARGET_SAMPLE_RATE;
 
     let chunk_size = 1024_usize;
@@ -649,45 +852,37 @@ fn run_capture_session(
     let mut mono_buf: Vec<f32> = Vec::with_capacity(chunk_size * 4);
     let mut resampled_buf: Vec<f32> = Vec::new();
 
-    // VAD state
-    let mut speech_buf: Vec<f32> = Vec::new();
-    let silence_frames_limit =
-        (SILENCE_TAIL_SECS * TARGET_SAMPLE_RATE as f32) as usize / VAD_FRAME_SAMPLES;
-    let mut consecutive_silence: usize = 0;
-    let mut in_speech = false;
+    // Capture buffer + VAD state.
+    let mut segmenter = SpeechSegmenter::new(config.vad_threshold, config.record_all_audio);
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
 
-        // Check if we've been asked to flush buffered speech
-        // (recording just stopped). Always emit *something* so the
-        // UI never silently hangs on Recording — if VAD never
-        // detected speech, surface that as a user-visible error
-        // instead of dropping the recording with no signal.
+        // Recording just stopped. A release is an explicit request to
+        // transcribe, so the captured audio goes to the engine and the
+        // engine decides whether it holds words. The only outcomes that
+        // send nothing are a hold too short to capture audio and a device
+        // sending pure silence, and both say so out loud: the UI must never
+        // be left waiting on a verb that no event will ever clear.
         if flush.load(Ordering::Relaxed) {
             flush.store(false, Ordering::Relaxed);
-            let duration_secs = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
-            if duration_secs >= MIN_SPEECH_DURATION_SECS {
-                let segment = AudioSegment {
-                    samples: std::mem::take(&mut speech_buf),
-                    duration_secs,
-                };
-                tracing::info!(
-                    duration = duration_secs,
-                    "flushing audio segment (recording stopped)"
-                );
-                let _ = segment_tx.send(segment);
-            } else {
-                tracing::warn!(
-                    buffered_secs = duration_secs,
-                    "no speech detected — speak louder or lower vad_threshold"
-                );
-                speech_buf.clear();
+            match segmenter.flush() {
+                FlushOutcome::Segment(segment) => {
+                    tracing::info!(
+                        duration = segment.duration_secs,
+                        "flushing audio segment (recording stopped)"
+                    );
+                    let _ = segment_tx.send(segment);
+                }
+                FlushOutcome::TooShort { captured_secs } => {
+                    tracing::warn!(captured_secs, "{NO_AUDIO_TOO_SHORT}");
+                }
+                FlushOutcome::SilentDevice { captured_secs } => {
+                    tracing::warn!(captured_secs, "{NO_AUDIO_SILENT_DEVICE}");
+                }
             }
-            in_speech = false;
-            consecutive_silence = 0;
 
             // Flush marks the end of a press-to-talk hold; once recording is
             // off, the session is over and the stream closes below.
@@ -745,87 +940,22 @@ fn run_capture_session(
             resampled_buf.append(&mut mono_buf);
         }
 
-        // Run energy-based VAD on 30ms frames.
-        //
-        // While recording is active (push-to-talk held), we
-        // accumulate ALL speech into one buffer and never emit
-        // mid-recording segments. The single combined segment
-        // is flushed when stop_recording() sets the flush flag.
+        // Feed the segmenter in 30ms frames. While a key is held every
+        // frame is kept and nothing is emitted until the release flush;
+        // with the mic open and no key held, the VAD splits the stream
+        // into utterances (see SpeechSegmenter).
         let currently_recording = recording.load(Ordering::Relaxed);
 
         while resampled_buf.len() >= VAD_FRAME_SAMPLES {
             let frame: Vec<f32> = resampled_buf.drain(..VAD_FRAME_SAMPLES).collect();
+            let segment = segmenter.push_frame(&frame, currently_recording);
+            latest_rms_bits.store(segmenter.last_rms().to_bits(), Ordering::Relaxed);
 
-            // VAD-bypass mode: while recording is active, append
-            // every frame unconditionally. Used for low-energy
-            // input (speaker→mic playback) where VAD would drop
-            // everything as silence. Outside of recording windows,
-            // fall through to the normal VAD logic so idle
-            // silence isn't accumulated forever.
-            if record_all_audio && currently_recording {
-                in_speech = true;
-                consecutive_silence = 0;
-                speech_buf.extend_from_slice(&frame);
-                continue;
-            }
-
-            let rms = compute_rms(&frame);
-            latest_rms_bits.store(rms.to_bits(), Ordering::Relaxed);
-            let is_speech = rms > vad_threshold;
-
-            if is_speech {
-                consecutive_silence = 0;
-                if !in_speech {
-                    in_speech = true;
-                    tracing::trace!("speech start detected (rms={rms:.4})");
-                }
-                speech_buf.extend_from_slice(&frame);
-            } else if in_speech {
-                speech_buf.extend_from_slice(&frame);
-                consecutive_silence += 1;
-
-                // Only split on silence when NOT actively recording.
-                // During recording, keep accumulating into one buffer.
-                if !currently_recording && consecutive_silence >= silence_frames_limit {
-                    let trailing = silence_frames_limit * VAD_FRAME_SAMPLES;
-                    let trimmed_len = speech_buf.len().saturating_sub(trailing);
-                    speech_buf.truncate(trimmed_len);
-
-                    let duration_secs = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
-
-                    if duration_secs >= MIN_SPEECH_DURATION_SECS {
-                        let segment = AudioSegment {
-                            samples: std::mem::take(&mut speech_buf),
-                            duration_secs,
-                        };
-                        tracing::debug!(duration = duration_secs, "emitting audio segment");
-                        if segment_tx.send(segment).is_err() {
-                            tracing::info!("segment receiver dropped, stopping capture");
-                            return Ok(());
-                        }
-                    } else {
-                        speech_buf.clear();
-                    }
-
-                    in_speech = false;
-                    consecutive_silence = 0;
-                }
-            }
-
-            // Auto-flush to prevent unbounded memory growth.
-            let current_duration = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
-            if in_speech && current_duration >= MAX_RECORDING_SECS {
-                tracing::warn!(
-                    "max recording duration reached ({MAX_RECORDING_SECS}s), auto-flushing"
-                );
-                let duration_secs = current_duration;
-                let segment = AudioSegment {
-                    samples: std::mem::take(&mut speech_buf),
-                    duration_secs,
-                };
-                let _ = segment_tx.send(segment);
-                in_speech = false;
-                consecutive_silence = 0;
+            if let Some(segment) = segment
+                && segment_tx.send(segment).is_err()
+            {
+                tracing::info!("segment receiver dropped, stopping capture");
+                return Ok(());
             }
         }
     }
@@ -834,15 +964,8 @@ fn run_capture_session(
     tracing::info!("mic stream closed");
 
     // Flush remaining speech on shutdown.
-    if !speech_buf.is_empty() {
-        let duration_secs = speech_buf.len() as f32 / TARGET_SAMPLE_RATE as f32;
-        if duration_secs >= MIN_SPEECH_DURATION_SECS {
-            let segment = AudioSegment {
-                samples: speech_buf,
-                duration_secs,
-            };
-            let _ = segment_tx.send(segment);
-        }
+    if let Some(segment) = segmenter.finish() {
+        let _ = segment_tx.send(segment);
     }
 
     Ok(())
@@ -869,6 +992,249 @@ pub fn start_capture(
     let rx = capture.open(config)?;
     capture.start_recording();
     Ok((capture, rx))
+}
+
+/// The capture buffer's two behaviors, driven frame by frame with no
+/// microphone: a held key keeps everything, an open mic with no key held
+/// keeps the VAD's utterance splitting.
+#[cfg(test)]
+mod segmenter_tests {
+    use super::*;
+
+    /// One 30ms frame whose RMS is exactly `amp`.
+    fn frame(amp: f32) -> Vec<f32> {
+        (0..VAD_FRAME_SAMPLES)
+            .map(|i| if i % 2 == 0 { amp } else { -amp })
+            .collect()
+    }
+
+    const THRESHOLD: f32 = 0.01;
+    /// A microphone running well under the gate: this is the recording the
+    /// old flush threw away, and the one Whisper transcribes correctly.
+    const QUIET: f32 = 0.003;
+    const LOUD: f32 = 0.08;
+
+    fn hold(seg: &mut SpeechSegmenter, amp: f32, frames: usize) {
+        for _ in 0..frames {
+            assert!(
+                seg.push_frame(&frame(amp), true).is_none(),
+                "a held key must never emit mid-recording segments"
+            );
+        }
+    }
+
+    /// Issue #145: hold, speak quietly, release. Every frame is under
+    /// `vad_threshold`, which used to mean an empty buffer, a discarded
+    /// recording, and "no speech detected" on perfectly transcribable audio.
+    #[test]
+    fn quiet_push_to_talk_recording_reaches_the_engine() {
+        assert!(
+            compute_rms(&frame(QUIET)) < THRESHOLD,
+            "the fixture must sit under the VAD gate for this to be the bug"
+        );
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        hold(&mut seg, QUIET, 100); // 3 seconds
+
+        match seg.flush() {
+            FlushOutcome::Segment(segment) => {
+                assert_eq!(segment.samples.len(), 100 * VAD_FRAME_SAMPLES);
+                assert!((segment.duration_secs - 3.0).abs() < 1e-3);
+            }
+            other => panic!("quiet push-to-talk audio was discarded: {other:?}"),
+        }
+    }
+
+    /// A release hands over the captured audio unmodified, leading silence
+    /// included: the engine gets the recording, not the VAD's opinion of it.
+    #[test]
+    fn push_to_talk_keeps_every_captured_sample() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        let mut expected: Vec<f32> = Vec::new();
+        for amp in [0.0, 0.0, QUIET, LOUD, LOUD, 0.0] {
+            let f = frame(amp);
+            expected.extend_from_slice(&f);
+            assert!(seg.push_frame(&f, true).is_none());
+        }
+
+        match seg.flush() {
+            FlushOutcome::Segment(segment) => assert_eq!(segment.samples, expected),
+            other => panic!("captured audio was discarded: {other:?}"),
+        }
+    }
+
+    /// Hands-free with the mic open and no key held: the VAD still cuts the
+    /// stream into utterances on trailing silence, trims that silence, and
+    /// resets for the next one.
+    #[test]
+    fn open_mic_still_splits_utterances_on_trailing_silence() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        let tail = seg.silence_frames_limit;
+
+        // Utterance one: 20 frames of speech, then the silence tail.
+        for _ in 0..20 {
+            assert!(seg.push_frame(&frame(LOUD), false).is_none());
+        }
+        let mut first = None;
+        for _ in 0..tail {
+            if let Some(s) = seg.push_frame(&frame(0.0), false) {
+                first = Some(s);
+            }
+        }
+        let first = first.expect("an utterance followed by silence must close");
+        assert_eq!(
+            first.samples.len(),
+            20 * VAD_FRAME_SAMPLES,
+            "the trailing silence must be trimmed back off"
+        );
+        assert!(!seg.in_speech && seg.consecutive_silence == 0);
+
+        // Utterance two proves the state machine reset.
+        for _ in 0..20 {
+            assert!(seg.push_frame(&frame(LOUD), false).is_none());
+        }
+        let mut second = None;
+        for _ in 0..tail {
+            if let Some(s) = seg.push_frame(&frame(0.0), false) {
+                second = Some(s);
+            }
+        }
+        assert_eq!(
+            second.expect("second utterance closes too").samples.len(),
+            20 * VAD_FRAME_SAMPLES
+        );
+    }
+
+    /// Still true with no key held: a burst too short to be speech is
+    /// dropped, and idle silence never accumulates.
+    #[test]
+    fn open_mic_drops_short_bursts_and_ignores_idle_silence() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+
+        for _ in 0..50 {
+            assert!(seg.push_frame(&frame(0.0), false).is_none());
+        }
+        assert!(seg.buf.is_empty(), "idle silence must not be buffered");
+
+        // 4 frames = 120ms, under MIN_SPEECH_DURATION_SECS.
+        for _ in 0..4 {
+            assert!(seg.push_frame(&frame(LOUD), false).is_none());
+        }
+        for _ in 0..seg.silence_frames_limit {
+            assert!(
+                seg.push_frame(&frame(0.0), false).is_none(),
+                "a 120ms burst is not an utterance"
+            );
+        }
+        assert!(seg.buf.is_empty());
+    }
+
+    /// A tap that captured almost nothing has no dictation in it, and says so.
+    #[test]
+    fn a_tap_too_short_to_capture_audio_says_so() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        hold(&mut seg, LOUD, 2); // 60ms
+
+        match seg.flush() {
+            FlushOutcome::TooShort { captured_secs } => {
+                assert!((captured_secs - 0.06).abs() < 1e-3);
+            }
+            other => panic!("expected TooShort, got {other:?}"),
+        }
+        assert!(seg.buf.is_empty());
+    }
+
+    /// A muted device sends exact zeros. Whisper hallucinates words on that
+    /// ("Thank you." on 3s of digital silence), so it is named, not sent.
+    #[test]
+    fn a_muted_device_is_reported_not_transcribed() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        hold(&mut seg, 0.0, 100);
+
+        match seg.flush() {
+            FlushOutcome::SilentDevice { captured_secs } => {
+                assert!((captured_secs - 3.0).abs() < 1e-3);
+            }
+            other => panic!("expected SilentDevice, got {other:?}"),
+        }
+
+        // One live sample is enough to make it a recording again.
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        hold(&mut seg, 0.0, 100);
+        let mut nudged = frame(0.0);
+        nudged[0] = 1e-6;
+        assert!(seg.push_frame(&nudged, true).is_none());
+        assert!(matches!(seg.flush(), FlushOutcome::Segment(_)));
+    }
+
+    /// The runaway cap is keyed on the buffer, not on the VAD: a hands-free
+    /// session left latched in a quiet room must still be bounded.
+    #[test]
+    fn the_runaway_cap_does_not_depend_on_the_vad_hearing_speech() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        seg.max_secs = 0.3; // 10 frames
+        assert!(!seg.in_speech);
+
+        let mut emitted = None;
+        for _ in 0..10 {
+            if let Some(s) = seg.push_frame(&frame(QUIET), true) {
+                emitted = Some(s);
+            }
+        }
+        let emitted = emitted.expect("the buffer must be capped even with no detected speech");
+        assert_eq!(emitted.samples.len(), 10 * VAD_FRAME_SAMPLES);
+        assert!(seg.buf.is_empty());
+    }
+
+    /// Every dictation starts clean, whatever the previous one did.
+    #[test]
+    fn flush_resets_state_for_the_next_dictation() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        hold(&mut seg, LOUD, 20);
+        assert!(matches!(seg.flush(), FlushOutcome::Segment(_)));
+        assert!(seg.buf.is_empty());
+        assert!(!seg.in_speech);
+        assert_eq!(seg.consecutive_silence, 0);
+
+        hold(&mut seg, QUIET, 20);
+        match seg.flush() {
+            FlushOutcome::Segment(s) => assert_eq!(s.samples.len(), 20 * VAD_FRAME_SAMPLES),
+            other => panic!("expected a second segment, got {other:?}"),
+        }
+    }
+
+    /// `record_all_audio` keeps its meaning outside a recording window; a
+    /// held key now behaves the same way with the flag off.
+    #[test]
+    fn record_all_audio_keeps_frames_with_no_key_held() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, true);
+        for _ in 0..10 {
+            assert!(seg.push_frame(&frame(QUIET), false).is_none());
+        }
+        assert_eq!(seg.buf.len(), 10 * VAD_FRAME_SAMPLES);
+    }
+
+    /// The shutdown drain is not a user gesture, so the VAD's own minimum
+    /// still applies there.
+    #[test]
+    fn shutdown_drain_keeps_the_vad_minimum() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        hold(&mut seg, LOUD, 2);
+        assert!(seg.finish().is_none());
+
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        hold(&mut seg, LOUD, 20);
+        assert!(seg.finish().is_some());
+    }
+
+    /// The level meter reads every frame, quiet ones included.
+    #[test]
+    fn last_rms_tracks_the_most_recent_frame() {
+        let mut seg = SpeechSegmenter::new(THRESHOLD, false);
+        seg.push_frame(&frame(QUIET), true);
+        assert!((seg.last_rms() - QUIET).abs() < 1e-6);
+        seg.push_frame(&frame(LOUD), true);
+        assert!((seg.last_rms() - LOUD).abs() < 1e-6);
+    }
 }
 
 #[cfg(test)]
