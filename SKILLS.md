@@ -220,7 +220,9 @@ activation_mode = "push_to_talk"
 whisper_model = "tiny"
 
 # ---- Voice Activity Detection ----
-# RMS energy threshold. Lower = more sensitive. 0.01 works for most microphones.
+# RMS energy threshold used to split a continuously open microphone into
+# utterances. It does NOT gate push-to-talk: a hold captures every frame and
+# sends the whole recording to the engine at whatever level it came in.
 vad_threshold = 0.01
 
 # ---- Text injection ----
@@ -449,13 +451,23 @@ is less critical since clipboard paste usually works without Accessibility.
 **Fix:** Check the key in `~/.config/rekody/config.toml` and verify it at the
 provider's dashboard (e.g., https://console.groq.com for Groq).
 
-### No sound detected / empty transcriptions
+### "no audio captured" / empty transcriptions
 
-**Cause:** VAD threshold too high, or wrong microphone selected.
+A push-to-talk hold sends the whole recording to the engine whatever its
+level, so `vad_threshold` is not what produced this. Two causes:
+
+**Cause:** the key was tapped, not held (under 150ms of audio captured).
+**Fix:** hold the key while you speak, then release.
+
+**Cause:** the input device is muted or is sending digital silence.
 **Fix:**
-- Lower `vad_threshold` in config (try `0.005`)
-- Check that the correct microphone is set as the system default input device
-- Speak louder or closer to the microphone
+- Check the hardware mute switch on the headset or interface
+- Confirm the device rekody captures from: `rekody doctor` lists the input
+  devices it can see, then set `input_device` in config (or leave it unset to
+  follow the system default)
+
+An empty transcription with audio that WAS captured is the engine finding no
+words in it; check the recording in `rekody history` before changing config.
 
 ### Whisper model not found
 

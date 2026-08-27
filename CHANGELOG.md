@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A quiet microphone no longer loses the whole dictation.** Holding the key, speaking, and letting go is a plain request to transcribe what you just said, but the recording was measured against a loudness gate first, and anything under it was thrown away with "no speech detected" and no transcript. How quiet is enough to lose everything: a recording about 30 dB down, which is a laptop microphone across a desk, a headset boom pointing the wrong way, or an interface with its gain low. The recognizer never had an opinion about it, because it never saw the audio. Given the same recording directly it returns every word, and it keeps doing that another 12 dB quieter. A release now sends what was captured and lets the recognizer decide whether there are words in it. This hit Intel Macs hardest, since every one of them runs local Whisper, and anyone on Apple Silicon who chose `stt_engine = "local"` could hit it too. ([#145](https://github.com/rekody/rekody/issues/145))
+
+  Two things still send nothing, and both say so in words you can act on rather than pointing at a config key with no interface. A key tapped rather than held captures no audio to transcribe. A muted microphone sends digital silence, which is worth naming: asked to transcribe three seconds of it, Whisper answers "Thank you.", and that is not something to type into your document.
+
+  Voice detection keeps the job it is good at, cutting a continuously open microphone into separate utterances. It just no longer decides, while you are holding the key, that you did not mean it.
+
 ## [0.5.31] - 2026-08-26
 
 ### Added

@@ -34,7 +34,7 @@ struct Cli {
     #[arg(short, long, global = true)]
     verbose: bool,
 
-    /// Bypass VAD — capture every frame (use for media-playback transcription)
+    /// Capture every frame even with no key held (a hold already captures all of it)
     #[arg(long)]
     record_all_audio: bool,
 }
@@ -681,9 +681,9 @@ fn print_config(config: &RekodyConfig, path: &Option<String>) {
         config.vad_threshold
     );
     let vad_mode = if config.record_all_audio {
-        "off (record_all_audio = true — every frame captured, no gating)"
+        "off (record_all_audio = true, every frame captured)"
     } else {
-        "on (RMS gating; pass --record-all-audio to bypass for one session)"
+        "utterance splitting only; a held key captures every frame"
     };
     println!(
         "  {BRAND}│{RESET}     {DIM}Gate  {RESET}  {CREAM}{}{RESET}",
@@ -2831,6 +2831,12 @@ const BUSY_TRANSCRIBING: &str = "transcribing…";
 /// rather than hang the box forever. Generous so it never clips a genuinely
 /// slow cloud-LLM cleanup; it only exists to bound an otherwise-infinite wait.
 const BUSY_WATCHDOG: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// The warning the watchdog logs when it force-clears a busy state. Matched
+/// by [`HudLayer`] so the pill leaves its working verb too: it has no
+/// watchdog of its own, and a dictation that never reports back would
+/// otherwise leave "transcribing…" on screen indefinitely.
+const WATCHDOG_CLEARED: &str = "dictation busy state cleared by watchdog";
 const WAVE_GLYPHS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 // Chip backgrounds (solid — terminals don't alpha-blend).
@@ -2847,9 +2853,14 @@ struct UiState {
     partial: String,
     /// Status line override while transcribing/formatting (batch path).
     busy: Option<&'static str>,
-    /// When the current busy state began. Drives a watchdog so a missing
-    /// terminal event can never leave the "formatting…" box on screen forever.
+    /// When the current busy state began. Drives the elapsed clock in the
+    /// WORKING badge, so it reads as "how long you have been waiting".
     busy_since: Option<Instant>,
+    /// Last sign of life from the busy state: a verb change, or an engine
+    /// heartbeat while it still holds the audio. Drives a watchdog so a
+    /// missing terminal event can never leave the "formatting…" box on screen
+    /// forever, without cutting off a slow but healthy encode.
+    busy_progress: Option<Instant>,
     /// Both mode: recording latched hands-free (quick tap) — show stop hint.
     handsfree: bool,
     /// Shimmer sweep position, advanced by the ticker (~8fps).
@@ -3158,6 +3169,7 @@ impl Ui {
             s.recording = false;
             s.busy = None;
             s.busy_since = None;
+            s.busy_progress = None;
             s.partial.clear();
             s.wave.clear();
         }
@@ -3169,6 +3181,7 @@ impl Ui {
             s.recording = true;
             s.busy = None;
             s.busy_since = None;
+            s.busy_progress = None;
             s.handsfree = false;
             s.recording_start = Some(Instant::now());
             s.partial.clear();
@@ -3198,12 +3211,13 @@ impl Ui {
                             let stuck = busy_state_is_stuck(
                                 s.recording,
                                 s.busy,
-                                s.busy_since,
+                                s.busy_progress,
                                 Instant::now(),
                             );
                             if stuck {
                                 s.busy = None;
                                 s.busy_since = None;
+                                s.busy_progress = None;
                                 s.partial.clear();
                                 s.wave.clear();
                             }
@@ -3211,9 +3225,7 @@ impl Ui {
                         })
                         .unwrap_or((false, false));
                     if watchdog_fired {
-                        tracing::warn!(
-                            "dictation busy state cleared by watchdog (no terminal event)"
-                        );
+                        tracing::warn!("{WATCHDOG_CLEARED} (no terminal event)");
                     }
                     // Always repaint once more so the final (idle) frame lands
                     // even on the iteration that decides to stop.
@@ -3233,13 +3245,25 @@ impl Ui {
             s.recording = false;
             s.handsfree = false;
             s.busy = Some(busy);
-            // Start (or keep) the watchdog clock the moment we go busy. Only
-            // the first transition arms it; later label changes
-            // (transcribing…→formatting…) keep the original deadline so a
-            // long-but-progressing dictation isn't penalized.
+            // The elapsed clock is armed once, at key release, so it reads
+            // as how long the user has been waiting. The watchdog's clock is
+            // separate and restarts on every sign of life, this verb change
+            // included.
             s.busy_since.get_or_insert_with(Instant::now);
+            s.busy_progress = Some(Instant::now());
         }
         self.render();
+    }
+
+    /// A busy state reported progress (the batch engine's per-second
+    /// heartbeat). Restarts the watchdog clock without touching the elapsed
+    /// clock the WORKING badge shows.
+    fn touch_busy(&self) {
+        if let Ok(mut s) = self.state.lock()
+            && s.busy.is_some()
+        {
+            s.busy_progress = Some(Instant::now());
+        }
     }
 
     /// Both mode: quick tap latched the recording hands-free.
@@ -3374,18 +3398,24 @@ fn is_dictation_terminal_error(msg: &str) -> bool {
 }
 
 /// Watchdog predicate: should the busy ("formatting…") state be force-cleared?
-/// True only when we are NOT recording, a busy label is set, and it has been
-/// busy for at least [`BUSY_WATCHDOG`] with no clearing event. Pure so the
-/// ticker's safety net is unit-testable without spinning a real UI.
+/// True only when we are NOT recording, a busy label is set, and nothing has
+/// reported progress for [`BUSY_WATCHDOG`]. Pure so the ticker's safety net is
+/// unit-testable without spinning a real UI.
+///
+/// `last_progress` is the last sign of life, not the start of the wait: a
+/// verb change, or a heartbeat tick from an engine that still has the audio.
+/// A CPU-only Whisper encode can hold "transcribing…" past the deadline while
+/// working perfectly, and clearing that would take away the one thing telling
+/// the user their dictation is still coming.
 fn busy_state_is_stuck(
     recording: bool,
     busy: Option<&str>,
-    busy_since: Option<Instant>,
+    last_progress: Option<Instant>,
     now: Instant,
 ) -> bool {
     !recording
         && busy.is_some()
-        && busy_since.is_some_and(|t| now.saturating_duration_since(t) >= BUSY_WATCHDOG)
+        && last_progress.is_some_and(|t| now.saturating_duration_since(t) >= BUSY_WATCHDOG)
 }
 
 /// The WORKING pill's label, with the elapsed clock the batch path earns.
@@ -3542,12 +3572,19 @@ where
             self.on_recording_started();
         } else if msg.contains("hands-free latched") {
             self.ui.on_latched();
-        } else if msg.contains("no speech detected") {
-            self.on_error("no speech detected — speak louder or lower vad_threshold in config");
+        } else if msg.contains(rekody_audio::NO_AUDIO_MARKER) {
+            // The audio crate owns this wording (one string, terminal and
+            // pill alike). The old copy here told app users to edit
+            // `vad_threshold`, a config key with no UI (#145).
+            self.on_error(msg);
         } else if msg.contains("recording stopped") {
             self.ui.stop_recording("working…");
         } else if msg.contains("received audio segment") {
             self.ui.stop_recording(BUSY_TRANSCRIBING);
+        } else if msg.contains("transcription in progress") {
+            // The engine still has the audio, so the wait is healthy however
+            // long it runs. Keeps the watchdog off a slow CPU-only encode.
+            self.ui.touch_busy();
         } else if msg.contains("partial transcript") {
             let text = visitor.fields.get("text").cloned().unwrap_or_default();
             self.ui.on_partial(&text);
@@ -3685,8 +3722,16 @@ where
             // Quick-tap latch: re-announce listening with the hands-free flag
             // so the pill swaps its hint to "tap ⌥ + space to stop".
             self.hud.send(&HudEvent::listening(true));
-        } else if msg.contains("no speech detected") {
-            self.on_error("no speech detected");
+        } else if msg.contains(rekody_audio::NO_AUDIO_MARKER) {
+            // Forward the reason verbatim: the pill used to show a bare "no
+            // speech detected" while the terminal got the actionable half.
+            self.on_error(msg);
+        } else if msg.contains(WATCHDOG_CLEARED) {
+            // The terminal's busy watchdog fired, so the pipeline owes this
+            // dictation an event it is never going to send. The console
+            // already returned to idle; the pill has no watchdog of its own
+            // and would otherwise keep a working verb on screen forever.
+            self.hud.send(&HudEvent::idle());
         } else if msg.contains("recording stopped") {
             self.hud.send(&HudEvent::working("working…"));
         } else if msg.contains("received audio segment") {
@@ -3858,7 +3903,10 @@ fedc000000000000000000000000000000000000000000000000000000000000  rekody-0.5.13-
 
 #[cfg(test)]
 mod ui_event_tests {
-    use super::{BUSY_WATCHDOG, WAVE_GLYPHS, busy_state_is_stuck, is_dictation_terminal_error};
+    use super::{
+        BUSY_TRANSCRIBING, BUSY_WATCHDOG, WAVE_GLYPHS, busy_state_is_stuck,
+        is_dictation_terminal_error,
+    };
     use std::time::Instant;
 
     // The two run-loop error emissions the live UI must treat as terminal,
@@ -3884,6 +3932,49 @@ mod ui_event_tests {
         );
     }
 
+    /// Both UI layers match one marker and print the reason the audio crate
+    /// wrote. If a reason ever stops carrying the marker, a release that
+    /// captured nothing would leave the pill on a working verb with no
+    /// answer, which is the half of #145 the user saw as a hang.
+    #[test]
+    fn every_no_audio_reason_carries_the_marker_both_ui_layers_match() {
+        for reason in [
+            rekody_audio::NO_AUDIO_TOO_SHORT,
+            rekody_audio::NO_AUDIO_SILENT_DEVICE,
+        ] {
+            assert!(
+                reason.contains(rekody_audio::NO_AUDIO_MARKER),
+                "{reason:?} must contain {:?}",
+                rekody_audio::NO_AUDIO_MARKER
+            );
+            // What the user reads, in the terminal and on the pill alike.
+            assert!(
+                !reason.contains("vad_threshold"),
+                "the reason must not send an app-only user to a config key"
+            );
+        }
+    }
+
+    /// Both UI layers dispatch on substrings in one `else if` chain, so a
+    /// message that also contains an earlier branch's marker would never
+    /// reach its own. The watchdog warning is the newest arrival; it must
+    /// not be shadowed, or the pill keeps its working verb.
+    #[test]
+    fn the_watchdog_warning_is_not_shadowed_by_an_earlier_branch() {
+        for earlier in [
+            "mic level",
+            "recording started",
+            "hands-free latched",
+            rekody_audio::NO_AUDIO_MARKER,
+        ] {
+            assert!(
+                !super::WATCHDOG_CLEARED.contains(earlier),
+                "{:?} would be swallowed by the {earlier:?} branch",
+                super::WATCHDOG_CLEARED
+            );
+        }
+    }
+
     #[test]
     fn busy_watchdog_clears_a_stuck_formatting_state() {
         let now = Instant::now();
@@ -3893,6 +3984,26 @@ mod ui_event_tests {
         assert!(
             busy_state_is_stuck(false, Some("formatting…"), Some(long_ago), now),
             "a busy state older than the watchdog must be force-cleared"
+        );
+    }
+
+    /// A CPU-only Whisper encode can hold "transcribing…" for minutes and be
+    /// perfectly healthy: it ticks a heartbeat every second while it works.
+    /// The watchdog measures time since the last tick, so it leaves that
+    /// alone and still catches a state nothing is reporting on.
+    #[test]
+    fn busy_watchdog_leaves_a_slow_but_ticking_encode_alone() {
+        let now = Instant::now();
+        let one_tick_ago = now - std::time::Duration::from_secs(1);
+        assert!(
+            !busy_state_is_stuck(false, Some(BUSY_TRANSCRIBING), Some(one_tick_ago), now),
+            "a heartbeat inside the window means the engine is still working"
+        );
+
+        let silent_since = now - (BUSY_WATCHDOG + std::time::Duration::from_secs(1));
+        assert!(
+            busy_state_is_stuck(false, Some(BUSY_TRANSCRIBING), Some(silent_since), now),
+            "no heartbeat for the whole window is a stuck dictation"
         );
     }
 

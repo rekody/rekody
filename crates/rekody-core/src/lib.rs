@@ -813,6 +813,30 @@ fn emit_mic_level(samples: &[f32]) {
     tracing::debug!(rms, "mic level");
 }
 
+/// Whether a transcript holds anything a person meant to type.
+///
+/// Batch engines answer a recording with no speech in it in two ways, both
+/// measured against local Whisper on the audio a release now sends (issue
+/// #145): punctuation on its own ("." for three seconds of room tone), and
+/// a bracketed non-speech marker ("[BLANK_AUDIO]", "(silence)"). Neither is
+/// dictation, and both used to be impossible to reach because the recording
+/// was thrown away before the engine saw it.
+///
+/// Deliberately narrow. Any transcript with a letter or a digit in it, that
+/// is not wholly wrapped in brackets, is the user's text. The tradeoff is a
+/// dictation that is itself one bracketed phrase and nothing else, which
+/// `suppress_non_speech_tokens` makes vanishingly rare and which no longer
+/// reads as dictation once the brackets are the whole utterance.
+fn transcript_has_words(text: &str) -> bool {
+    let trimmed = text.trim();
+    if !trimmed.chars().any(char::is_alphanumeric) {
+        return false;
+    }
+    let bracketed = (trimmed.starts_with('[') && trimmed.ends_with(']'))
+        || (trimmed.starts_with('(') && trimmed.ends_with(')'));
+    !bracketed
+}
+
 impl Pipeline {
     pub fn new(config: RekodyConfig) -> Result<Self> {
         let provider_chain = build_provider_chain(&config);
@@ -1389,7 +1413,10 @@ impl Pipeline {
                             let duration_ms = utterance_sample_count * 1000
                                 / u64::from(rekody_audio::TARGET_SAMPLE_RATE);
                             if text.is_empty() {
-                                tracing::debug!("empty transcript, skipping injection");
+                                // info, not debug: this is the event that
+                                // returns the pill to idle, so it must
+                                // survive a narrower RUST_LOG.
+                                tracing::info!("empty transcript, skipping injection");
                             } else {
                                 let app_at_start =
                                     resolve_app_probe(&mut app_probe, &mut app_cache).await;
@@ -1478,8 +1505,17 @@ impl Pipeline {
         heartbeat.abort();
         let transcript = transcribed?;
 
-        if transcript.text.is_empty() {
-            tracing::debug!("empty transcript, skipping injection");
+        // Nothing worth typing. `is_empty` alone is not enough now that a
+        // release sends the recording whatever its level: asked to decode
+        // three seconds of a muted room, local Whisper answers "." (issue
+        // #145's probe), and injecting a stray full stop into someone's
+        // document is worse than injecting nothing. info, not debug: this is
+        // the event that returns the pill to idle.
+        if !transcript_has_words(&transcript.text) {
+            tracing::info!(
+                text = %transcript.text,
+                "empty transcript, skipping injection"
+            );
             return Ok(());
         }
 
@@ -1732,6 +1768,52 @@ fn finalize_dictation_text(
     let corrected = dictionary::correct_text(text, dict);
     let normalized = numbers::normalize(&corrected);
     snippets::expand_triggers(&normalized, snippet_store)
+}
+
+#[cfg(test)]
+mod transcript_words_tests {
+    //! What counts as a transcript worth injecting. The non-speech answers
+    //! below are what local Whisper (large-v3-turbo) actually returned for
+    //! the audio a push-to-talk release now sends when nobody spoke.
+
+    use crate::transcript_has_words;
+
+    #[test]
+    fn non_speech_answers_are_not_dictation() {
+        for junk in [
+            "",
+            "   ",
+            ".",   // 3s and 8s of room tone, measured
+            " . ", //
+            "...", //
+            "?",   //
+            "[BLANK_AUDIO]",
+            "(silence)",
+            "[ Silence ]",
+        ] {
+            assert!(
+                !transcript_has_words(junk),
+                "{junk:?} should not be injected"
+            );
+        }
+    }
+
+    #[test]
+    fn real_dictation_is_never_swallowed() {
+        for text in [
+            "And so, my fellow Americans, ask not what your country can do for you.",
+            "ok",
+            "5",
+            "no.",
+            "Thank you.", // a real sentence: only silent audio must be stopped, and it is
+            "See the note [1] for details.",
+            "Ship it (finally).",
+            "¿Cómo estás?",
+            "了解",
+        ] {
+            assert!(transcript_has_words(text), "{text:?} must be injected");
+        }
+    }
 }
 
 #[cfg(test)]

@@ -24,8 +24,8 @@ Changes take effect the next time `rekody` starts.
 | `whisper_model` | `"tiny"`, `"small"`, `"medium"`, `"turbo"`, `"large"` | `"turbo"` on Apple Silicon, `"small"` otherwise | Local Whisper model size. Only used when `stt_engine = "local"`. Turbo is fast only where the encoder runs on the Neural Engine; see [engines](/developers/engines). |
 | `stt_language` | BCP-47 code, e.g. `"en"` | unset (auto-detect) | Transcription language hint. Setting it slightly improves accuracy and speed when the language is known in advance. |
 | `injection_method` | `"clipboard"`, `"native"` | `"clipboard"` | How text is inserted: clipboard paste works everywhere; native sends keystrokes via CGEvent. |
-| `vad_threshold` | float, roughly `0.005` to `0.05` | `0.01` | RMS energy gate for voice activity detection. Lower is more sensitive. |
-| `record_all_audio` | `true`, `false` | `false` | Bypass VAD and capture every frame from press to release. Useful for low-energy input. |
+| `vad_threshold` | float, roughly `0.005` to `0.05` | `0.01` | RMS energy gate voice activity detection uses to split a continuously open microphone into utterances. It does not gate push-to-talk: a hold captures every frame and the whole recording goes to the engine at whatever level it came in. |
+| `record_all_audio` | `true`, `false` | `false` | Capture every frame even outside a recording window. A held key already captures everything, so this only affects an open microphone with no key held. |
 | `input_device` | device name, or an array of names | unset (system default) | Microphone to capture from, matched by case-insensitive substring. A single name pins that device; an array is an ordered fallback chain. See [Input device](#input-device). |
 | `max_recording_secs` | integer seconds, `0` = unlimited | `600` | Deadman switch: the longest a single recording can run. |
 | `llm_enabled` | `true`, `false`, or omit | omitted (auto) | LLM post-processing. Auto means on for every engine except Deepgram, whose `smart_format` already produces clean output. It stays on for `gemini`, which defaults to verbatim transcripts that still carry filler. |
